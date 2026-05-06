@@ -170,7 +170,8 @@ let S = loadState() || {
     budgetPeriod:'DAILY',
     budget:'',
     bidStrategy:'LOWEST_COST_WITHOUT_CAP',
-    status:'PAUSED'
+    status:'PAUSED',
+    shareAdsetBudget:false
   },
   adsets:[],
   ads:[]
@@ -456,10 +457,9 @@ async function run(){
       }
       // bid_strategy sempre explícito na campanha CBO
       campBody.bid_strategy = c.bidStrategy || 'LOWEST_COST_WITHOUT_CAP';
-      campBody.is_adset_budget_sharing_enabled = true;
     } else {
-      // ABO: declarar explicitamente que NÃO usa orçamento compartilhado (Meta API exige)
-      campBody.is_adset_budget_sharing_enabled = false;
+      // ABO: Meta API exige declarar se conjuntos compartilham orçamento (checkbox da UI)
+      campBody.is_adset_budget_sharing_enabled = !!c.shareAdsetBudget;
     }
     log('[Campaign body] '+JSON.stringify(campBody),'i');
     const campR = await api(`/${acct}/campaigns`,'POST',campBody);
@@ -869,7 +869,15 @@ function buildCamp(){
       </div>
       <label>Orçamento ${c.budgetPeriod==='LIFETIME'?'Vitalício':'Diário'} (R$)</label>
       <input type="number" min="1" value="${esc(c.budget)}" oninput="S.camp.budget=this.value;saveState()" placeholder="Ex: 100">
-    </div>`:'<div></div>'}
+    </div>`:`
+    <div class="fg">
+      <label>Compartilhamento de Orçamento</label>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;color:#1c1e21;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px">
+        <input type="checkbox" style="width:auto;margin-top:2px" ${c.shareAdsetBudget?'checked':''}
+          onchange="S.camp.shareAdsetBudget=this.checked;saveState()">
+        <span>Compartilhar parte do orçamento entre conjuntos<br><span style="font-size:11px;color:#888">Permite compartilhar até 20% do orçamento entre conjuntos para otimizar desempenho</span></span>
+      </label>
+    </div>`}
   </div>
   <div class="row">
     <div class="fg">
