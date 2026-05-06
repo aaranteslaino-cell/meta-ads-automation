@@ -738,6 +738,37 @@ function addAdHeadline(id){ const a=S.ads.find(a=>a.id===id); if(a&&a.headlines.
 function removeAdHeadline(id,i){ const a=S.ads.find(a=>a.id===id); if(a&&a.headlines.length>1){a.headlines.splice(i,1);saveState();render();}}
 function setAdHeadline(id,i,v){ const a=S.ads.find(a=>a.id===id); if(a){a.headlines[i]=v;saveState();}}
 
+// ── Biblioteca de textos/títulos (persistente, separada do estado da campanha) ──
+function loadLib(){
+  try{ return JSON.parse(localStorage.getItem('maa_library')) || {texts:[], headlines:[]}; }
+  catch(e){ return {texts:[], headlines:[]}; }
+}
+function saveLib(lib){ try{ localStorage.setItem('maa_library', JSON.stringify(lib)); }catch(e){} }
+function libAdd(kind, val){
+  val = (val||'').trim(); if(!val) return;
+  const lib = loadLib();
+  if(!lib[kind].includes(val)){ lib[kind].unshift(val); lib[kind] = lib[kind].slice(0,50); saveLib(lib); }
+}
+function libRemove(kind, val){
+  const lib = loadLib();
+  lib[kind] = lib[kind].filter(x=>x!==val);
+  saveLib(lib); render();
+}
+function saveAdText(id,i){
+  const a=S.ads.find(a=>a.id===id); if(!a) return;
+  libAdd('texts', a.texts[i]); render();
+}
+function saveAdHeadline(id,i){
+  const a=S.ads.find(a=>a.id===id); if(!a) return;
+  libAdd('headlines', a.headlines[i]); render();
+}
+function pickFromLib(id, kind, idx, val){
+  const a=S.ads.find(a=>a.id===id); if(!a||!val) return;
+  if(kind==='texts'){ a.texts[idx] = val; }
+  else { a.headlines[idx] = val; }
+  saveState(); render();
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 function render(){
   $('root').innerHTML = S.connected ? buildMain() : buildLogin();
@@ -1126,9 +1157,19 @@ function buildAdBox(ad){
     <div class="fg">
       <label>Texto Principal <span style="font-weight:400;color:#999">— até 5 variações</span></label>
       ${(ad.texts||['']).map((t,i)=>`
-        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:flex-start">
-          <textarea style="flex:1;min-height:64px" oninput="setAdText(${ad.id},${i},this.value)" placeholder="Texto ${i+1}…">${esc(t)}</textarea>
-          ${(ad.texts||['']).length>1?`<button class="btn btn-gray btn-sm" style="margin-top:2px" onclick="removeAdText(${ad.id},${i})">×</button>`:''}
+        <div style="margin-bottom:8px">
+          <div style="display:flex;gap:6px;align-items:flex-start">
+            <textarea style="flex:1;min-height:64px" oninput="setAdText(${ad.id},${i},this.value)" placeholder="Texto ${i+1}…">${esc(t)}</textarea>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <button class="btn btn-gray btn-sm" title="Salvar este texto na biblioteca" onclick="saveAdText(${ad.id},${i})">💾</button>
+              ${(ad.texts||['']).length>1?`<button class="btn btn-gray btn-sm" onclick="removeAdText(${ad.id},${i})">×</button>`:''}
+            </div>
+          </div>
+          ${loadLib().texts.length?`
+          <select style="margin-top:4px;font-size:12px;padding:5px 8px" onchange="if(this.value)pickFromLib(${ad.id},'texts',${i},this.value);this.selectedIndex=0">
+            <option value="">📚 Usar texto salvo… (${loadLib().texts.length})</option>
+            ${loadLib().texts.map(x=>`<option value="${esc(x)}">${esc(x.length>80?x.slice(0,80)+'…':x)}</option>`).join('')}
+          </select>`:''}
         </div>`).join('')}
       ${(ad.texts||['']).length<5?`<button class="btn btn-gray btn-sm" onclick="addAdText(${ad.id})">+ Variação de texto</button>`:''}
     </div>
@@ -1136,9 +1177,17 @@ function buildAdBox(ad){
     <div class="fg" style="margin-top:10px">
       <label>Título <span style="font-weight:400;color:#999">— até 5 variações</span></label>
       ${(ad.headlines||['']).map((h,i)=>`
-        <div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
-          <input style="flex:1" value="${esc(h)}" oninput="setAdHeadline(${ad.id},${i},this.value)" placeholder="Título ${i+1}">
-          ${(ad.headlines||['']).length>1?`<button class="btn btn-gray btn-sm" onclick="removeAdHeadline(${ad.id},${i})">×</button>`:''}
+        <div style="margin-bottom:8px">
+          <div style="display:flex;gap:6px;align-items:center">
+            <input style="flex:1" value="${esc(h)}" oninput="setAdHeadline(${ad.id},${i},this.value)" placeholder="Título ${i+1}">
+            <button class="btn btn-gray btn-sm" title="Salvar este título na biblioteca" onclick="saveAdHeadline(${ad.id},${i})">💾</button>
+            ${(ad.headlines||['']).length>1?`<button class="btn btn-gray btn-sm" onclick="removeAdHeadline(${ad.id},${i})">×</button>`:''}
+          </div>
+          ${loadLib().headlines.length?`
+          <select style="margin-top:4px;font-size:12px;padding:5px 8px" onchange="if(this.value)pickFromLib(${ad.id},'headlines',${i},this.value);this.selectedIndex=0">
+            <option value="">📚 Usar título salvo… (${loadLib().headlines.length})</option>
+            ${loadLib().headlines.map(x=>`<option value="${esc(x)}">${esc(x.length>80?x.slice(0,80)+'…':x)}</option>`).join('')}
+          </select>`:''}
         </div>`).join('')}
       ${(ad.headlines||['']).length<5?`<button class="btn btn-gray btn-sm" onclick="addAdHeadline(${ad.id})">+ Variação de título</button>`:''}
     </div>
