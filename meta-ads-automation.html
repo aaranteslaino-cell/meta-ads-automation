@@ -515,14 +515,14 @@ async function run(){
           if(pageId) adsetBody.promoted_object = { page_id: pageId };
         }
 
+        // bid_strategy sempre explícito no adset — evita exigência de bid_amount em alguns accounts
+        adsetBody.bid_strategy = c.bidStrategy || 'LOWEST_COST_WITHOUT_CAP';
+
         if(c.budgetType==='ABO' && adset.budget){
           if(c.budgetPeriod==='LIFETIME'){
             adsetBody.lifetime_budget = Math.round(parseFloat(adset.budget)*100);
           } else {
             adsetBody.daily_budget = Math.round(parseFloat(adset.budget)*100);
-          }
-          if(c.bidStrategy && c.bidStrategy !== 'LOWEST_COST_WITHOUT_CAP'){
-            adsetBody.bid_strategy = c.bidStrategy;
           }
         }
         if(c.budgetType==='CBO' && adset.spendingLimit && parseFloat(adset.spendingLimit)>0){
