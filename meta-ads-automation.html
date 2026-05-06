@@ -498,10 +498,13 @@ async function run(){
             pixel_id: adset.pixelId.trim(),
             custom_event_type: adset.conversionEvent || 'PURCHASE'
           };
-          adsetBody.attribution_spec = [
-            {event_type:'CLICK_THROUGH', window_days:7},
-            {event_type:'VIEW_THROUGH',  window_days:1}
-          ];
+          // attribution_spec só enviada quando configurada — algumas contas rejeitam com bid obrigatório
+          if(adset.attributionClick || adset.attributionView){
+            const spec = [];
+            if(adset.attributionClick) spec.push({event_type:'CLICK_THROUGH', window_days:parseInt(adset.attributionClick)});
+            if(adset.attributionView)  spec.push({event_type:'VIEW_THROUGH',  window_days:parseInt(adset.attributionView)});
+            adsetBody.attribution_spec = spec;
+          }
         } else if(isLeadGenForm){
           // Instant Forms: promoted_object usa page_id (da página do anúncio)
           const pageId = S.ads[0]?.pageId?.trim();
@@ -649,7 +652,7 @@ async function run(){
 function addAdset(){
   S.adsets.push({
     id:uid(), name:'', pixelId:'', conversionEvent:'PURCHASE',
-    optimizationGoal:'', bidAmount:'',
+    optimizationGoal:'', bidAmount:'', attributionClick:'', attributionView:'',
     country:'BR', ageMin:'18', ageMax:'65', gender:'all',
     customAudiences:'', excludedAudiences:'',
     placementType:'auto',
@@ -951,12 +954,31 @@ function buildAdsetBox(a){
     </div>
     <div class="row">
       <div class="fg">
-        <label>Data de Início</label>
+        <label>Data de Início <span style="font-weight:400;color:#999">— opcional</span></label>
         <input type="datetime-local" value="${esc(a.startDate||'')}" oninput="setAdset(${a.id},'startDate',this.value)">
       </div>
       <div class="fg">
-        <label>Data de Término (opcional)</label>
+        <label>Data de Término <span style="font-weight:400;color:#999">— opcional</span></label>
         <input type="datetime-local" value="${esc(a.endDate||'')}" oninput="setAdset(${a.id},'endDate',this.value)">
+      </div>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Janela de Atribuição — Clique <span style="font-weight:400;color:#999">— opcional</span></label>
+        <select onchange="setAdset(${a.id},'attributionClick',this.value)">
+          <option value="" ${!a.attributionClick?'selected':''}>Padrão da conta</option>
+          <option value="1"  ${a.attributionClick==='1'?'selected':''}>1 dia</option>
+          <option value="7"  ${a.attributionClick==='7'?'selected':''}>7 dias</option>
+          <option value="28" ${a.attributionClick==='28'?'selected':''}>28 dias</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>Janela de Atribuição — Visualização <span style="font-weight:400;color:#999">— opcional</span></label>
+        <select onchange="setAdset(${a.id},'attributionView',this.value)">
+          <option value="" ${!a.attributionView?'selected':''}>Padrão da conta</option>
+          <option value="1" ${a.attributionView==='1'?'selected':''}>1 dia</option>
+          <option value="7" ${a.attributionView==='7'?'selected':''}>7 dias</option>
+        </select>
       </div>
     </div>
     <div class="fg">
