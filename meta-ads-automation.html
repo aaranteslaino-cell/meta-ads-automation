@@ -456,6 +456,10 @@ async function run(){
       }
       // bid_strategy sempre explícito na campanha CBO
       campBody.bid_strategy = c.bidStrategy || 'LOWEST_COST_WITHOUT_CAP';
+      campBody.is_adset_budget_sharing_enabled = true;
+    } else {
+      // ABO: declarar explicitamente que NÃO usa orçamento compartilhado (Meta API exige)
+      campBody.is_adset_budget_sharing_enabled = false;
     }
     log('[Campaign body] '+JSON.stringify(campBody),'i');
     const campR = await api(`/${acct}/campaigns`,'POST',campBody);
