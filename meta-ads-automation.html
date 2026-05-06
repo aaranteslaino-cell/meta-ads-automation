@@ -1,0 +1,1203 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta Ads Automation</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1c1e21;min-height:100vh}
+.wrap{max-width:940px;margin:0 auto;padding:20px}
+.card{background:#fff;border-radius:12px;padding:24px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.1)}
+h1{color:#1877f2;font-size:22px;margin-bottom:2px}
+h2{font-size:17px;margin-bottom:16px}
+h3{font-size:14px;margin-bottom:12px;color:#444}
+.tabs{display:flex;gap:4px;background:#f0f2f5;padding:4px;border-radius:10px;margin-bottom:20px}
+.tab{flex:1;padding:9px 6px;border:none;background:transparent;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:#65676b;transition:all .15s}
+.tab.active{background:#fff;color:#1877f2;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.fg{margin-bottom:14px}
+label{display:block;font-size:12px;font-weight:700;color:#65676b;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+input,select,textarea{width:100%;padding:9px 11px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;transition:border-color .15s;background:#fff}
+input:focus,select:focus,textarea:focus{outline:none;border-color:#1877f2}
+input:disabled,select:disabled{background:#f5f5f5;color:#aaa}
+textarea{resize:vertical;min-height:72px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.btn{padding:9px 18px;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;transition:all .15s}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-blue{background:#1877f2;color:#fff}.btn-blue:not(:disabled):hover{background:#1465d8}
+.btn-green{background:#42b72a;color:#fff}.btn-green:not(:disabled):hover{background:#36a420}
+.btn-red{background:#fa3e3e;color:#fff}.btn-red:not(:disabled):hover{background:#d32f2f}
+.btn-gray{background:#e4e6eb;color:#1c1e21}.btn-gray:not(:disabled):hover{background:#d0d2d8}
+.btn-sm{padding:5px 11px;font-size:12px}
+.btn-full{width:100%;padding:13px;font-size:15px}
+.box{border:1.5px solid #e4e6eb;border-radius:10px;padding:16px;margin-bottom:14px}
+.box-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:700}
+.b-blue{background:#e7f0fd;color:#1877f2}
+.b-green{background:#e6f4ea;color:#137333}
+.b-orange{background:#fef3e2;color:#c47a00}
+.b-red{background:#fce8e6;color:#c5221f}
+.log-wrap{background:#111;border-radius:8px;padding:14px;font-family:monospace;font-size:12.5px;max-height:340px;overflow-y:auto}
+.lg{margin-bottom:3px}.lg.s{color:#4caf50}.lg.e{color:#f44336}.lg.i{color:#90caf9}.lg.w{color:#ffb74d}
+.rv{display:flex;justify-content:space-between;padding:9px 0;border-bottom:1px solid #f0f2f5;font-size:14px}
+.rv-lbl{color:#65676b}.rv-val{font-weight:500}
+.err-box{background:#fce8e6;border-radius:8px;padding:11px 14px;margin-bottom:14px}
+.err-box li{color:#c5221f;font-size:13px;margin-left:16px;margin-bottom:3px}
+.info-box{background:#e7f0fd;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#1877f2}
+.warn-box{background:#fef3e2;border-radius:8px;padding:11px 14px;margin-bottom:14px;font-size:13px;color:#c47a00}
+.pl-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.pl-item{display:flex;align-items:center;gap:7px;font-size:13px;cursor:pointer}
+.pl-section{margin-bottom:10px}
+.pl-title{font-size:11px;font-weight:700;color:#888;text-transform:uppercase;margin-bottom:5px}
+.connected{display:flex;align-items:center;gap:6px;font-size:13px;color:#42b72a;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:#42b72a}
+hr{border:none;border-top:1px solid #e4e6eb;margin:14px 0}
+.hint{font-size:11px;color:#999;margin-top:4px}
+.file-chosen{font-size:12px;color:#42b72a;margin-top:4px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Meta Ads Automation</h1>
+    <p style="color:#888;font-size:13px">Criação automatizada de campanhas via Marketing API</p>
+  </div>
+  <div id="root"></div>
+</div>
+
+<script>
+// ── Constantes ────────────────────────────────────────────────────────────────
+const GQL = 'https://graph.facebook.com/v21.0';
+
+const OBJECTIVES = [
+  {v:'OUTCOME_SALES',l:'Vendas'},
+  {v:'OUTCOME_LEADS',l:'Leads'},
+  {v:'OUTCOME_TRAFFIC',l:'Tráfego'},
+  {v:'OUTCOME_ENGAGEMENT',l:'Engajamento'},
+  {v:'OUTCOME_AWARENESS',l:'Reconhecimento de marca'},
+  {v:'OUTCOME_APP_PROMOTION',l:'Promoção de App'}
+];
+
+const OPT_GOAL = {
+  OUTCOME_SALES:'OFFSITE_CONVERSIONS',
+  OUTCOME_LEADS:'OFFSITE_CONVERSIONS',   // pixel; use LEAD_GENERATION para Instant Forms
+  OUTCOME_TRAFFIC:'LINK_CLICKS',
+  OUTCOME_ENGAGEMENT:'POST_ENGAGEMENT',
+  OUTCOME_AWARENESS:'REACH',
+  OUTCOME_APP_PROMOTION:'APP_INSTALLS'
+};
+
+function getDestinationType(objective){
+  const map = {OUTCOME_SALES:'WEBSITE',OUTCOME_LEADS:'WEBSITE',OUTCOME_TRAFFIC:'WEBSITE',OUTCOME_APP_PROMOTION:'APP'};
+  return map[objective] || null;
+}
+
+const EVENTS = ['PURCHASE','INITIATE_CHECKOUT','ADD_TO_CART','VIEW_CONTENT',
+  'LEAD','COMPLETE_REGISTRATION','SUBSCRIBE','CONTACT','FIND_LOCATION'];
+
+const CTAS = ['LEARN_MORE','SHOP_NOW','SIGN_UP','GET_OFFER','BOOK_TRAVEL',
+  'DOWNLOAD','WATCH_MORE','APPLY_NOW','CONTACT_US','GET_QUOTE',
+  'SUBSCRIBE','CALL_NOW','ORDER_NOW','BUY_NOW','SEE_MORE','MESSAGE_PAGE'];
+
+const PLACEMENTS = {
+  'Facebook':[
+    {id:'fb_feed',l:'Feed'},
+    {id:'fb_reels',l:'Reels'},
+    {id:'fb_stories',l:'Stories'},
+    {id:'fb_right_column',l:'Coluna direita'},
+    {id:'fb_marketplace',l:'Marketplace'},
+    {id:'fb_video_feeds',l:'Video Feeds'},
+    {id:'fb_search',l:'Pesquisa'},
+    {id:'fb_instream',l:'In-stream'}
+  ],
+  'Instagram':[
+    {id:'ig_feed',l:'Feed'},
+    {id:'ig_stories',l:'Stories'},
+    {id:'ig_reels',l:'Reels'},
+    {id:'ig_explore',l:'Explorar'},
+    {id:'ig_shop',l:'Loja'},
+    {id:'ig_profile',l:'Perfil'}
+  ],
+  'Messenger':[
+    {id:'msg_inbox',l:'Caixa de entrada'},
+    {id:'msg_stories',l:'Stories'}
+  ],
+  'Audience Network':[
+    {id:'an_native',l:'Nativo/Banner'},
+    {id:'an_rewarded',l:'Recompensado'}
+  ]
+};
+
+const PL_MAP = {
+  fb_feed:['facebook','feed'],
+  fb_reels:['facebook','facebook_reels'],
+  fb_stories:['facebook','story'],
+  fb_right_column:['facebook','right_hand_column'],
+  fb_marketplace:['facebook','marketplace'],
+  fb_video_feeds:['facebook','video_feeds'],
+  fb_search:['facebook','search'],
+  fb_instream:['facebook','instream_video'],
+  ig_feed:['instagram','stream'],
+  ig_stories:['instagram','story'],
+  ig_reels:['instagram','reels'],
+  ig_explore:['instagram','explore'],
+  ig_shop:['instagram','explore_home'],
+  ig_profile:['instagram','profile_feed'],
+  msg_inbox:['messenger','messenger_home'],
+  msg_stories:['messenger','story'],
+  an_native:['audience_network','classic'],
+  an_rewarded:['audience_network','rewarded_video']
+};
+
+// ── Estado ────────────────────────────────────────────────────────────────────
+let S = loadState() || {
+  token:'',
+  connected:false,
+  accounts:[],
+  selectedAccount:'',
+  pixels:[],
+  pages:[],
+  catalogs:[],
+  igCache:{},
+  tab:'campaign',
+  log:[],
+  running:false,
+  camp:{
+    name:'',
+    objective:'OUTCOME_SALES',
+    budgetType:'CBO',
+    budget:'',
+    bidStrategy:'LOWEST_COST_WITHOUT_CAP',
+    status:'PAUSED'
+  },
+  adsets:[],
+  ads:[]
+};
+// Nunca restaurar estado "conectado" – força nova autenticação
+S.connected = false;
+S.running = false;
+
+function loadState(){
+  try{ return JSON.parse(localStorage.getItem('maa_state')); }catch(e){ return null; }
+}
+function saveState(){
+  try{
+    const save = {...S};
+    // Não salvar os objetos File (não serializáveis)
+    save.ads = S.ads.map(a=>({...a, imageFile:null, videoFile:null}));
+    save.log = [];
+    localStorage.setItem('maa_state', JSON.stringify(save));
+  }catch(e){}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const https = url => { url=(url||'').trim(); return url&&!url.startsWith('http')?'https://'+url:url; };
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+let _uid = Date.now();
+const uid = () => ++_uid;
+
+function log(msg, type='i'){
+  S.log.push({msg, type, t: new Date().toLocaleTimeString('pt-BR')});
+  const box = $('logbox');
+  if(box){
+    const d = document.createElement('div');
+    d.className = 'lg '+type;
+    d.textContent = `[${S.log[S.log.length-1].t}] ${msg}`;
+    box.appendChild(d);
+    box.scrollTop = box.scrollHeight;
+  }
+}
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(path, method='GET', data=null, tok=null){
+  const t = tok || S.token;
+  let url = path.startsWith('http') ? path : GQL+path;
+  const opts = {method, headers:{}};
+
+  if(method==='GET'){
+    const sep = url.includes('?')?'&':'?';
+    url += sep+'access_token='+encodeURIComponent(t);
+    if(data) Object.entries(data).forEach(([k,v])=>{
+      url += '&'+encodeURIComponent(k)+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v);
+    });
+  } else {
+    opts.headers['Content-Type'] = 'application/json';
+    opts.body = JSON.stringify({...(data||{}), access_token:t});
+  }
+
+  const res = await fetch(url, opts);
+  const json = await res.json();
+  if(json.error){
+    const e = json.error;
+    const sub = e.error_subcode ? '/'+e.error_subcode : '';
+    const detail = e.error_user_msg && e.error_user_msg !== e.message ? ' → '+e.error_user_msg : '';
+    throw new Error(`(${e.code}${sub}) ${e.message}${detail}`);
+  }
+  return json;
+}
+
+async function apiForm(path, fd){
+  const res = await fetch(GQL+path, {method:'POST', body:fd});
+  const json = await res.json();
+  if(json.error) throw new Error(`(${json.error.code}) ${json.error.message}`);
+  return json;
+}
+
+// ── Conectar ──────────────────────────────────────────────────────────────────
+async function connect(){
+  const inp = $('tok');
+  S.token = inp ? inp.value.trim() : S.token;
+  if(!S.token) return;
+
+  const btn = $('btn-connect');
+  if(btn){ btn.disabled=true; btn.textContent='Conectando...'; }
+
+  try {
+    // Contas
+    const r1 = await api('/me/adaccounts','GET',{fields:'id,name,account_id',limit:200});
+    S.accounts = r1.data || [];
+
+    // Páginas (com access_token para uso posterior)
+    try {
+      const r2 = await api('/me/accounts','GET',{fields:'id,name,access_token',limit:200});
+      S.pages = r2.data || [];
+    } catch(e){ S.pages=[]; }
+
+    S.selectedAccount = S.accounts[0]?.id || '';
+    if(S.selectedAccount) await loadAccountAssets(S.selectedAccount);
+
+    S.connected = true;
+    log(`Conectado! ${S.accounts.length} conta(s) encontrada(s).`,'s');
+    S.tab = 'campaign';
+    saveState();
+    render();
+  } catch(e){
+    log('Erro: '+e.message,'e');
+    if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
+    alert('Erro ao conectar:\n'+e.message);
+  }
+}
+
+async function loadAccountAssets(accountId){
+  try {
+    const r = await api(`/${accountId}/adspixels`,'GET',{fields:'id,name',limit:200});
+    S.pixels = r.data || [];
+  } catch(e){ S.pixels=[]; }
+  try {
+    const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name',limit:200});
+    S.catalogs = r.data || [];
+  } catch(e){ S.catalogs=[]; }
+}
+
+// ── Resolver instagram_user_id ───────────────────────────────────────────────
+async function resolveIg(pageId){
+  if(!pageId) return null;
+  if(S.igCache[pageId]) return S.igCache[pageId];
+
+  // Tentativa 1: instagram_business_account
+  try {
+    const r = await api(`/${pageId}`,'GET',{fields:'instagram_business_account'});
+    if(r.instagram_business_account?.id){
+      S.igCache[pageId] = r.instagram_business_account.id;
+      log(`[IG] Página ${pageId} → conta vinculada: ${r.instagram_business_account.id}`,'i');
+      return r.instagram_business_account.id;
+    }
+  } catch(e){}
+
+  // Tentativa 2: page_backed_instagram_accounts via page token
+  const pageTok = S.pages.find(p=>p.id===pageId)?.access_token;
+  if(pageTok){
+    try {
+      const r = await api(`/${pageId}/page_backed_instagram_accounts`,'GET',{fields:'id'},pageTok);
+      if(r.data?.[0]?.id){
+        S.igCache[pageId] = r.data[0].id;
+        log(`[IG] Página ${pageId} → page-backed: ${r.data[0].id}`,'i');
+        return r.data[0].id;
+      }
+      // Criar conta page-backed
+      const cr = await api(`/${pageId}/page_backed_instagram_accounts`,'POST',{},pageTok);
+      if(cr.id){
+        S.igCache[pageId] = cr.id;
+        log(`[IG] Conta page-backed criada para ${pageId}: ${cr.id}`,'s');
+        return cr.id;
+      }
+    } catch(e){ log(`[IG] page-backed falhou: ${e.message}`,'w'); }
+  }
+
+  log(`[IG] Nenhuma conta IG encontrada para página ${pageId} — criativo sem instagram_user_id`,'w');
+  return null;
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+async function uploadImage(file, accountId){
+  log(`Upload de imagem: ${file.name}…`,'i');
+  const fd = new FormData();
+  fd.append('access_token', S.token);
+  fd.append('filename', file, file.name);
+  const r = await apiForm(`/${accountId}/adimages`, fd);
+  const key = Object.keys(r.images)[0];
+  log(`Imagem enviada. Hash: ${r.images[key].hash}`,'s');
+  return r.images[key].hash;
+}
+
+async function uploadVideo(file, accountId){
+  log(`Upload de vídeo: ${file.name}…`,'i');
+  const fd = new FormData();
+  fd.append('access_token', S.token);
+  fd.append('source', file, file.name);
+  fd.append('title', file.name);
+  const r = await apiForm(`/${accountId}/advideos`, fd);
+  log(`Vídeo enviado. ID: ${r.id}`,'s');
+  return r.id;
+}
+
+// ── Posicionamentos ───────────────────────────────────────────────────────────
+function buildTargeting(adset){
+  const targeting = {
+    geo_locations:{ countries: [(adset.country||'BR').toUpperCase()] },
+    age_min: parseInt(adset.ageMin)||18,
+    age_max: parseInt(adset.ageMax)||65
+  };
+
+  if(adset.gender && adset.gender!=='all')
+    targeting.genders = [adset.gender==='male'?1:2];
+
+  const ca = (adset.customAudiences||'').split(',').map(s=>s.trim()).filter(s=>s.length>4);
+  const ea = (adset.excludedAudiences||'').split(',').map(s=>s.trim()).filter(s=>s.length>4);
+  if(ca.length) targeting.custom_audiences = ca.map(id=>({id}));
+  if(ea.length) targeting.excluded_custom_audiences = ea.map(id=>({id}));
+
+  if(adset.placementType==='manual'){
+    const sel = adset.placements || [];
+    if(sel.length){
+      const plats = new Set(), fb=[], ig=[], ms=[], an=[];
+      sel.forEach(p=>{
+        const m = PL_MAP[p]; if(!m) return;
+        plats.add(m[0]);
+        if(m[0]==='facebook') fb.push(m[1]);
+        if(m[0]==='instagram') ig.push(m[1]);
+        if(m[0]==='messenger') ms.push(m[1]);
+        if(m[0]==='audience_network') an.push(m[1]);
+      });
+      targeting.publisher_platforms = [...plats];
+      if(fb.length) targeting.facebook_positions = fb;
+      if(ig.length) targeting.instagram_positions = ig;
+      if(ms.length) targeting.messenger_positions = ms;
+      if(an.length) targeting.audience_network_positions = an;
+    }
+  }
+  return targeting;
+}
+
+// ── Validar ───────────────────────────────────────────────────────────────────
+function validate(){
+  const errs = [];
+  const c = S.camp;
+  if(!c.name.trim()) errs.push('Nome da campanha é obrigatório');
+  if(c.budgetType==='CBO' && (!c.budget || isNaN(parseFloat(c.budget)) || parseFloat(c.budget)<=0)) errs.push('Orçamento da campanha inválido');
+  if(c.budgetType==='ABO') S.adsets.forEach((a,i)=>{ if(!a.budget || isNaN(parseFloat(a.budget)) || parseFloat(a.budget)<=0) errs.push(`Conjunto ${i+1}: orçamento obrigatório para ABO`); });
+  if(!S.selectedAccount) errs.push('Selecione uma conta de anúncio');
+  if(!S.adsets.length) errs.push('Adicione pelo menos um conjunto');
+  if(!S.ads.length) errs.push('Adicione pelo menos um anúncio');
+
+  S.adsets.forEach((a,i)=>{
+    const n=i+1;
+    if(!a.name?.trim()) errs.push(`Conjunto ${n}: nome obrigatório`);
+    if(['OUTCOME_SALES','OUTCOME_LEADS'].includes(c.objective) && !a.pixelId?.trim()) errs.push(`Conjunto ${n}: Pixel ID obrigatório para ${c.objective}`);
+  });
+
+  S.ads.forEach((a,i)=>{
+    const n=i+1;
+    if(!a.name?.trim()) errs.push(`Anúncio ${n}: nome obrigatório`);
+    if(!a.pageId?.trim()) errs.push(`Anúncio ${n}: ID da Página obrigatório`);
+    if(!a.text?.trim()) errs.push(`Anúncio ${n}: texto obrigatório`);
+    if(!a.linkUrl?.trim()) errs.push(`Anúncio ${n}: URL de destino obrigatória`);
+    if(a.type==='image' && !a.imageFile && !a.imageHash?.trim())
+      errs.push(`Anúncio ${n}: imagem ou hash obrigatório`);
+    if(a.type==='video' && !a.videoFile && !a.videoId?.trim())
+      errs.push(`Anúncio ${n}: vídeo ou ID de vídeo obrigatório`);
+    if(a.type==='catalog' && !a.productSetId?.trim())
+      errs.push(`Anúncio ${n}: ID do Product Set obrigatório`);
+  });
+  return errs;
+}
+
+// ── Criar campanha ────────────────────────────────────────────────────────────
+async function run(){
+  const errs = validate();
+  if(errs.length){ alert('Corrija antes de criar:\n\n'+errs.join('\n')); return; }
+
+  S.running = true;
+  S.log = [];
+  S.tab = 'log';
+  render();
+
+  const acct = S.selectedAccount;
+  const c = S.camp;
+
+  try {
+    // ── 1. Campanha
+    log('Criando campanha…','i');
+    const campBody = {
+      name: c.name,
+      objective: c.objective,
+      status: c.status,
+      special_ad_categories: ['NONE']
+    };
+    if(c.budgetType==='CBO'){
+      campBody.daily_budget = Math.round(parseFloat(c.budget)*100);
+      // bid_strategy só quando não é o padrão
+      if(c.bidStrategy && c.bidStrategy !== 'LOWEST_COST_WITHOUT_CAP'){
+        campBody.bid_strategy = c.bidStrategy;
+      }
+    }
+    log('[Campaign body] '+JSON.stringify(campBody),'i');
+    const campR = await api(`/${acct}/campaigns`,'POST',campBody);
+    log(`✓ Campanha criada: ${campR.id}`,'s');
+
+    // ── 2. Adsets
+    for(const adset of S.adsets){
+      const dups = Math.max(1, parseInt(adset.duplicateCount)||1);
+
+      for(let d=0; d<dups; d++){
+        const adsetName = dups>1 ? `${adset.name} (${d+1})` : adset.name;
+        log(`Criando conjunto: ${adsetName}…`,'i');
+
+        const optGoal = adset.optimizationGoal || OPT_GOAL[c.objective] || 'OFFSITE_CONVERSIONS';
+        const isLeadGenForm = c.objective === 'OUTCOME_LEADS' && optGoal === 'LEAD_GENERATION';
+        const needsPixel = c.objective === 'OUTCOME_SALES' ||
+          (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm);
+
+        const adsetBody = {
+          name: adsetName,
+          campaign_id: campR.id,
+          status: c.status,
+          billing_event: 'IMPRESSIONS',
+          optimization_goal: optGoal,
+          targeting: buildTargeting(adset)
+        };
+
+        const bidRequiresAmount = ['LOWEST_COST_WITH_BID_CAP','COST_CAP','MINIMUM_ROAS'].includes(c.bidStrategy);
+        if(bidRequiresAmount && adset.bidAmount && parseFloat(adset.bidAmount) > 0){
+          adsetBody.bid_amount = Math.round(parseFloat(adset.bidAmount) * 100);
+        }
+
+        // destination_type: LEAD_GENERATION usa ON_AD, não WEBSITE
+        if(isLeadGenForm){
+          adsetBody.destination_type = 'ON_AD';
+        } else {
+          const destType = getDestinationType(c.objective);
+          if(destType) adsetBody.destination_type = destType;
+        }
+
+        if(needsPixel && adset.pixelId?.trim()){
+          adsetBody.promoted_object = {
+            pixel_id: adset.pixelId.trim(),
+            custom_event_type: adset.conversionEvent || 'PURCHASE'
+          };
+          adsetBody.attribution_spec = [
+            {event_type:'CLICK_THROUGH', window_days:7},
+            {event_type:'VIEW_THROUGH',  window_days:1}
+          ];
+        } else if(isLeadGenForm){
+          // Instant Forms: promoted_object usa page_id (da página do anúncio)
+          const pageId = S.ads[0]?.pageId?.trim();
+          if(pageId) adsetBody.promoted_object = { page_id: pageId };
+        }
+
+        if(c.budgetType==='ABO' && adset.budget){
+          adsetBody.daily_budget = Math.round(parseFloat(adset.budget)*100);
+          if(c.bidStrategy && c.bidStrategy !== 'LOWEST_COST_WITHOUT_CAP'){
+            adsetBody.bid_strategy = c.bidStrategy;
+          }
+        }
+
+        const st = adset.startDate ? Math.floor(new Date(adset.startDate).getTime()/1000) : NaN;
+        const et = adset.endDate   ? Math.floor(new Date(adset.endDate).getTime()/1000)   : NaN;
+        if(adset.startDate && !isNaN(st)) adsetBody.start_time = st;
+        if(adset.endDate   && !isNaN(et)) adsetBody.end_time   = et;
+
+        // Catálogo no adset (campo separado, fora do promoted_object)
+        const catalogAd = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
+        if(catalogAd) adsetBody.product_catalog_id = catalogAd.catalogId;
+
+        log('[Adset body] '+JSON.stringify(adsetBody),'i');
+        const adsetR = await api(`/${acct}/adsets`,'POST',adsetBody);
+        log(`✓ Conjunto criado: ${adsetR.id}`,'s');
+
+        // ── 3. Anúncios
+        for(const ad of S.ads){
+          log(`Criando anúncio: ${ad.name}…`,'i');
+          try {
+            const linkUrl = https(ad.linkUrl);
+            const linkWithUtm = ad.utm ? linkUrl+(linkUrl.includes('?')?'&':'?')+ad.utm : linkUrl;
+
+            // Verificar se precisa de IG actor (Instagram nos posicionamentos ou automático)
+            const hasIgPl = adset.placementType==='auto' ||
+              (adset.placements||[]).some(p=>p.startsWith('ig_'));
+
+            let igActorId = ad.igActorId?.trim() || null;
+            if(!igActorId && hasIgPl){
+              igActorId = await resolveIg(ad.pageId);
+            }
+
+            let creativeBody;
+
+            if(ad.type==='image'){
+              let hash = ad.imageHash?.trim();
+              if(!hash && ad.imageFile) hash = await uploadImage(ad.imageFile, acct);
+              if(!hash) throw new Error('Hash de imagem não encontrado');
+
+              creativeBody = {
+                name: ad.name+' - Creative',
+                object_story_spec:{
+                  page_id: ad.pageId,
+                  link_data:{
+                    image_hash: hash,
+                    link: linkWithUtm,
+                    message: ad.text,
+                    call_to_action:{
+                      type: ad.cta||'LEARN_MORE',
+                      value:{ link: linkWithUtm }
+                    }
+                  }
+                }
+              };
+              if(ad.headline) creativeBody.object_story_spec.link_data.name = ad.headline;
+              if(ad.description) creativeBody.object_story_spec.link_data.description = ad.description;
+              if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
+
+            } else if(ad.type==='video'){
+              let videoId = ad.videoId?.trim();
+              if(!videoId && ad.videoFile) videoId = await uploadVideo(ad.videoFile, acct);
+              if(!videoId) throw new Error('ID do vídeo não encontrado');
+
+              creativeBody = {
+                name: ad.name+' - Creative',
+                object_story_spec:{
+                  page_id: ad.pageId,
+                  video_data:{
+                    video_id: videoId,
+                    message: ad.text,
+                    title: ad.headline || ad.name,
+                    call_to_action:{
+                      type: ad.cta||'LEARN_MORE',
+                      value:{ link: linkWithUtm }
+                    }
+                  }
+                }
+              };
+              if(ad.description) creativeBody.object_story_spec.video_data.link_description = ad.description;
+              if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
+
+            } else if(ad.type==='catalog'){
+              creativeBody = {
+                name: ad.name+' - Creative',
+                object_story_spec:{
+                  page_id: ad.pageId,
+                  template_data:{
+                    message: ad.text,
+                    link: linkWithUtm,
+                    name: '{{product.name}}',
+                    description: '{{product.description}}',
+                    call_to_action:{
+                      type: ad.cta||'SHOP_NOW',
+                      value:{ link: linkWithUtm }
+                    }
+                  }
+                },
+                product_set_id: ad.productSetId
+              };
+              if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
+            }
+
+            log(`[Creative body] ${JSON.stringify(creativeBody)}`,'i');
+            const crR = await api(`/${acct}/adcreatives`,'POST',creativeBody);
+
+            const adR = await api(`/${acct}/ads`,'POST',{
+              name: ad.name,
+              adset_id: adsetR.id,
+              creative:{ creative_id: crR.id },
+              status: c.status
+            });
+            log(`✓ Anúncio criado: ${adR.id}`,'s');
+
+          } catch(e){
+            log(`✗ Erro no anúncio "${ad.name}": ${e.message}`,'e');
+            throw e;
+          }
+        }
+        await sleep(200);
+      }
+    }
+
+    log('','i');
+    log('🎉 CAMPANHA CRIADA COM SUCESSO!','s');
+
+  } catch(e){
+    log(`✗ ERRO: ${e.message}`,'e');
+  }
+
+  S.running = false;
+  render();
+}
+
+// ── Gerenciar adsets/ads ──────────────────────────────────────────────────────
+function addAdset(){
+  S.adsets.push({
+    id:uid(), name:'', pixelId:'', conversionEvent:'PURCHASE',
+    optimizationGoal:'', bidAmount:'',
+    country:'BR', ageMin:'18', ageMax:'65', gender:'all',
+    customAudiences:'', excludedAudiences:'',
+    placementType:'auto',
+    placements:['fb_feed','ig_feed','ig_stories','ig_reels'],
+    startDate:'', endDate:'', budget:'', duplicateCount:'1'
+  });
+  saveState(); render();
+}
+function delAdset(id){ S.adsets=S.adsets.filter(a=>a.id!==id); saveState(); render(); }
+function setAdset(id,k,v){ const a=S.adsets.find(a=>a.id===id); if(a){ a[k]=v; saveState(); }}
+function togglePl(adsetId,pl){
+  const a=S.adsets.find(a=>a.id===adsetId); if(!a) return;
+  a.placements = a.placements.includes(pl)
+    ? a.placements.filter(p=>p!==pl)
+    : [...a.placements, pl];
+  saveState(); render();
+}
+
+function addAd(){
+  S.ads.push({
+    id:uid(), name:'', type:'image', pageId:'', igActorId:'',
+    text:'', headline:'', description:'', cta:'LEARN_MORE',
+    linkUrl:'', utm:'',
+    imageFile:null, imageHash:'',
+    videoFile:null, videoId:'',
+    catalogId:'', productSetId:''
+  });
+  saveState(); render();
+}
+function delAd(id){ S.ads=S.ads.filter(a=>a.id!==id); saveState(); render(); }
+function setAd(id,k,v){ const a=S.ads.find(a=>a.id===id); if(a){ a[k]=v; saveState(); }}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(){
+  $('root').innerHTML = S.connected ? buildMain() : buildLogin();
+  // Rebind file inputs (não são serializáveis, precisam de listener direto)
+  S.ads.forEach(ad=>{
+    const imgInp = $('img-file-'+ad.id);
+    if(imgInp) imgInp.addEventListener('change', e=>{
+      const f=e.target.files[0]; if(!f) return;
+      setAd(ad.id,'imageFile',f); setAd(ad.id,'imageHash','');
+      $('img-chosen-'+ad.id).textContent='✓ '+f.name; $('img-chosen-'+ad.id).style.display='block';
+    });
+    const vidInp = $('vid-file-'+ad.id);
+    if(vidInp) vidInp.addEventListener('change', e=>{
+      const f=e.target.files[0]; if(!f) return;
+      setAd(ad.id,'videoFile',f); setAd(ad.id,'videoId','');
+      $('vid-chosen-'+ad.id).textContent='✓ '+f.name; $('vid-chosen-'+ad.id).style.display='block';
+    });
+  });
+  const logbox = $('logbox');
+  if(logbox){
+    logbox.innerHTML = S.log.map(l=>`<div class="lg ${l.type}">[${l.t}] ${esc(l.msg)}</div>`).join('');
+    logbox.scrollTop = logbox.scrollHeight;
+  }
+}
+
+function buildLogin(){
+  return `
+  <div class="card">
+    <h2>Conectar à API do Meta</h2>
+    <div class="info-box">
+      ℹ️ Este arquivo precisa ser servido via HTTPS para funcionar. Use o
+      <strong>Netlify Drop</strong> (app.netlify.com/drop) ou hospede no seu servidor.
+    </div>
+    <div class="fg">
+      <label>Token de Acesso (System User)</label>
+      <input type="password" id="tok" value="${esc(S.token)}"
+        placeholder="Cole o token aqui"
+        oninput="S.token=this.value.trim(); checkTok()"
+        onpaste="setTimeout(()=>{S.token=this.value.trim();checkTok()},10)"
+        onkeyup="S.token=this.value.trim();checkTok()">
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-blue" id="btn-connect" onclick="connect()" ${S.token.length>10?'':'disabled'}>Conectar</button>
+      <button class="btn btn-gray" onclick="importConfig()">📂 Importar config</button>
+      <button class="btn btn-gray" onclick="exportConfig()">💾 Exportar config</button>
+    </div>
+    <div id="logbox" class="log-wrap" style="margin-top:14px;min-height:50px">
+      ${S.log.map(l=>`<div class="lg ${l.type}">[${l.t}] ${esc(l.msg)}</div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function checkTok(){
+  const b=$('btn-connect');
+  if(b) b.disabled = S.token.length < 10;
+}
+
+function buildMain(){
+  const tabs = [
+    {id:'campaign',l:'Campanha'},
+    {id:'adsets',l:`Conjuntos (${S.adsets.length})`},
+    {id:'ads',l:`Anúncios (${S.ads.length})`},
+    {id:'review',l:'Revisar'},
+    {id:'log',l:'Log'}
+  ];
+  return `
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <div class="connected"><div class="dot"></div>Conectado</div>
+      <select style="width:auto;padding:6px 10px" onchange="changeAcct(this.value)">
+        ${S.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===S.selectedAccount?'selected':''}>${esc(a.name)}</option>`).join('')}
+      </select>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-gray btn-sm" onclick="importConfig()" title="Importar configuração">📂</button>
+        <button class="btn btn-gray btn-sm" onclick="exportConfig()" title="Exportar configuração">💾</button>
+        <button class="btn btn-gray btn-sm" onclick="disconnect()">Desconectar</button>
+      </div>
+    </div>
+    <div class="tabs">
+      ${tabs.map(t=>`<button class="tab ${S.tab===t.id?'active':''}" onclick="setTab('${t.id}')">${t.l}</button>`).join('')}
+    </div>
+    ${buildTab()}
+  </div>`;
+}
+
+function buildTab(){
+  if(S.tab==='campaign') return buildCamp();
+  if(S.tab==='adsets')   return buildAdsets();
+  if(S.tab==='ads')      return buildAds();
+  if(S.tab==='review')   return buildReview();
+  if(S.tab==='log')      return buildLog();
+  return '';
+}
+
+// ── Aba Campanha ──────────────────────────────────────────────────────────────
+function buildCamp(){
+  const c=S.camp;
+  return `
+  <h2>Campanha</h2>
+  <div class="row">
+    <div class="fg">
+      <label>Nome</label>
+      <input value="${esc(c.name)}" oninput="S.camp.name=this.value;saveState()" placeholder="Ex: Campanha Julho - Produto X">
+    </div>
+    <div class="fg">
+      <label>Objetivo</label>
+      <select onchange="S.camp.objective=this.value;saveState()">
+        ${OBJECTIVES.map(o=>`<option value="${o.v}" ${c.objective===o.v?'selected':''}>${o.l}</option>`).join('')}
+      </select>
+    </div>
+  </div>
+  <div class="row">
+    <div class="fg">
+      <label>Tipo de Orçamento</label>
+      <select onchange="S.camp.budgetType=this.value;saveState();render()">
+        <option value="CBO" ${c.budgetType==='CBO'?'selected':''}>CBO — Campanha</option>
+        <option value="ABO" ${c.budgetType==='ABO'?'selected':''}>ABO — Conjunto</option>
+      </select>
+    </div>
+    ${c.budgetType==='CBO'?`
+    <div class="fg">
+      <label>Orçamento Diário (R$)</label>
+      <input type="number" min="1" value="${esc(c.budget)}" oninput="S.camp.budget=this.value;saveState()" placeholder="Ex: 100">
+    </div>`:'<div></div>'}
+  </div>
+  <div class="row">
+    <div class="fg">
+      <label>Estratégia de Lance</label>
+      <select onchange="S.camp.bidStrategy=this.value;saveState()">
+        <option value="LOWEST_COST_WITHOUT_CAP" ${c.bidStrategy==='LOWEST_COST_WITHOUT_CAP'?'selected':''}>Valor ou volume mais alto</option>
+        <option value="COST_CAP" ${c.bidStrategy==='COST_CAP'?'selected':''}>Meta de custo por resultado</option>
+        <option value="MINIMUM_ROAS" ${c.bidStrategy==='MINIMUM_ROAS'?'selected':''}>ROAS mínimo</option>
+        <option value="LOWEST_COST_WITH_BID_CAP" ${c.bidStrategy==='LOWEST_COST_WITH_BID_CAP'?'selected':''}>Limite de lance</option>
+      </select>
+    </div>
+    <div class="fg">
+      <label>Status Inicial</label>
+      <select onchange="S.camp.status=this.value;saveState()">
+        <option value="PAUSED" ${c.status==='PAUSED'?'selected':''}>Pausada ✓ (recomendado)</option>
+        <option value="ACTIVE" ${c.status==='ACTIVE'?'selected':''}>Ativa</option>
+      </select>
+    </div>
+  </div>`;
+}
+
+// ── Aba Conjuntos ─────────────────────────────────────────────────────────────
+function buildAdsets(){
+  return `
+  <h2>Conjuntos de Anúncios</h2>
+  ${S.adsets.map(buildAdsetBox).join('')}
+  <button class="btn btn-gray" onclick="addAdset()">+ Adicionar Conjunto</button>`;
+}
+
+function buildAdsetBox(a){
+  const isABO = S.camp.budgetType==='ABO';
+  const dups = parseInt(a.duplicateCount)||1;
+  return `
+  <div class="box">
+    <div class="box-header">
+      <h3>Conjunto ${S.adsets.indexOf(a)+1}</h3>
+      <button class="btn btn-red btn-sm" onclick="delAdset(${a.id})">Remover</button>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Nome</label>
+        <input value="${esc(a.name)}" oninput="setAdset(${a.id},'name',this.value)" placeholder="Ex: Broad Brasil">
+      </div>
+      <div class="fg">
+        <label>Duplicar (qtd. de conjuntos)</label>
+        <input type="number" min="1" max="50" value="${dups}"
+          oninput="setAdset(${a.id},'duplicateCount',this.value);render()">
+        ${dups>1?`<div class="hint" style="color:#c47a00">⚠️ Serão criados ${dups} conjuntos idênticos</div>`:''}
+      </div>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Pixel ID</label>
+        <input value="${esc(a.pixelId)}" oninput="setAdset(${a.id},'pixelId',this.value)"
+          placeholder="ID do Pixel" list="pl-${a.id}">
+        <datalist id="pl-${a.id}">
+          ${S.pixels.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+        </datalist>
+      </div>
+      <div class="fg">
+        <label>Evento de Conversão</label>
+        <select onchange="setAdset(${a.id},'conversionEvent',this.value)">
+          ${EVENTS.map(e=>`<option value="${e}" ${a.conversionEvent===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Otimização</label>
+        <select onchange="setAdset(${a.id},'optimizationGoal',this.value)">
+          <option value="" ${!a.optimizationGoal?'selected':''}>Padrão do objetivo</option>
+          <optgroup label="── Conversões / Vendas">
+          <option value="OFFSITE_CONVERSIONS" ${a.optimizationGoal==='OFFSITE_CONVERSIONS'?'selected':''}>Volume — Maximizar Conversões (pixel)</option>
+          <option value="VALUE" ${a.optimizationGoal==='VALUE'?'selected':''}>Valor — Maximizar Valor / ROAS (pixel)</option>
+          </optgroup>
+          <optgroup label="── Tráfego">
+          <option value="LINK_CLICKS" ${a.optimizationGoal==='LINK_CLICKS'?'selected':''}>Cliques no Link</option>
+          <option value="LANDING_PAGE_VIEWS" ${a.optimizationGoal==='LANDING_PAGE_VIEWS'?'selected':''}>Visualizações de Página de Destino</option>
+          </optgroup>
+          <optgroup label="── Leads">
+          <option value="LEAD_GENERATION" ${a.optimizationGoal==='LEAD_GENERATION'?'selected':''}>Geração de Leads (Instant Form)</option>
+          </optgroup>
+          <optgroup label="── Awareness / Engajamento">
+          <option value="REACH" ${a.optimizationGoal==='REACH'?'selected':''}>Alcance</option>
+          <option value="IMPRESSIONS" ${a.optimizationGoal==='IMPRESSIONS'?'selected':''}>Impressões</option>
+          <option value="POST_ENGAGEMENT" ${a.optimizationGoal==='POST_ENGAGEMENT'?'selected':''}>Engajamento com Post</option>
+          <option value="PAGE_LIKES" ${a.optimizationGoal==='PAGE_LIKES'?'selected':''}>Curtidas na Página</option>
+          </optgroup>
+          <optgroup label="── App">
+          <option value="APP_INSTALLS" ${a.optimizationGoal==='APP_INSTALLS'?'selected':''}>Instalações de App</option>
+          <option value="APP_EVENTS" ${a.optimizationGoal==='APP_EVENTS'?'selected':''}>Eventos no App</option>
+          </optgroup>
+        </select>
+      </div>
+      ${['LOWEST_COST_WITH_BID_CAP','COST_CAP','MINIMUM_ROAS'].includes(S.camp.bidStrategy) ? `
+      <div class="fg">
+        <label>Limite de Lance (R$)</label>
+        <input type="number" step="0.01" value="${esc(a.bidAmount||'')}"
+          oninput="setAdset(${a.id},'bidAmount',this.value)"
+          placeholder="${S.camp.bidStrategy==='MINIMUM_ROAS'?'Ex: 3.0 (ROAS mínimo)':'Ex: 15.00'}">
+        <div class="hint">${S.camp.bidStrategy==='COST_CAP'?'Meta de custo por resultado (CPA)':S.camp.bidStrategy==='MINIMUM_ROAS'?'Retorno mínimo sobre investimento':'Bid cap — valor máximo por leilão'}</div>
+      </div>` : '<div></div>'}
+
+    </div>
+    <div class="row3">
+      <div class="fg">
+        <label>País</label>
+        <input value="${esc(a.country||'BR')}" oninput="setAdset(${a.id},'country',this.value)" placeholder="BR">
+      </div>
+      <div class="fg">
+        <label>Idade Mín</label>
+        <input type="number" value="${a.ageMin||18}" oninput="setAdset(${a.id},'ageMin',this.value)">
+      </div>
+      <div class="fg">
+        <label>Idade Máx</label>
+        <input type="number" value="${a.ageMax||65}" oninput="setAdset(${a.id},'ageMax',this.value)">
+      </div>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Gênero</label>
+        <select onchange="setAdset(${a.id},'gender',this.value)">
+          <option value="all" ${a.gender==='all'?'selected':''}>Todos</option>
+          <option value="male" ${a.gender==='male'?'selected':''}>Masculino</option>
+          <option value="female" ${a.gender==='female'?'selected':''}>Feminino</option>
+        </select>
+      </div>
+      ${isABO?`
+      <div class="fg">
+        <label>Orçamento Diário ABO (R$)</label>
+        <input type="number" value="${esc(a.budget||'')}" oninput="setAdset(${a.id},'budget',this.value)" placeholder="Ex: 50">
+      </div>`:'<div></div>'}
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Públicos Personalizados (IDs, vírgula)</label>
+        <input value="${esc(a.customAudiences||'')}" oninput="setAdset(${a.id},'customAudiences',this.value)" placeholder="123456,789012">
+      </div>
+      <div class="fg">
+        <label>Excluir Públicos (IDs, vírgula)</label>
+        <input value="${esc(a.excludedAudiences||'')}" oninput="setAdset(${a.id},'excludedAudiences',this.value)" placeholder="345678">
+      </div>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Data de Início</label>
+        <input type="datetime-local" value="${esc(a.startDate||'')}" oninput="setAdset(${a.id},'startDate',this.value)">
+      </div>
+      <div class="fg">
+        <label>Data de Término (opcional)</label>
+        <input type="datetime-local" value="${esc(a.endDate||'')}" oninput="setAdset(${a.id},'endDate',this.value)">
+      </div>
+    </div>
+    <div class="fg">
+      <label>Posicionamentos</label>
+      <select onchange="setAdset(${a.id},'placementType',this.value);render()">
+        <option value="auto" ${a.placementType==='auto'?'selected':''}>Automático (Advantage+)</option>
+        <option value="manual" ${a.placementType==='manual'?'selected':''}>Manual</option>
+      </select>
+      ${a.placementType==='manual'?`
+      <div style="margin-top:10px;border:1px solid #eee;border-radius:8px;padding:12px">
+        ${Object.entries(PLACEMENTS).map(([grp,items])=>`
+          <div class="pl-section">
+            <div class="pl-title">${grp}</div>
+            <div class="pl-grid">
+              ${items.map(p=>`
+                <label class="pl-item">
+                  <input type="checkbox" ${(a.placements||[]).includes(p.id)?'checked':''}
+                    onchange="togglePl(${a.id},'${p.id}')">
+                  ${p.l}
+                </label>`).join('')}
+            </div>
+          </div>`).join('')}
+      </div>`:''}
+    </div>
+  </div>`;
+}
+
+// ── Aba Anúncios ──────────────────────────────────────────────────────────────
+function buildAds(){
+  return `
+  <h2>Anúncios</h2>
+  ${S.ads.map(buildAdBox).join('')}
+  <button class="btn btn-gray" onclick="addAd()">+ Adicionar Anúncio</button>`;
+}
+
+function buildAdBox(ad){
+  return `
+  <div class="box">
+    <div class="box-header">
+      <h3>Anúncio ${S.ads.indexOf(ad)+1}</h3>
+      <button class="btn btn-red btn-sm" onclick="delAd(${ad.id})">Remover</button>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>Nome do Anúncio</label>
+        <input value="${esc(ad.name)}" oninput="setAd(${ad.id},'name',this.value)" placeholder="Ex: Nath V1 H1 CTA1">
+      </div>
+      <div class="fg">
+        <label>Tipo</label>
+        <select onchange="setAd(${ad.id},'type',this.value);render()">
+          <option value="image" ${ad.type==='image'?'selected':''}>Imagem</option>
+          <option value="video" ${ad.type==='video'?'selected':''}>Vídeo</option>
+          <option value="catalog" ${ad.type==='catalog'?'selected':''}>Catálogo</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div class="fg">
+        <label>ID da Página do Facebook</label>
+        <input value="${esc(ad.pageId)}" oninput="setAd(${ad.id},'pageId',this.value)"
+          placeholder="ID numérico da página" list="pg-${ad.id}">
+        <datalist id="pg-${ad.id}">
+          ${S.pages.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}
+        </datalist>
+      </div>
+      <div class="fg">
+        <label>ID do Instagram (opcional — auto se vazio)</label>
+        <input value="${esc(ad.igActorId||'')}" oninput="setAd(${ad.id},'igActorId',this.value)"
+          placeholder="Deixe vazio para buscar automaticamente">
+      </div>
+    </div>
+    <div class="fg">
+      <label>Texto Principal</label>
+      <textarea oninput="setAd(${ad.id},'text',this.value)" placeholder="Texto do anúncio…">${esc(ad.text)}</textarea>
+    </div>
+    ${ad.type!=='catalog'?`
+    <div class="row">
+      <div class="fg">
+        <label>Título (Headline)</label>
+        <input value="${esc(ad.headline||'')}" oninput="setAd(${ad.id},'headline',this.value)" placeholder="Título">
+      </div>
+      <div class="fg">
+        <label>Descrição</label>
+        <input value="${esc(ad.description||'')}" oninput="setAd(${ad.id},'description',this.value)" placeholder="Descrição">
+      </div>
+    </div>`:''}
+    <div class="row">
+      <div class="fg">
+        <label>URL de Destino</label>
+        <input value="${esc(ad.linkUrl||'')}" oninput="setAd(${ad.id},'linkUrl',this.value)" placeholder="https://seusite.com/produto">
+      </div>
+      <div class="fg">
+        <label>Botão (CTA)</label>
+        <select onchange="setAd(${ad.id},'cta',this.value)">
+          ${CTAS.map(c=>`<option value="${c}" ${ad.cta===c?'selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="fg">
+      <label>UTM (cole a string completa)</label>
+      <input value="${esc(ad.utm||'')}" oninput="setAd(${ad.id},'utm',this.value)"
+        placeholder="utm_source=facebook&utm_medium=paid&utm_campaign={{campaign.name}}&utm_content={{ad.id}}">
+    </div>
+    ${buildMediaFields(ad)}
+  </div>`;
+}
+
+function buildMediaFields(ad){
+  if(ad.type==='image') return `
+    <div class="fg">
+      <label>Imagem</label>
+      <input value="${esc(ad.imageHash||'')}" oninput="setAd(${ad.id},'imageHash',this.value);setAd(${ad.id},'imageFile',null)"
+        placeholder="Hash da imagem (se já enviada) OU use o upload abaixo" style="margin-bottom:6px">
+      <input type="file" id="img-file-${ad.id}" accept="image/*">
+      <div id="img-chosen-${ad.id}" class="file-chosen" style="display:${ad.imageFile?'block':'none'}">${ad.imageFile?'✓ '+ad.imageFile.name:''}</div>
+    </div>`;
+
+  if(ad.type==='video') return `
+    <div class="fg">
+      <label>Vídeo</label>
+      <input value="${esc(ad.videoId||'')}" oninput="setAd(${ad.id},'videoId',this.value);setAd(${ad.id},'videoFile',null)"
+        placeholder="ID do vídeo (se já enviado) OU use o upload abaixo" style="margin-bottom:6px">
+      <input type="file" id="vid-file-${ad.id}" accept="video/*">
+      <div id="vid-chosen-${ad.id}" class="file-chosen" style="display:${ad.videoFile?'block':'none'}">${ad.videoFile?'✓ '+ad.videoFile.name:''}</div>
+    </div>`;
+
+  if(ad.type==='catalog') return `
+    <div class="row">
+      <div class="fg">
+        <label>ID do Catálogo</label>
+        <input value="${esc(ad.catalogId||'')}" oninput="setAd(${ad.id},'catalogId',this.value)"
+          placeholder="ID do catálogo" list="cat-${ad.id}">
+        <datalist id="cat-${ad.id}">
+          ${S.catalogs.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+        </datalist>
+      </div>
+      <div class="fg">
+        <label>ID do Product Set</label>
+        <input value="${esc(ad.productSetId||'')}" oninput="setAd(${ad.id},'productSetId',this.value)" placeholder="ID do conjunto de produtos">
+      </div>
+    </div>`;
+  return '';
+}
+
+// ── Aba Revisar ───────────────────────────────────────────────────────────────
+function buildReview(){
+  const errs = validate();
+  const c = S.camp;
+  const totalAdsets = S.adsets.reduce((s,a)=>s+(parseInt(a.duplicateCount)||1),0);
+  const totalAds = totalAdsets * S.ads.length;
+
+  return `
+  <h2>Revisar e Criar</h2>
+  ${errs.length?`
+    <div class="err-box">
+      <strong style="color:#c5221f">Corrija antes de criar:</strong>
+      <ul style="margin-top:8px">${errs.map(e=>`<li>${esc(e)}</li>`).join('')}</ul>
+    </div>`:`
+    <div class="info-box">
+      ✓ Pronto para criar: 1 campanha · ${totalAdsets} conjunto(s) · ${totalAds} anúncio(s)
+    </div>`}
+  <div class="rv"><span class="rv-lbl">Campanha</span><span class="rv-val">${esc(c.name)||'—'}</span></div>
+  <div class="rv"><span class="rv-lbl">Objetivo</span><span class="rv-val">${c.objective}</span></div>
+  <div class="rv"><span class="rv-lbl">Orçamento</span><span class="rv-val">${c.budgetType} · R$ ${c.budget||0}/dia</span></div>
+  <div class="rv"><span class="rv-lbl">Lance</span><span class="rv-val">${c.bidStrategy}</span></div>
+  <div class="rv"><span class="rv-lbl">Status</span><span class="rv-val"><span class="badge ${c.status==='PAUSED'?'b-orange':'b-green'}">${c.status}</span></span></div>
+  <hr>
+  ${S.adsets.map((a,i)=>`
+    <div class="rv">
+      <span class="rv-lbl">Conjunto ${i+1}</span>
+      <span class="rv-val">${esc(a.name)||'—'} ${parseInt(a.duplicateCount||1)>1?`<span class="badge b-blue">×${a.duplicateCount}</span>`:''}</span>
+    </div>`).join('')}
+  <hr>
+  ${S.ads.map((a,i)=>`
+    <div class="rv">
+      <span class="rv-lbl">Anúncio ${i+1}</span>
+      <span class="rv-val">${esc(a.name)||'—'} <span class="badge b-blue">${a.type}</span></span>
+    </div>`).join('')}
+  <hr>
+  <button class="btn btn-green btn-full" onclick="run()" ${errs.length||S.running?'disabled':''}>
+    ${S.running?'Criando…':'🚀 Criar Campanha'}
+  </button>`;
+}
+
+// ── Aba Log ───────────────────────────────────────────────────────────────────
+function buildLog(){
+  return `
+  <h2>Log de Execução</h2>
+  <div id="logbox" class="log-wrap" style="min-height:200px">
+    ${S.log.map(l=>`<div class="lg ${l.type}">[${l.t}] ${esc(l.msg)}</div>`).join('')}
+  </div>
+  ${!S.running&&S.log.length?`
+    <button class="btn btn-gray btn-sm" style="margin-top:10px" onclick="S.log=[];render()">Limpar log</button>`:''}`;
+}
+
+// ── Export / Import config ────────────────────────────────────────────────────
+function exportConfig(){
+  const cfg = {
+    token: S.token,
+    camp: S.camp,
+    adsets: S.adsets.map(a=>({...a, id:a.id})),
+    ads: S.ads.map(a=>({...a, imageFile:null, videoFile:null}))
+  };
+  const blob = new Blob([JSON.stringify(cfg, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download='meta-ads-config.json'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importConfig(){
+  const inp = document.createElement('input');
+  inp.type='file'; inp.accept='.json';
+  inp.onchange = e=>{
+    const f=e.target.files[0]; if(!f) return;
+    const reader = new FileReader();
+    reader.onload = ev=>{
+      try {
+        const cfg = JSON.parse(ev.target.result);
+        if(cfg.camp) S.camp = cfg.camp;
+        if(cfg.adsets) S.adsets = cfg.adsets;
+        if(cfg.ads) S.ads = cfg.ads;
+        if(cfg.token) S.token = cfg.token;
+        saveState(); render();
+        alert('Configuração importada com sucesso!');
+      } catch(err){ alert('Erro ao importar: arquivo inválido'); }
+    };
+    reader.readAsText(f);
+  };
+  inp.click();
+}
+
+// ── Misc ──────────────────────────────────────────────────────────────────────
+function setTab(t){ S.tab=t; render(); }
+function disconnect(){ S.connected=false; S.token=''; S.log=[]; saveState(); render(); }
+async function changeAcct(id){
+  S.selectedAccount=id; await loadAccountAssets(id); saveState(); render();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>
