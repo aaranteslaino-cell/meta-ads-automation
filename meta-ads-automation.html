@@ -346,14 +346,62 @@ async function uploadImage(file, accountId){
 }
 
 async function uploadVideo(file, accountId){
-  log(`Upload de vídeo: ${file.name}…`,'i');
-  const fd = new FormData();
-  fd.append('access_token', S.token);
-  fd.append('source', file, file.name);
-  fd.append('title', file.name);
-  const r = await apiForm(`/${accountId}/advideos`, fd);
-  log(`Vídeo enviado. ID: ${r.id}`,'s');
-  return r.id;
+  const sizeMB = (file.size/1024/1024).toFixed(1);
+  log(`Upload de vídeo: ${file.name} (${sizeMB} MB)…`,'i');
+
+  // Para vídeos < 15 MB, tenta upload direto (mais rápido)
+  if(file.size < 15*1024*1024){
+    try{
+      const fd = new FormData();
+      fd.append('access_token', S.token);
+      fd.append('source', file, file.name);
+      fd.append('title', file.name);
+      const r = await apiForm(`/${accountId}/advideos`, fd);
+      log(`Vídeo enviado. ID: ${r.id}`,'s');
+      return r.id;
+    } catch(e){
+      log(`Upload direto falhou (${e.message}). Tentando chunked…`,'w');
+    }
+  }
+
+  // Upload em chunks (resumable) — para vídeos grandes
+  // Fase 1: start
+  const startFd = new FormData();
+  startFd.append('access_token', S.token);
+  startFd.append('upload_phase', 'start');
+  startFd.append('file_size', file.size);
+  const startR = await apiForm(`/${accountId}/advideos`, startFd);
+  const sessionId = startR.upload_session_id;
+  const videoId = startR.video_id;
+  let startOffset = parseInt(startR.start_offset);
+  let endOffset = parseInt(startR.end_offset);
+  log(`Sessão iniciada: ${sessionId}`,'i');
+
+  // Fase 2: transfer (chunks)
+  while(startOffset < endOffset){
+    const chunk = file.slice(startOffset, endOffset);
+    const transferFd = new FormData();
+    transferFd.append('access_token', S.token);
+    transferFd.append('upload_phase', 'transfer');
+    transferFd.append('upload_session_id', sessionId);
+    transferFd.append('start_offset', startOffset);
+    transferFd.append('video_file_chunk', chunk, file.name);
+    const tr = await apiForm(`/${accountId}/advideos`, transferFd);
+    const pct = ((parseInt(tr.start_offset)/file.size)*100).toFixed(0);
+    log(`  ↳ ${pct}% (${(parseInt(tr.start_offset)/1024/1024).toFixed(1)}/${sizeMB} MB)`,'i');
+    startOffset = parseInt(tr.start_offset);
+    endOffset = parseInt(tr.end_offset);
+  }
+
+  // Fase 3: finish
+  const finishFd = new FormData();
+  finishFd.append('access_token', S.token);
+  finishFd.append('upload_phase', 'finish');
+  finishFd.append('upload_session_id', sessionId);
+  await apiForm(`/${accountId}/advideos`, finishFd);
+
+  log(`Vídeo enviado. ID: ${videoId}`,'s');
+  return videoId;
 }
 
 // ── Posicionamentos ───────────────────────────────────────────────────────────
