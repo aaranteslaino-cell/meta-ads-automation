@@ -1121,8 +1121,49 @@ function buildAdsetBox(a){
 function buildAds(){
   return `
   <h2>Anúncios</h2>
+  <div class="info-box" style="margin-bottom:14px">
+    💡 <strong>Upload em massa:</strong> preencha o primeiro anúncio como modelo (texto, título, página, CTA, link). Depois clique em "📦 Upload em massa" e selecione vários arquivos — cada um vira um anúncio novo herdando o modelo.
+  </div>
   ${S.ads.map(buildAdBox).join('')}
-  <button class="btn btn-gray" onclick="addAd()">+ Adicionar Anúncio</button>`;
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-gray" onclick="addAd()">+ Adicionar Anúncio</button>
+    <button class="btn btn-blue" onclick="document.getElementById('bulk-upload').click()">📦 Upload em massa</button>
+    <input type="file" id="bulk-upload" multiple accept="image/*,video/*" style="display:none" onchange="handleBulkUpload(this.files);this.value=''">
+  </div>`;
+}
+
+function handleBulkUpload(files){
+  if(!files || files.length===0) return;
+  const template = S.ads[0] || {};
+  let created = 0;
+  for(const file of files){
+    const isVideo = file.type.startsWith('video/');
+    const baseName = file.name.replace(/\.[^.]+$/,'');
+    const newAd = {
+      id: uid(),
+      name: baseName,
+      type: isVideo ? 'video' : 'image',
+      pageId: template.pageId || '',
+      igActorId: template.igActorId || '',
+      texts: [...(template.texts || [''])],
+      headlines: [...(template.headlines || [''])],
+      description: template.description || '',
+      cta: template.cta || 'LEARN_MORE',
+      linkUrl: template.linkUrl || '',
+      utm: template.utm || '',
+      imageFile: isVideo ? null : file,
+      imageHash: '',
+      videoFile: isVideo ? file : null,
+      videoId: '',
+      catalogId: '',
+      productSetId: ''
+    };
+    S.ads.push(newAd);
+    created++;
+  }
+  saveState();
+  render();
+  alert(`✅ ${created} anúncio(s) criado(s) a partir dos arquivos. Cada um herdou texto/título/página/CTA/link do primeiro anúncio.`);
 }
 
 function buildAdBox(ad){
