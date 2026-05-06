@@ -415,8 +415,9 @@ function validate(){
     const n=i+1;
     if(!a.name?.trim()) errs.push(`Anúncio ${n}: nome obrigatório`);
     if(!a.pageId?.trim()) errs.push(`Anúncio ${n}: ID da Página obrigatório`);
-    if(!a.text?.trim()) errs.push(`Anúncio ${n}: texto obrigatório`);
-    if(!a.linkUrl?.trim()) errs.push(`Anúncio ${n}: URL de destino obrigatória`);
+    const hasText = (a.texts||[]).some(t=>t?.trim());
+    if(!hasText) errs.push(`Anúncio ${n}: texto obrigatório`);
+    if(!a.linkUrl?.trim() && a.type!=='catalog') errs.push(`Anúncio ${n}: URL de destino obrigatória`);
     if(a.type==='image' && !a.imageFile && !a.imageHash?.trim())
       errs.push(`Anúncio ${n}: imagem ou hash obrigatório`);
     if(a.type==='video' && !a.videoFile && !a.videoId?.trim())
@@ -1128,8 +1129,28 @@ function buildAds(){
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn btn-gray" onclick="addAd()">+ Adicionar Anúncio</button>
     <button class="btn btn-blue" onclick="document.getElementById('bulk-upload').click()">📦 Upload em massa</button>
+    ${S.ads.length>1?`<button class="btn btn-green" onclick="applyTemplateToAll()">🔄 Aplicar template do Anúncio 1 a todos</button>`:''}
     <input type="file" id="bulk-upload" multiple accept="image/*,video/*" style="display:none" onchange="handleBulkUpload(this.files);this.value=''">
   </div>`;
+}
+
+function applyTemplateToAll(){
+  if(S.ads.length<2) return;
+  const t = S.ads[0];
+  if(!confirm(`Aplicar texto, título, página, CTA, link e UTM do Anúncio 1 aos outros ${S.ads.length-1} anúncios? (mídia de cada um será mantida)`)) return;
+  for(let i=1;i<S.ads.length;i++){
+    const a = S.ads[i];
+    a.pageId = t.pageId || a.pageId;
+    a.igActorId = t.igActorId || a.igActorId;
+    a.texts = [...(t.texts || [''])];
+    a.headlines = [...(t.headlines || [''])];
+    a.description = t.description || '';
+    a.cta = t.cta || a.cta;
+    a.linkUrl = t.linkUrl || '';
+    a.utm = t.utm || '';
+  }
+  saveState(); render();
+  alert(`✅ Template aplicado a ${S.ads.length-1} anúncio(s).`);
 }
 
 function handleBulkUpload(files){
