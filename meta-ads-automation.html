@@ -661,13 +661,30 @@ async function run(){
               if(!videoId && ad.videoFile) videoId = await uploadVideo(ad.videoFile, acct);
               if(!videoId) throw new Error('ID do vídeo não encontrado');
 
+              // Aguarda a Meta processar o vídeo e gerar thumbnails (até ~30s)
+              let thumbUrl = '';
+              for(let attempt=0; attempt<15; attempt++){
+                await sleep(2000);
+                try{
+                  const tr = await api(`/${videoId}/thumbnails`,'GET',{fields:'uri,is_preferred'});
+                  const thumbs = tr.data || [];
+                  if(thumbs.length){
+                    const preferred = thumbs.find(t=>t.is_preferred) || thumbs[0];
+                    thumbUrl = preferred.uri;
+                    log(`  ↳ Thumbnail obtida`,'i');
+                    break;
+                  }
+                } catch(e){ /* tenta de novo */ }
+              }
+              if(!thumbUrl) log('  ↳ ⚠️ Thumbnail não disponível ainda — usando padrão','w');
+
               if(multiVariation){
                 creativeBody = {
                   name: ad.name+' - Creative',
                   asset_feed_spec:{
                     bodies: texts.map(t=>({text:t})),
                     titles: headlines.length ? headlines.map(h=>({text:h})) : [{text:ad.name}],
-                    videos: [{video_id:videoId}],
+                    videos: [{video_id:videoId, thumbnail_url:thumbUrl}],
                     link_urls: [{website_url:linkWithUtm}],
                     call_to_action_types: [ad.cta||'LEARN_MORE'],
                     ad_formats: ['SINGLE_VIDEO']
@@ -675,16 +692,18 @@ async function run(){
                 };
                 if(igActorId) creativeBody.instagram_user_id = igActorId;
               } else {
+                const videoData = {
+                  video_id: videoId,
+                  message: texts[0]||'',
+                  title: headlines[0]||ad.name,
+                  call_to_action:{ type: ad.cta||'LEARN_MORE', value:{ link: linkWithUtm } }
+                };
+                if(thumbUrl) videoData.image_url = thumbUrl;
                 creativeBody = {
                   name: ad.name+' - Creative',
                   object_story_spec:{
                     page_id: ad.pageId,
-                    video_data:{
-                      video_id: videoId,
-                      message: texts[0]||'',
-                      title: headlines[0]||ad.name,
-                      call_to_action:{ type: ad.cta||'LEARN_MORE', value:{ link: linkWithUtm } }
-                    }
+                    video_data: videoData
                   }
                 };
                 if(ad.description) creativeBody.object_story_spec.video_data.link_description = ad.description;
