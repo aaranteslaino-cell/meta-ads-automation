@@ -454,9 +454,8 @@ async function run(){
       } else {
         campBody.daily_budget = Math.round(parseFloat(c.budget)*100);
       }
-      if(c.bidStrategy && c.bidStrategy !== 'LOWEST_COST_WITHOUT_CAP'){
-        campBody.bid_strategy = c.bidStrategy;
-      }
+      // bid_strategy sempre explícito na campanha CBO
+      campBody.bid_strategy = c.bidStrategy || 'LOWEST_COST_WITHOUT_CAP';
     }
     log('[Campaign body] '+JSON.stringify(campBody),'i');
     const campR = await api(`/${acct}/campaigns`,'POST',campBody);
@@ -515,8 +514,11 @@ async function run(){
           if(pageId) adsetBody.promoted_object = { page_id: pageId };
         }
 
-        // bid_strategy sempre explícito no adset — evita exigência de bid_amount em alguns accounts
-        adsetBody.bid_strategy = c.bidStrategy || 'LOWEST_COST_WITHOUT_CAP';
+        // bid_strategy: em CBO pertence à campanha (não ao conjunto).
+        // Em ABO, vai no conjunto. Nunca colocar bid_strategy no adset de CBO — causa erro 1815857.
+        if(c.budgetType === 'ABO'){
+          adsetBody.bid_strategy = c.bidStrategy || 'LOWEST_COST_WITHOUT_CAP';
+        }
 
         if(c.budgetType==='ABO' && adset.budget){
           if(c.budgetPeriod==='LIFETIME'){
