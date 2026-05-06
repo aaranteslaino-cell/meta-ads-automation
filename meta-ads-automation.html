@@ -259,7 +259,7 @@ async function connect(){
 
   try {
     // Contas
-    const r1 = await api('/me/adaccounts','GET',{fields:'id,name,account_id',limit:200});
+    const r1 = await api('/me/adaccounts','GET',{fields:'id,name,account_id,currency',limit:200});
     S.accounts = r1.data || [];
 
     // Páginas (com access_token para uso posterior)
@@ -834,12 +834,15 @@ function buildMain(){
     {id:'review',l:'Revisar'},
     {id:'log',l:'Log'}
   ];
+  const selAcct = S.accounts.find(a=>a.id===S.selectedAccount);
+  const cur = selAcct?.currency || '';
+  const isForeign = cur && cur !== 'BRL';
   return `
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="connected"><div class="dot"></div>Conectado</div>
       <select style="width:auto;padding:6px 10px" onchange="changeAcct(this.value)">
-        ${S.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===S.selectedAccount?'selected':''}>${esc(a.name)}</option>`).join('')}
+        ${S.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===S.selectedAccount?'selected':''}>${esc(a.name)}${a.currency&&a.currency!=='BRL'?` [${a.currency}]`:''}</option>`).join('')}
       </select>
       <div style="display:flex;gap:6px">
         <button class="btn btn-gray btn-sm" onclick="importConfig()" title="Importar configuração">📂</button>
@@ -847,6 +850,10 @@ function buildMain(){
         <button class="btn btn-gray btn-sm" onclick="disconnect()">Desconectar</button>
       </div>
     </div>
+    ${isForeign?`<div style="background:#fff3cd;border:2px solid #ffc107;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:14px;color:#856404;font-weight:600;display:flex;align-items:center;gap:10px">
+      <span style="font-size:22px">⚠️</span>
+      <span>ATENÇÃO: o orçamento desta conta está em <strong>${cur}</strong>${cur==='USD'?' (Dólar)':cur==='EUR'?' (Euro)':''} — não em Reais!</span>
+    </div>`:''}
     <div class="tabs">
       ${tabs.map(t=>`<button class="tab ${S.tab===t.id?'active':''}" onclick="setTab('${t.id}')">${t.l}</button>`).join('')}
     </div>
