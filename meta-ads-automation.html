@@ -314,12 +314,13 @@ async function connect(){
     return;
   }
 
-  S.selectedAccount = S.accounts[0].id;
-  S.token = getAccountToken(S.selectedAccount); // mantém legado consistente
-  await loadAccountAssets(S.selectedAccount);
+  // Não pré-seleciona nenhuma conta — usuário escolhe manualmente
+  S.selectedAccount = '';
+  S.token = '';
+  S.pixels = []; S.catalogs = []; S.igCache = {};
 
   S.connected = true;
-  log(`Conectado! ${S.accounts.length} conta(s) encontrada(s) em ${S.tokens.length} token(s).`,'s');
+  log(`Conectado! ${S.accounts.length} conta(s) encontrada(s) em ${S.tokens.length} token(s). Selecione a conta para começar.`,'s');
   if(tokenErrors.length) tokenErrors.forEach(e=>log('⚠️ '+e,'w'));
   S.tab = 'campaign';
   saveState();
@@ -700,9 +701,9 @@ async function run(){
                 throw new Error(`Não foi possível resolver "${ad.igActorId}". Use o ID numérico do Instagram (ex: 17841412345678901) ou deixe o campo vazio para detecção automática. Detalhe: ${e.message}`);
               }
             }
-            if(!igActorId && hasIgPl){
-              igActorId = await resolveIg(ad.pageId);
-            }
+            // Se o usuário deixou em branco, NÃO tenta auto-resolver IG.
+            // O anúncio será criado só com a página do Facebook.
+            // (Comportamento anterior: tentava resolveIg(pageId) automaticamente)
 
             let creativeBody;
 
@@ -1056,6 +1057,7 @@ function buildMain(){
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="connected"><div class="dot"></div>Conectado</div>
       <select style="width:auto;padding:6px 10px;max-width:480px" onchange="changeAcct(this.value)">
+        <option value="" ${!S.selectedAccount?'selected':''}>— Selecione uma conta —</option>
         ${(()=>{
           // Agrupa contas por BM (label do token)
           const groups = {};
@@ -1659,10 +1661,14 @@ function disconnect(){
   saveState(); render();
 }
 async function changeAcct(id){
-  S.selectedAccount=id;
-  S.token = getAccountToken(id); // legado: mantém consistência
+  S.selectedAccount = id || '';
+  S.token = id ? getAccountToken(id) : '';
   S.igCache = {}; // limpa cache de IG (token pode ser diferente)
-  await loadAccountAssets(id);
+  if(id){
+    await loadAccountAssets(id);
+  } else {
+    S.pixels = []; S.catalogs = [];
+  }
   saveState(); render();
 }
 
