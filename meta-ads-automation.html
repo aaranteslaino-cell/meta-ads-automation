@@ -409,7 +409,9 @@ function buildTargeting(adset){
   const targeting = {
     geo_locations:{ countries: [(adset.country||'BR').toUpperCase()] },
     age_min: parseInt(adset.ageMin)||18,
-    age_max: parseInt(adset.ageMax)||65
+    age_max: parseInt(adset.ageMax)||65,
+    // Meta exige declarar Público Advantage+ explicitamente (erro 1870227)
+    targeting_automation: { advantage_audience: adset.advantageAudience ? 1 : 0 }
   };
 
   if(adset.gender && adset.gender!=='all')
@@ -770,6 +772,7 @@ function addAdset(){
     spendingLimit:'',
     country:'BR', ageMin:'18', ageMax:'65', gender:'all',
     customAudiences:'', excludedAudiences:'',
+    advantageAudience:false,
     placementType:'auto',
     placements:['fb_feed','ig_feed','ig_stories','ig_reels'],
     startDate:'', endDate:'', budget:'', duplicateCount:'1'
@@ -1130,6 +1133,14 @@ function buildAdsetBox(a){
         <label>Excluir Públicos (IDs, vírgula)</label>
         <input value="${esc(a.excludedAudiences||'')}" oninput="setAdset(${a.id},'excludedAudiences',this.value)" placeholder="345678">
       </div>
+    </div>
+    <div class="fg">
+      <label>Público Advantage+</label>
+      <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;color:#1c1e21;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px">
+        <input type="checkbox" style="width:auto;margin-top:2px" ${a.advantageAudience?'checked':''}
+          onchange="setAdset(${a.id},'advantageAudience',this.checked)">
+        <span>Ativar Público Advantage+<br><span style="font-size:11px;color:#888">Deixa a IA da Meta expandir sua segmentação automaticamente além dos critérios definidos (recomendado para escala)</span></span>
+      </label>
     </div>
     <div class="row">
       <div class="fg">
