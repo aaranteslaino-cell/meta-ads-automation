@@ -651,6 +651,7 @@ async function run(){
               if(multiVariation){
                 creativeBody = {
                   name: ad.name+' - Creative',
+                  object_story_spec:{ page_id: ad.pageId },
                   asset_feed_spec:{
                     bodies: texts.map(t=>({text:t})),
                     titles: headlines.length ? headlines.map(h=>({text:h})) : [{text:ad.name}],
@@ -660,7 +661,7 @@ async function run(){
                     ad_formats: ['SINGLE_IMAGE']
                   }
                 };
-                if(igActorId) creativeBody.instagram_user_id = igActorId;
+                if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
               } else {
                 creativeBody = {
                   name: ad.name+' - Creative',
@@ -704,6 +705,7 @@ async function run(){
               if(multiVariation){
                 creativeBody = {
                   name: ad.name+' - Creative',
+                  object_story_spec:{ page_id: ad.pageId },
                   asset_feed_spec:{
                     bodies: texts.map(t=>({text:t})),
                     titles: headlines.length ? headlines.map(h=>({text:h})) : [{text:ad.name}],
@@ -713,7 +715,7 @@ async function run(){
                     ad_formats: ['SINGLE_VIDEO']
                   }
                 };
-                if(igActorId) creativeBody.instagram_user_id = igActorId;
+                if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
               } else {
                 const videoData = {
                   video_id: videoId,
