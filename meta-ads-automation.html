@@ -685,10 +685,33 @@ async function run(){
               if(!videoId && ad.videoFile) videoId = await uploadVideo(ad.videoFile, acct);
               if(!videoId) throw new Error('ID do vídeo não encontrado');
 
-              // Aguarda a Meta processar o vídeo e gerar thumbnails (até ~30s)
-              let thumbUrl = '';
-              for(let attempt=0; attempt<15; attempt++){
+              // Aguarda a Meta processar o vídeo (status: ready) — até 3 minutos
+              log(`  ↳ Aguardando processamento do vídeo…`,'i');
+              let videoReady = false;
+              for(let attempt=0; attempt<90; attempt++){
                 await sleep(2000);
+                try{
+                  const sr = await api(`/${videoId}`,'GET',{fields:'status'});
+                  const status = sr.status?.video_status || 'processing';
+                  if(status === 'ready'){
+                    log(`  ↳ Vídeo processado e pronto`,'s');
+                    videoReady = true;
+                    break;
+                  }
+                  if(status === 'error'){
+                    throw new Error(`Meta retornou erro no processamento: ${JSON.stringify(sr.status)}`);
+                  }
+                  if(attempt % 5 === 0) log(`  ↳ Status: ${status}…`,'i');
+                } catch(e){
+                  if(e.message.includes('processamento')) throw e;
+                  /* permission errors on status endpoint — tenta de novo */
+                }
+              }
+              if(!videoReady) throw new Error('Tempo esgotado esperando processamento do vídeo (>3min). Tenta novamente em alguns minutos.');
+
+              // Busca thumbnail (geralmente já está disponível quando o vídeo está ready)
+              let thumbUrl = '';
+              for(let attempt=0; attempt<10; attempt++){
                 try{
                   const tr = await api(`/${videoId}/thumbnails`,'GET',{fields:'uri,is_preferred'});
                   const thumbs = tr.data || [];
@@ -699,8 +722,9 @@ async function run(){
                     break;
                   }
                 } catch(e){ /* tenta de novo */ }
+                await sleep(2000);
               }
-              if(!thumbUrl) log('  ↳ ⚠️ Thumbnail não disponível ainda — usando padrão','w');
+              if(!thumbUrl) log('  ↳ ⚠️ Thumbnail não disponível — usando padrão','w');
 
               if(multiVariation){
                 creativeBody = {
