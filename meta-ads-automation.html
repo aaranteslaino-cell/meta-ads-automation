@@ -611,6 +611,27 @@ async function run(){
               (adset.placements||[]).some(p=>p.startsWith('ig_'));
 
             let igActorId = ad.igActorId?.trim() || null;
+            // Se o usuário digitou @username ou texto não numérico, tenta resolver
+            if(igActorId && !/^\d+$/.test(igActorId)){
+              const handle = igActorId.replace(/^@/,'').trim();
+              log(`[IG] Resolvendo @${handle} para ID numérico…`,'i');
+              try{
+                // Primeiro pega a conta IG da página (necessária para Business Discovery)
+                const pageIgId = await resolveIg(ad.pageId);
+                if(!pageIgId) throw new Error('Página sem Instagram vinculado para Business Discovery');
+                const br = await api(`/${pageIgId}`,'GET',{
+                  fields:`business_discovery.username(${handle}){id,username}`
+                });
+                if(br.business_discovery?.id){
+                  igActorId = br.business_discovery.id;
+                  log(`[IG] @${handle} → ${igActorId}`,'s');
+                } else {
+                  throw new Error('Conta não encontrada via Business Discovery');
+                }
+              } catch(e){
+                throw new Error(`Não foi possível resolver "${ad.igActorId}". Use o ID numérico do Instagram (ex: 17841412345678901) ou deixe o campo vazio para detecção automática. Detalhe: ${e.message}`);
+              }
+            }
             if(!igActorId && hasIgPl){
               igActorId = await resolveIg(ad.pageId);
             }
