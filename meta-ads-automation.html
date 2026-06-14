@@ -180,6 +180,9 @@ let S = loadState() || {
 // Nunca restaurar estado "conectado" – força nova autenticação
 S.connected = false;
 S.running = false;
+// Sempre começa sem conta selecionada — usuário escolhe manualmente
+S.selectedAccount = '';
+S.accounts = []; S.pages = []; S.pixels = []; S.catalogs = []; S.igCache = {};
 // Migração: se tiver token legado mas sem tokens[], cria um
 if(S.token && (!S.tokens || !S.tokens.length)){
   S.tokens = [{id:Date.now(), label:'Token 1', token:S.token}];
