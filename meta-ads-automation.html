@@ -152,12 +152,13 @@ const PL_MAP = {
 
 // ── Estado ────────────────────────────────────────────────────────────────────
 let S = loadState() || {
-  token:'',
+  tokens:[],          // [{id, label, token}] — múltiplos tokens (BMs diferentes)
+  token:'',           // legado: ainda preenchido com o token da conta ativa
   connected:false,
-  accounts:[],
+  accounts:[],        // cada conta tem _tokenId indicando qual token usar
   selectedAccount:'',
   pixels:[],
-  pages:[],
+  pages:[],           // cada página tem _tokenId
   catalogs:[],
   igCache:{},
   tab:'campaign',
@@ -179,6 +180,11 @@ let S = loadState() || {
 // Nunca restaurar estado "conectado" – força nova autenticação
 S.connected = false;
 S.running = false;
+// Migração: se tiver token legado mas sem tokens[], cria um
+if(S.token && (!S.tokens || !S.tokens.length)){
+  S.tokens = [{id:Date.now(), label:'Token 1', token:S.token}];
+}
+if(!Array.isArray(S.tokens)) S.tokens = [];
 
 function loadState(){
   try{ return JSON.parse(localStorage.getItem('maa_state')); }catch(e){ return null; }
@@ -213,9 +219,22 @@ function log(msg, type='i'){
   }
 }
 
+// ── Helpers de token ──────────────────────────────────────────────────────────
+function getTokenById(id){
+  return S.tokens.find(t=>t.id===id)?.token || '';
+}
+function getAccountToken(accountId){
+  const acc = S.accounts.find(a=>a.id===accountId);
+  if(acc && acc._tokenId) return getTokenById(acc._tokenId);
+  return S.token; // fallback
+}
+function getActiveToken(){
+  return getAccountToken(S.selectedAccount) || S.token || S.tokens[0]?.token || '';
+}
+
 // ── API ───────────────────────────────────────────────────────────────────────
 async function api(path, method='GET', data=null, tok=null){
-  const t = tok || S.token;
+  const t = tok || getActiveToken();
   let url = path.startsWith('http') ? path : GQL+path;
   const opts = {method, headers:{}};
 
@@ -241,7 +260,13 @@ async function api(path, method='GET', data=null, tok=null){
   return json;
 }
 
-async function apiForm(path, fd){
+async function apiForm(path, fd, tok=null){
+  // Garantir que o access_token correto está no FormData
+  const t = tok || getActiveToken();
+  if(t){
+    fd.delete('access_token');
+    fd.append('access_token', t);
+  }
   const res = await fetch(GQL+path, {method:'POST', body:fd});
   const json = await res.json();
   if(json.error) throw new Error(`(${json.error.code}) ${json.error.message}`);
@@ -250,37 +275,74 @@ async function apiForm(path, fd){
 
 // ── Conectar ──────────────────────────────────────────────────────────────────
 async function connect(){
-  const inp = $('tok');
-  S.token = inp ? inp.value.trim() : S.token;
-  if(!S.token) return;
+  if(!S.tokens.length){ alert('Adicione pelo menos 1 token antes de conectar.'); return; }
 
   const btn = $('btn-connect');
   if(btn){ btn.disabled=true; btn.textContent='Conectando...'; }
 
-  try {
-    // Contas
-    const r1 = await api('/me/adaccounts','GET',{fields:'id,name,account_id,currency',limit:200});
-    S.accounts = r1.data || [];
+  S.accounts = [];
+  S.pages = [];
+  const tokenErrors = [];
 
-    // Páginas (com access_token para uso posterior)
+  for(const tk of S.tokens){
+    if(!tk.token) continue;
     try {
-      const r2 = await api('/me/accounts','GET',{fields:'id,name,access_token',limit:200});
-      S.pages = r2.data || [];
-    } catch(e){ S.pages=[]; }
-
-    S.selectedAccount = S.accounts[0]?.id || '';
-    if(S.selectedAccount) await loadAccountAssets(S.selectedAccount);
-
-    S.connected = true;
-    log(`Conectado! ${S.accounts.length} conta(s) encontrada(s).`,'s');
-    S.tab = 'campaign';
-    saveState();
-    render();
-  } catch(e){
-    log('Erro: '+e.message,'e');
-    if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
-    alert('Erro ao conectar:\n'+e.message);
+      const r1 = await api('/me/adaccounts','GET',{fields:'id,name,account_id,currency',limit:500}, tk.token);
+      const accs = (r1.data || []).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label}));
+      S.accounts.push(...accs);
+    } catch(e){
+      tokenErrors.push(`[${tk.label}] ${e.message}`);
+    }
+    try {
+      const r2 = await api('/me/accounts','GET',{fields:'id,name,access_token',limit:500}, tk.token);
+      const pgs = (r2.data || []).map(p=>({...p, _tokenId:tk.id}));
+      S.pages.push(...pgs);
+    } catch(e){ /* sem páginas tudo bem */ }
   }
+
+  // Dedup contas (mesma conta pode aparecer em múltiplos tokens)
+  const seen = new Set();
+  S.accounts = S.accounts.filter(a=>{
+    if(seen.has(a.id)) return false;
+    seen.add(a.id); return true;
+  });
+
+  if(!S.accounts.length){
+    if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
+    const msg = tokenErrors.length ? '\n\nErros:\n'+tokenErrors.join('\n') : '';
+    alert('Nenhuma conta de anúncios encontrada.'+msg);
+    return;
+  }
+
+  S.selectedAccount = S.accounts[0].id;
+  S.token = getAccountToken(S.selectedAccount); // mantém legado consistente
+  await loadAccountAssets(S.selectedAccount);
+
+  S.connected = true;
+  log(`Conectado! ${S.accounts.length} conta(s) encontrada(s) em ${S.tokens.length} token(s).`,'s');
+  if(tokenErrors.length) tokenErrors.forEach(e=>log('⚠️ '+e,'w'));
+  S.tab = 'campaign';
+  saveState();
+  render();
+}
+
+function addToken(){
+  const labelInp = $('new-tok-label');
+  const tokInp = $('new-tok-value');
+  const label = (labelInp?.value || '').trim();
+  const token = (tokInp?.value || '').trim();
+  if(!label || !token){ alert('Preencha label e token.'); return; }
+  S.tokens.push({id:Date.now()+Math.random(), label, token});
+  saveState(); render();
+}
+function removeToken(id){
+  if(!confirm('Remover este token?')) return;
+  S.tokens = S.tokens.filter(t=>t.id!==id);
+  saveState(); render();
+}
+function editTokenLabel(id, newLabel){
+  const tk = S.tokens.find(t=>t.id===id);
+  if(tk){ tk.label = newLabel; saveState(); }
 }
 
 async function loadAccountAssets(accountId){
@@ -336,10 +398,10 @@ async function resolveIg(pageId){
 // ── Upload ────────────────────────────────────────────────────────────────────
 async function uploadImage(file, accountId){
   log(`Upload de imagem: ${file.name}…`,'i');
+  const tok = getAccountToken(accountId);
   const fd = new FormData();
-  fd.append('access_token', S.token);
   fd.append('filename', file, file.name);
-  const r = await apiForm(`/${accountId}/adimages`, fd);
+  const r = await apiForm(`/${accountId}/adimages`, fd, tok);
   const key = Object.keys(r.images)[0];
   log(`Imagem enviada. Hash: ${r.images[key].hash}`,'s');
   return r.images[key].hash;
@@ -347,16 +409,16 @@ async function uploadImage(file, accountId){
 
 async function uploadVideo(file, accountId){
   const sizeMB = (file.size/1024/1024).toFixed(1);
+  const tok = getAccountToken(accountId);
   log(`Upload de vídeo: ${file.name} (${sizeMB} MB)…`,'i');
 
   // Para vídeos < 15 MB, tenta upload direto (mais rápido)
   if(file.size < 15*1024*1024){
     try{
       const fd = new FormData();
-      fd.append('access_token', S.token);
       fd.append('source', file, file.name);
       fd.append('title', file.name);
-      const r = await apiForm(`/${accountId}/advideos`, fd);
+      const r = await apiForm(`/${accountId}/advideos`, fd, tok);
       log(`Vídeo enviado. ID: ${r.id}`,'s');
       return r.id;
     } catch(e){
@@ -367,10 +429,9 @@ async function uploadVideo(file, accountId){
   // Upload em chunks (resumable) — para vídeos grandes
   // Fase 1: start
   const startFd = new FormData();
-  startFd.append('access_token', S.token);
   startFd.append('upload_phase', 'start');
   startFd.append('file_size', file.size);
-  const startR = await apiForm(`/${accountId}/advideos`, startFd);
+  const startR = await apiForm(`/${accountId}/advideos`, startFd, tok);
   const sessionId = startR.upload_session_id;
   const videoId = startR.video_id;
   let startOffset = parseInt(startR.start_offset);
@@ -381,12 +442,11 @@ async function uploadVideo(file, accountId){
   while(startOffset < endOffset){
     const chunk = file.slice(startOffset, endOffset);
     const transferFd = new FormData();
-    transferFd.append('access_token', S.token);
     transferFd.append('upload_phase', 'transfer');
     transferFd.append('upload_session_id', sessionId);
     transferFd.append('start_offset', startOffset);
     transferFd.append('video_file_chunk', chunk, file.name);
-    const tr = await apiForm(`/${accountId}/advideos`, transferFd);
+    const tr = await apiForm(`/${accountId}/advideos`, transferFd, tok);
     const pct = ((parseInt(tr.start_offset)/file.size)*100).toFixed(0);
     log(`  ↳ ${pct}% (${(parseInt(tr.start_offset)/1024/1024).toFixed(1)}/${sizeMB} MB)`,'i');
     startOffset = parseInt(tr.start_offset);
@@ -395,10 +455,9 @@ async function uploadVideo(file, accountId){
 
   // Fase 3: finish
   const finishFd = new FormData();
-  finishFd.append('access_token', S.token);
   finishFd.append('upload_phase', 'finish');
   finishFd.append('upload_session_id', sessionId);
-  await apiForm(`/${accountId}/advideos`, finishFd);
+  await apiForm(`/${accountId}/advideos`, finishFd, tok);
 
   log(`Vídeo enviado. ID: ${videoId}`,'s');
   return videoId;
@@ -941,19 +1000,37 @@ function buildLogin(){
   <div class="card">
     <h2>Conectar à API do Meta</h2>
     <div class="info-box">
-      ℹ️ Este arquivo precisa ser servido via HTTPS para funcionar. Use o
-      <strong>Netlify Drop</strong> (app.netlify.com/drop) ou hospede no seu servidor.
+      ℹ️ Adicione 1 ou mais tokens (1 por Business Manager). A automação vai juntar todas as contas de anúncios de todos os tokens no mesmo dropdown.
     </div>
-    <div class="fg">
-      <label>Token de Acesso (System User)</label>
-      <input type="password" id="tok" value="${esc(S.token)}"
-        placeholder="Cole o token aqui"
-        oninput="S.token=this.value.trim(); checkTok()"
-        onpaste="setTimeout(()=>{S.token=this.value.trim();checkTok()},10)"
-        onkeyup="S.token=this.value.trim();checkTok()">
+
+    ${S.tokens.length ? `
+    <h3 style="margin-top:14px">Tokens cadastrados (${S.tokens.length})</h3>
+    ${S.tokens.map(t=>`
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;border:1px solid #e4e6eb;border-radius:8px;padding:8px">
+        <input style="flex:1;max-width:200px" value="${esc(t.label)}" placeholder="Label (BM)" oninput="editTokenLabel(${t.id},this.value)">
+        <input style="flex:2" type="password" value="${esc(t.token)}" readonly placeholder="Token...">
+        <button class="btn btn-red btn-sm" onclick="removeToken(${t.id})">Remover</button>
+      </div>
+    `).join('')}
+    ` : ''}
+
+    <h3 style="margin-top:14px">Adicionar token</h3>
+    <div class="row">
+      <div class="fg">
+        <label>Label / Nome da BM</label>
+        <input id="new-tok-label" placeholder="Ex: Roi Ventures, AdvertSoluti, Estilo Dub…">
+      </div>
+      <div class="fg">
+        <label>Token de Acesso</label>
+        <input id="new-tok-value" type="password" placeholder="Cole o token aqui">
+      </div>
     </div>
+    <button class="btn btn-gray" onclick="addToken()">+ Adicionar token</button>
+
+    <hr style="margin:18px 0">
+
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <button class="btn btn-blue" id="btn-connect" onclick="connect()" ${S.token.length>10?'':'disabled'}>Conectar</button>
+      <button class="btn btn-blue" id="btn-connect" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
       <button class="btn btn-gray" onclick="importConfig()">📂 Importar config</button>
       <button class="btn btn-gray" onclick="exportConfig()">💾 Exportar config</button>
     </div>
@@ -961,11 +1038,6 @@ function buildLogin(){
       ${S.log.map(l=>`<div class="lg ${l.type}">[${l.t}] ${esc(l.msg)}</div>`).join('')}
     </div>
   </div>`;
-}
-
-function checkTok(){
-  const b=$('btn-connect');
-  if(b) b.disabled = S.token.length < 10;
 }
 
 function buildMain(){
@@ -983,8 +1055,21 @@ function buildMain(){
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
       <div class="connected"><div class="dot"></div>Conectado</div>
-      <select style="width:auto;padding:6px 10px" onchange="changeAcct(this.value)">
-        ${S.accounts.map(a=>`<option value="${esc(a.id)}" ${a.id===S.selectedAccount?'selected':''}>${esc(a.name)}${a.currency&&a.currency!=='BRL'?` [${a.currency}]`:''}</option>`).join('')}
+      <select style="width:auto;padding:6px 10px;max-width:480px" onchange="changeAcct(this.value)">
+        ${(()=>{
+          // Agrupa contas por BM (label do token)
+          const groups = {};
+          S.accounts.forEach(a=>{
+            const key = a._tokenLabel || 'Outros';
+            if(!groups[key]) groups[key] = [];
+            groups[key].push(a);
+          });
+          return Object.entries(groups).map(([label, accs])=>`
+            <optgroup label="${esc(label)} (${accs.length})">
+              ${accs.map(a=>`<option value="${esc(a.id)}" ${a.id===S.selectedAccount?'selected':''}>${esc(a.name)}${a.currency&&a.currency!=='BRL'?` [${a.currency}]`:''}</option>`).join('')}
+            </optgroup>
+          `).join('');
+        })()}
       </select>
       <div style="display:flex;gap:6px">
         <button class="btn btn-gray btn-sm" onclick="importConfig()" title="Importar configuração">📂</button>
@@ -1525,7 +1610,7 @@ function buildLog(){
 // ── Export / Import config ────────────────────────────────────────────────────
 function exportConfig(){
   const cfg = {
-    token: S.token,
+    tokens: S.tokens,
     camp: S.camp,
     adsets: S.adsets.map(a=>({...a, id:a.id})),
     ads: S.ads.map(a=>({...a, imageFile:null, videoFile:null}))
@@ -1549,7 +1634,14 @@ function importConfig(){
         if(cfg.camp) S.camp = cfg.camp;
         if(cfg.adsets) S.adsets = cfg.adsets;
         if(cfg.ads) S.ads = cfg.ads;
-        if(cfg.token) S.token = cfg.token;
+        if(cfg.tokens && Array.isArray(cfg.tokens)) S.tokens = cfg.tokens;
+        else if(cfg.token){
+          // legacy: arquivos antigos com 1 token só
+          S.tokens = S.tokens || [];
+          if(!S.tokens.find(t=>t.token===cfg.token)){
+            S.tokens.push({id:Date.now(), label:'Importado', token:cfg.token});
+          }
+        }
         saveState(); render();
         alert('Configuração importada com sucesso!');
       } catch(err){ alert('Erro ao importar: arquivo inválido'); }
@@ -1561,9 +1653,17 @@ function importConfig(){
 
 // ── Misc ──────────────────────────────────────────────────────────────────────
 function setTab(t){ S.tab=t; render(); }
-function disconnect(){ S.connected=false; S.token=''; S.log=[]; saveState(); render(); }
+function disconnect(){
+  // Mantém os tokens cadastrados — só "desloga"
+  S.connected=false; S.log=[]; S.accounts=[]; S.pages=[]; S.pixels=[]; S.catalogs=[]; S.igCache={};
+  saveState(); render();
+}
 async function changeAcct(id){
-  S.selectedAccount=id; await loadAccountAssets(id); saveState(); render();
+  S.selectedAccount=id;
+  S.token = getAccountToken(id); // legado: mantém consistência
+  S.igCache = {}; // limpa cache de IG (token pode ser diferente)
+  await loadAccountAssets(id);
+  saveState(); render();
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
