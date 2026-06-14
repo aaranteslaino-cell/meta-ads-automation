@@ -676,7 +676,9 @@ async function run(){
           log(`Criando anúncio: ${ad.name}…`,'i');
           try {
             const linkUrl = https(ad.linkUrl);
-            const linkWithUtm = ad.utm ? linkUrl+(linkUrl.includes('?')?'&':'?')+ad.utm : linkUrl;
+            // UTM agora vai para url_tags (campo "Parâmetros de URL" no Meta Ads Manager),
+            // não mais concatenado na URL do link
+            const linkWithUtm = linkUrl;
 
             // Verificar se precisa de IG actor (Instagram nos posicionamentos ou automático)
             const hasIgPl = adset.placementType==='auto' ||
@@ -870,12 +872,15 @@ async function run(){
             log(`[Creative body] ${JSON.stringify(creativeBody)}`,'i');
             const crR = await api(`/${acct}/adcreatives`,'POST',creativeBody);
 
-            const adR = await api(`/${acct}/ads`,'POST',{
+            const adBody = {
               name: ad.name,
               adset_id: adsetR.id,
               creative:{ creative_id: crR.id },
               status: c.status
-            });
+            };
+            // UTM vai no url_tags do anúncio (campo "Parâmetros de URL" no Meta)
+            if(ad.utm?.trim()) adBody.url_tags = ad.utm.trim();
+            const adR = await api(`/${acct}/ads`,'POST',adBody);
             log(`✓ Anúncio criado: ${adR.id}`,'s');
 
           } catch(e){
