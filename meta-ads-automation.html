@@ -529,6 +529,14 @@ async function run(){
         const needsPixel = c.objective === 'OUTCOME_SALES' ||
           (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm);
 
+        // Detecta se algum anúncio terá múltiplas variações (asset_feed_spec)
+        // — nesse caso o conjunto precisa ser dinâmico
+        const anyMultiVariation = S.ads.some(ad=>{
+          const ts = (ad.texts||[]).filter(t=>t?.trim());
+          const hs = (ad.headlines||[]).filter(h=>h?.trim());
+          return ts.length > 1 || hs.length > 1;
+        });
+
         const adsetBody = {
           name: adsetName,
           campaign_id: campR.id,
@@ -537,6 +545,7 @@ async function run(){
           optimization_goal: optGoal,
           targeting: buildTargeting(adset)
         };
+        if(anyMultiVariation) adsetBody.is_dynamic_creative = true;
 
         const bidRequiresAmount = ['LOWEST_COST_WITH_BID_CAP','COST_CAP','MINIMUM_ROAS'].includes(c.bidStrategy);
         if(bidRequiresAmount && adset.bidAmount && parseFloat(adset.bidAmount) > 0){
