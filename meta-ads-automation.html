@@ -694,14 +694,22 @@ async function run(){
               if(!videoId && ad.videoFile) videoId = await uploadVideo(ad.videoFile, acct);
               if(!videoId) throw new Error('ID do vídeo não encontrado');
 
-              // Aguarda a Meta processar o vídeo (status: ready) — até 3 minutos
+              // Aguarda a Meta processar o vídeo (status: ready) — até 8 minutos
               log(`  ↳ Aguardando processamento do vídeo…`,'i');
               let videoReady = false;
-              for(let attempt=0; attempt<90; attempt++){
-                await sleep(2000);
+              let lastStatus = '';
+              let consecutiveErrors = 0;
+              for(let attempt=0; attempt<160; attempt++){
+                await sleep(3000);
                 try{
                   const sr = await api(`/${videoId}`,'GET',{fields:'status'});
-                  const status = sr.status?.video_status || 'processing';
+                  consecutiveErrors = 0;
+                  // status pode vir como string ou como objeto { video_status, processing_progress }
+                  let status, progress;
+                  if(typeof sr.status === 'string'){ status = sr.status; }
+                  else { status = sr.status?.video_status; progress = sr.status?.processing_progress; }
+                  status = status || 'processing';
+
                   if(status === 'ready'){
                     log(`  ↳ Vídeo processado e pronto`,'s');
                     videoReady = true;
@@ -710,13 +718,20 @@ async function run(){
                   if(status === 'error'){
                     throw new Error(`Meta retornou erro no processamento: ${JSON.stringify(sr.status)}`);
                   }
-                  if(attempt % 5 === 0) log(`  ↳ Status: ${status}…`,'i');
+                  // Log a cada 15 segundos com progresso (se disponível)
+                  if(status !== lastStatus || attempt % 5 === 0){
+                    const pctMsg = (progress!=null) ? ` (${progress}%)` : '';
+                    log(`  ↳ Status: ${status}${pctMsg}…`,'i');
+                    lastStatus = status;
+                  }
                 } catch(e){
                   if(e.message.includes('processamento')) throw e;
-                  /* permission errors on status endpoint — tenta de novo */
+                  consecutiveErrors++;
+                  if(consecutiveErrors >= 3) log(`  ↳ ⚠️ Erro consultando status (${e.message}). Continuando tentativa…`,'w');
+                  if(consecutiveErrors >= 20) throw new Error(`Falhou ao consultar status do vídeo: ${e.message}`);
                 }
               }
-              if(!videoReady) throw new Error('Tempo esgotado esperando processamento do vídeo (>3min). Tenta novamente em alguns minutos.');
+              if(!videoReady) throw new Error('Tempo esgotado esperando processamento do vídeo (>8min). Tenta novamente ou faz upload manual via Meta Ads Manager e cola o ID.');
 
               // Busca thumbnail (geralmente já está disponível quando o vídeo está ready)
               let thumbUrl = '';
