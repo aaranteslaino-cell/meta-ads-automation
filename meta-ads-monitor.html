@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta Ads — Monitor Ao Vivo</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1c1e21;min-height:100vh}
+.wrap{max-width:1400px;margin:0 auto;padding:20px}
+.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+h1{color:#1877f2;font-size:22px;margin-bottom:2px}
+h2{font-size:17px;margin-bottom:14px}
+h3{font-size:14px;margin-bottom:10px;color:#444}
+.btn{padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-blue{background:#1877f2;color:#fff}.btn-blue:not(:disabled):hover{background:#1465d8}
+.btn-gray{background:#e4e6eb;color:#1c1e21}.btn-gray:not(:disabled):hover{background:#d0d2d8}
+.btn-red{background:#fa3e3e;color:#fff}.btn-red:not(:disabled):hover{background:#d32f2f}
+.btn-sm{padding:5px 10px;font-size:12px}
+.fg{margin-bottom:12px}
+label{display:block;font-size:12px;font-weight:700;color:#65676b;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+input,select{width:100%;padding:8px 11px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;transition:border-color .15s;background:#fff}
+input:focus,select:focus{outline:none;border-color:#1877f2}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row > *{flex:0 0 auto}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:999px;background:#f0f2f5;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;border:none;color:#1c1e21}
+.chip:hover{background:#e4e6eb}
+.chip.active{background:#1877f2;color:#fff}
+.connected{display:flex;align-items:center;gap:6px;font-size:13px;color:#42b72a;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:#42b72a;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+.bread{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;padding:10px 14px;background:#f7f8fa;border-radius:8px}
+.bread a{color:#1877f2;text-decoration:none;cursor:pointer;font-weight:500}
+.bread a:hover{text-decoration:underline}
+.bread .sep{color:#888}
+.bread .cur{color:#1c1e21;font-weight:600}
+table{width:100%;border-collapse:collapse}
+th,td{padding:11px 12px;text-align:left;border-bottom:1px solid #eee;font-size:13px}
+th{font-weight:700;font-size:11px;color:#65676b;text-transform:uppercase;letter-spacing:.3px;background:#f7f8fa;cursor:pointer;user-select:none;position:sticky;top:0}
+th:hover{background:#eef0f3}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.row-link{cursor:pointer;transition:background .12s}
+tr.row-link:hover{background:#f7f8fa}
+tr.row-link td:first-child{color:#1877f2;font-weight:500}
+tr.total{background:#f7f8fa;font-weight:700}
+tr.total td{border-top:2px solid #1877f2;border-bottom:none}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
+.b-green{background:#e6f4ea;color:#137333}
+.b-orange{background:#fef3e2;color:#c47a00}
+.b-red{background:#fce8e6;color:#c5221f}
+.b-gray{background:#eef0f3;color:#65676b}
+.info-box{background:#e7f0fd;border-radius:8px;padding:10px 14px;font-size:13px;color:#1877f2}
+.warn-box{background:#fef3e2;border-radius:8px;padding:10px 14px;font-size:13px;color:#c47a00}
+.err-box{background:#fce8e6;border-radius:8px;padding:10px 14px;font-size:13px;color:#c5221f}
+.loading{display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#1877f2;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{padding:40px;text-align:center;color:#888;font-style:italic}
+.tbl-wrap{max-height:600px;overflow:auto;border-radius:8px;border:1px solid #eee}
+.right{text-align:right}
+.acct-tag{display:inline-block;padding:1px 6px;background:#eef0f3;border-radius:8px;font-size:10px;color:#65676b;font-weight:600;margin-left:6px}
+.refresh-info{display:flex;align-items:center;gap:6px;font-size:12px;color:#888}
+hr{border:none;border-top:1px solid #e4e6eb;margin:14px 0}
+.token-item{display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 10px;background:#f7f8fa;border-radius:6px;font-size:13px}
+.token-item .lbl{font-weight:600;color:#1877f2}
+.token-item .id{color:#888;font-family:monospace;font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Meta Ads — Monitor Ao Vivo</h1>
+    <p style="color:#888;font-size:13px">Acompanhamento em tempo real de campanhas, conjuntos e anúncios</p>
+  </div>
+  <div id="root"></div>
+</div>
+
+<script>
+const GQL = 'https://graph.facebook.com/v21.0';
+
+// ── Estado ────────────────────────────────────────────────────────────────────
+let S = loadState() || {
+  tokens:[],
+  connected:false,
+  accounts:[],
+  view:'accounts',   // accounts | campaigns | adsets | ads
+  path:[],           // [{type, id, name}] breadcrumb
+  period:'today',    // today | yesterday | last_7d | last_30d | last_14d
+  showPaused:false,
+  autoRefresh:true,
+  sortBy:'spend',
+  sortDir:'desc',
+  data:[],           // current view data
+  lastRefresh:null,
+  refreshing:false
+};
+S.refreshing = false;
+
+function loadState(){
+  try{ return JSON.parse(localStorage.getItem('mam_state')); }catch(e){ return null; }
+}
+function saveState(){
+  try{
+    const save = {...S, data:[], refreshing:false};
+    localStorage.setItem('mam_state', JSON.stringify(save));
+  }catch(e){}
+}
+
+// Reaproveita tokens da automação de subir campanhas (mesma chave de localStorage)
+function loadSharedTokens(){
+  try{
+    const maa = JSON.parse(localStorage.getItem('maa_state'));
+    if(maa?.tokens?.length){
+      // se nosso state não tem tokens, importa
+      if(!S.tokens.length){
+        S.tokens = maa.tokens;
+        saveState();
+      }
+    }
+  }catch(e){}
+}
+loadSharedTokens();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const sleep = ms => new Promise(r=>setTimeout(r,ms));
+const fmtMoney = (v, cur='BRL') => {
+  const n = parseFloat(v)||0;
+  if(cur==='BRL') return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(cur==='USD') return 'US$ '+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  return cur+' '+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+};
+const fmtNum = v => Math.round(parseFloat(v)||0).toLocaleString('pt-BR');
+const fmtPct = v => (parseFloat(v)||0).toFixed(2)+'%';
+
+function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
+
+// ── API ───────────────────────────────────────────────────────────────────────
+async function api(path, params={}, token=null){
+  let url = path.startsWith('http') ? path : GQL+path;
+  const sep = url.includes('?') ? '&' : '?';
+  url += sep+'access_token='+encodeURIComponent(token);
+  Object.entries(params).forEach(([k,v])=>{
+    url += '&'+encodeURIComponent(k)+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v);
+  });
+  const res = await fetch(url);
+  const json = await res.json();
+  if(json.error){
+    const e = json.error;
+    throw new Error(`(${e.code}${e.error_subcode?'/'+e.error_subcode:''}) ${e.message}`);
+  }
+  return json;
+}
+
+// ── Conectar (carrega todas contas) ───────────────────────────────────────────
+async function connect(){
+  if(!S.tokens.length){ alert('Nenhum token cadastrado. Cadastre na automação de subir campanhas ou adicione abaixo.'); return; }
+
+  const btn = $('btn-connect');
+  if(btn){ btn.disabled=true; btn.textContent='Conectando…'; }
+
+  S.accounts = [];
+  const errs = [];
+
+  for(const tk of S.tokens){
+    if(!tk.token) continue;
+    try{
+      const r = await api('/me/adaccounts',{fields:'id,name,account_id,currency,account_status',limit:500}, tk.token);
+      const accs = (r.data||[]).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label}));
+      S.accounts.push(...accs);
+    }catch(e){ errs.push(`[${tk.label}] ${e.message}`); }
+  }
+
+  // dedup
+  const seen = new Set();
+  S.accounts = S.accounts.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
+
+  if(!S.accounts.length){
+    if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
+    alert('Nenhuma conta encontrada.'+(errs.length?'\n\n'+errs.join('\n'):''));
+    return;
+  }
+
+  S.connected = true;
+  S.view = 'accounts';
+  S.path = [];
+  saveState();
+  render();
+  await refreshData();
+  scheduleAutoRefresh();
+}
+
+function disconnect(){
+  S.connected=false; S.accounts=[]; S.data=[]; S.path=[]; S.view='accounts';
+  if(autoTimer) clearTimeout(autoTimer);
+  saveState(); render();
+}
+
+// ── Tokens ────────────────────────────────────────────────────────────────────
+function addToken(){
+  const label = $('new-tok-label').value.trim();
+  const token = $('new-tok-value').value.trim();
+  if(!label || !token){ alert('Preencha label e token.'); return; }
+  S.tokens.push({id:Date.now()+Math.random(), label, token});
+  saveState(); render();
+}
+function removeToken(id){
+  if(!confirm('Remover este token?')) return;
+  S.tokens = S.tokens.filter(t=>t.id!==id);
+  saveState(); render();
+}
+
+// ── Fetch insights ────────────────────────────────────────────────────────────
+const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,inline_link_clicks,inline_link_click_ctr';
+
+async function fetchInsights(parentId, level, tokenId){
+  const tok = getTokenById(tokenId);
+  if(!tok) throw new Error('Token não encontrado');
+  const params = {
+    level,
+    fields: `${INSIGHT_FIELDS},campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name`,
+    date_preset: S.period,
+    limit: 500
+  };
+  const path = level === 'campaign' ? `/${parentId}/insights`
+            : level === 'adset' ? `/${parentId}/insights`
+            : `/${parentId}/insights`;
+  // Para nível conta, parentId = act_XXX
+  const r = await api(path, params, tok);
+  return r.data || [];
+}
+
+async function fetchEntityList(parentId, level, tokenId){
+  const tok = getTokenById(tokenId);
+  const fields = 'id,name,status,effective_status';
+  let path;
+  if(level==='campaign') path = `/${parentId}/campaigns`;
+  else if(level==='adset') path = `/${parentId}/adsets`;
+  else if(level==='ad') path = `/${parentId}/ads`;
+  const r = await api(path, {fields, limit:500}, tok);
+  return r.data || [];
+}
+
+function mergeInsightsAndEntities(insights, entities, idField){
+  // entities tem id, name, status
+  // insights tem campaign_id/name etc. + métricas
+  const byId = {};
+  entities.forEach(e=>{ byId[e.id] = {...e, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0}; });
+  insights.forEach(ins=>{
+    const id = ins[idField];
+    if(!id) return;
+    if(!byId[id]) byId[id] = {id, name: ins[idField.replace('_id','_name')]||id, status:'?', effective_status:'?'};
+    Object.assign(byId[id], {
+      spend: parseFloat(ins.spend)||0,
+      impressions: parseInt(ins.impressions)||0,
+      clicks: parseInt(ins.clicks)||0,
+      reach: parseInt(ins.reach)||0,
+      frequency: parseFloat(ins.frequency)||0,
+      ctr: parseFloat(ins.ctr)||0,
+      cpc: parseFloat(ins.cpc)||0,
+      cpm: parseFloat(ins.cpm)||0
+    });
+  });
+  return Object.values(byId);
+}
+
+async function refreshData(){
+  if(S.refreshing) return;
+  S.refreshing = true;
+  render();
+
+  try{
+    if(S.view === 'accounts'){
+      // Para cada conta, busca summary insights
+      const promises = S.accounts.map(async acc=>{
+        try{
+          const data = await fetchInsights(acc.id, 'account', acc._tokenId);
+          const ins = data[0] || {};
+          return {
+            ...acc,
+            spend: parseFloat(ins.spend)||0,
+            impressions: parseInt(ins.impressions)||0,
+            clicks: parseInt(ins.clicks)||0,
+            ctr: parseFloat(ins.ctr)||0,
+            cpc: parseFloat(ins.cpc)||0,
+            cpm: parseFloat(ins.cpm)||0,
+            reach: parseInt(ins.reach)||0,
+            frequency: parseFloat(ins.frequency)||0,
+            _error: null
+          };
+        }catch(e){
+          return {...acc, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, _error:e.message};
+        }
+      });
+      S.data = await Promise.all(promises);
+    } else {
+      // View campaigns / adsets / ads
+      const last = S.path[S.path.length-1];
+      const tokenId = last._tokenId;
+      const level = S.view === 'campaigns' ? 'campaign' : S.view === 'adsets' ? 'adset' : 'ad';
+      const idField = level + '_id';
+
+      const insights = await fetchInsights(last.id, level, tokenId);
+      let entities = [];
+      try{ entities = await fetchEntityList(last.id, level, tokenId); }
+      catch(e){ /* sem entidade — usa insights apenas */ }
+
+      let merged = mergeInsightsAndEntities(insights, entities, idField);
+
+      if(!S.showPaused){
+        merged = merged.filter(e=>{
+          const st = (e.effective_status||e.status||'').toUpperCase();
+          return st === 'ACTIVE' || e.spend > 0;
+        });
+      }
+
+      // Inserir currency da conta-mãe
+      const acct = S.path.find(p=>p.type==='account');
+      merged.forEach(m=>{ m._currency = acct?.currency || 'BRL'; m._tokenId = tokenId; });
+
+      S.data = merged;
+    }
+
+    sortData();
+    S.lastRefresh = new Date();
+  }catch(e){
+    console.error(e);
+    alert('Erro ao buscar dados:\n'+e.message);
+  }finally{
+    S.refreshing = false;
+    render();
+  }
+}
+
+function sortData(){
+  const dir = S.sortDir === 'asc' ? 1 : -1;
+  S.data.sort((a,b)=>{
+    let av = a[S.sortBy], bv = b[S.sortBy];
+    if(typeof av === 'string') return av.localeCompare(bv) * dir;
+    return ((av||0) - (bv||0)) * dir;
+  });
+}
+
+// ── Auto-refresh ──────────────────────────────────────────────────────────────
+let autoTimer = null;
+let countdownTimer = null;
+let countdownEnd = null;
+function scheduleAutoRefresh(){
+  if(autoTimer) clearTimeout(autoTimer);
+  if(countdownTimer) clearInterval(countdownTimer);
+  if(!S.autoRefresh || !S.connected) return;
+  countdownEnd = Date.now() + 5*60*1000;
+  countdownTimer = setInterval(()=>{
+    const el = $('countdown');
+    if(el && countdownEnd){
+      const ms = Math.max(0, countdownEnd - Date.now());
+      const m = Math.floor(ms/60000), s = Math.floor((ms%60000)/1000);
+      el.textContent = `${m}:${String(s).padStart(2,'0')}`;
+    }
+  }, 1000);
+  autoTimer = setTimeout(async()=>{
+    await refreshData();
+    scheduleAutoRefresh();
+  }, 5*60*1000);
+}
+
+// ── Drill-down ────────────────────────────────────────────────────────────────
+async function drillInto(item){
+  if(S.view === 'accounts'){
+    S.path = [{type:'account', id:item.id, name:item.name, currency:item.currency, _tokenId:item._tokenId}];
+    S.view = 'campaigns';
+  } else if(S.view === 'campaigns'){
+    S.path.push({type:'campaign', id:item.id, name:item.name, _tokenId:S.path[0]._tokenId});
+    S.view = 'adsets';
+  } else if(S.view === 'adsets'){
+    S.path.push({type:'adset', id:item.id, name:item.name, _tokenId:S.path[0]._tokenId});
+    S.view = 'ads';
+  } else return;
+  saveState(); render();
+  await refreshData();
+}
+
+function goTo(level){
+  if(level === 'accounts'){
+    S.path = []; S.view = 'accounts';
+  } else if(level === 'campaigns'){
+    S.path = S.path.slice(0,1); S.view = 'campaigns';
+  } else if(level === 'adsets'){
+    S.path = S.path.slice(0,2); S.view = 'adsets';
+  }
+  saveState(); render();
+  refreshData();
+}
+
+function setPeriod(p){ S.period = p; saveState(); refreshData(); }
+function setSort(col){
+  if(S.sortBy === col){ S.sortDir = S.sortDir === 'asc' ? 'desc' : 'asc'; }
+  else { S.sortBy = col; S.sortDir = 'desc'; }
+  sortData(); render();
+}
+function togglePaused(){ S.showPaused = !S.showPaused; saveState(); refreshData(); }
+function toggleAutoRefresh(){
+  S.autoRefresh = !S.autoRefresh; saveState();
+  if(S.autoRefresh) scheduleAutoRefresh();
+  else { if(autoTimer) clearTimeout(autoTimer); if(countdownTimer) clearInterval(countdownTimer); }
+  render();
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(){
+  $('root').innerHTML = !S.connected ? buildLogin() : buildMain();
+}
+
+function buildLogin(){
+  return `
+  <div class="card">
+    <h2>Conectar à API do Meta</h2>
+    <div class="info-box">
+      ℹ️ Adicione 1 ou mais tokens (1 por BM). Se você já cadastrou tokens na automação de subir campanhas, eles foram importados automaticamente.
+    </div>
+    ${S.tokens.length ? `
+    <h3 style="margin-top:14px">Tokens cadastrados (${S.tokens.length})</h3>
+    ${S.tokens.map(t=>`
+      <div class="token-item">
+        <span class="lbl">${esc(t.label)}</span>
+        <span class="id">${esc(t.token.substring(0,20))}…</span>
+        <span style="flex:1"></span>
+        <button class="btn btn-red btn-sm" onclick="removeToken(${t.id})">Remover</button>
+      </div>
+    `).join('')}
+    ` : '<p style="color:#888;margin:14px 0">Nenhum token. Adicione um abaixo.</p>'}
+
+    <h3 style="margin-top:14px">Adicionar token</h3>
+    <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px">
+      <input id="new-tok-label" placeholder="Label (ex: Roi Ventures)">
+      <input id="new-tok-value" type="password" placeholder="Cole o token">
+    </div>
+    <button class="btn btn-gray" style="margin-top:8px" onclick="addToken()">+ Adicionar token</button>
+
+    <hr>
+    <button class="btn btn-blue" id="btn-connect" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
+  </div>`;
+}
+
+function buildMain(){
+  return `
+  ${buildHeader()}
+  ${buildFilters()}
+  ${buildBreadcrumb()}
+  ${buildTable()}`;
+}
+
+function buildHeader(){
+  const total = S.data.reduce((s,r)=>s + (r.spend||0), 0);
+  return `
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="connected"><div class="dot"></div>Conectado · ${S.accounts.length} conta(s)</div>
+      <div class="refresh-info">
+        ${S.refreshing ? '<span class="loading"></span> Atualizando…' : ''}
+        ${S.lastRefresh && !S.refreshing ? `Última: ${S.lastRefresh.toLocaleTimeString('pt-BR')}` : ''}
+        ${S.autoRefresh && !S.refreshing ? ` · Próxima em <span id="countdown">5:00</span>` : ''}
+      </div>
+      <div class="row">
+        <button class="btn btn-gray btn-sm" onclick="refreshData()" ${S.refreshing?'disabled':''}>🔄 Atualizar</button>
+        <button class="btn btn-gray btn-sm" onclick="disconnect()">Desconectar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildFilters(){
+  const periods = [
+    {v:'today', l:'Hoje'},
+    {v:'yesterday', l:'Ontem'},
+    {v:'last_3d', l:'3 dias'},
+    {v:'last_7d', l:'7 dias'},
+    {v:'last_14d', l:'14 dias'},
+    {v:'last_30d', l:'30 dias'}
+  ];
+  return `
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="row">
+        <span style="font-size:12px;color:#888;font-weight:600;margin-right:4px">PERÍODO:</span>
+        ${periods.map(p=>`<button class="chip ${S.period===p.v?'active':''}" onclick="setPeriod('${p.v}')">${p.l}</button>`).join('')}
+      </div>
+      <div class="row">
+        <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;margin:0;color:#1c1e21">
+          <input type="checkbox" style="width:auto" ${S.showPaused?'checked':''} onchange="togglePaused()">
+          Mostrar pausados
+        </label>
+        <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;margin:0;color:#1c1e21">
+          <input type="checkbox" style="width:auto" ${S.autoRefresh?'checked':''} onchange="toggleAutoRefresh()">
+          Auto-refresh (5min)
+        </label>
+      </div>
+    </div>
+  </div>`;
+}
+
+function buildBreadcrumb(){
+  const parts = [];
+  parts.push(`<a onclick="goTo('accounts')">📊 Todas contas</a>`);
+  if(S.path[0]){
+    parts.push(`<span class="sep">›</span>`);
+    if(S.view === 'campaigns') parts.push(`<span class="cur">${esc(S.path[0].name)}</span>`);
+    else parts.push(`<a onclick="goTo('campaigns')">${esc(S.path[0].name)}</a>`);
+  }
+  if(S.path[1]){
+    parts.push(`<span class="sep">›</span>`);
+    if(S.view === 'adsets') parts.push(`<span class="cur">${esc(S.path[1].name)}</span>`);
+    else parts.push(`<a onclick="goTo('adsets')">${esc(S.path[1].name)}</a>`);
+  }
+  if(S.path[2]){
+    parts.push(`<span class="sep">›</span>`);
+    parts.push(`<span class="cur">${esc(S.path[2].name)}</span>`);
+  }
+  return `<div class="card"><div class="bread">${parts.join('')}</div></div>`;
+}
+
+function buildTable(){
+  const cols = [
+    {k:'name', l:'Nome', num:false},
+    {k:'spend', l:'Gasto', num:true},
+    {k:'impressions', l:'Impressões', num:true},
+    {k:'clicks', l:'Cliques', num:true},
+    {k:'ctr', l:'CTR', num:true},
+    {k:'cpc', l:'CPC', num:true},
+    {k:'cpm', l:'CPM', num:true}
+  ];
+  if(S.view !== 'accounts') cols.splice(1,0,{k:'effective_status', l:'Status', num:false});
+
+  const showName = S.view === 'accounts' ? 'Conta' : S.view === 'campaigns' ? 'Campanha' : S.view === 'adsets' ? 'Conjunto' : 'Anúncio';
+  cols[0].l = showName;
+
+  // Total row
+  const tot = S.data.reduce((t,r)=>{
+    t.spend += r.spend||0;
+    t.impressions += r.impressions||0;
+    t.clicks += r.clicks||0;
+    return t;
+  }, {spend:0, impressions:0, clicks:0});
+  tot.ctr = tot.impressions ? (tot.clicks/tot.impressions*100) : 0;
+  tot.cpc = tot.clicks ? (tot.spend/tot.clicks) : 0;
+  tot.cpm = tot.impressions ? (tot.spend/tot.impressions*1000) : 0;
+
+  // Mistura de currencies: mostra resumo por currency
+  const byCur = {};
+  S.data.forEach(r=>{
+    const cur = r.currency || r._currency || 'BRL';
+    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0};
+    byCur[cur].spend += r.spend||0;
+    byCur[cur].impressions += r.impressions||0;
+    byCur[cur].clicks += r.clicks||0;
+  });
+
+  const mainCur = S.view === 'accounts' ? null : (S.path[0]?.currency || 'BRL');
+
+  return `
+  <div class="card">
+    <h2>${S.view==='accounts'?'Contas de Anúncios':S.view==='campaigns'?'Campanhas':S.view==='adsets'?'Conjuntos':'Anúncios'}
+      <span style="font-weight:400;color:#888;font-size:13px">(${S.data.length})</span>
+    </h2>
+    ${S.data.length === 0 ? `
+      <div class="empty">
+        ${S.refreshing ? '<span class="loading"></span> Buscando dados…' : 'Sem dados para o período selecionado.'}
+      </div>
+    ` : `
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr>${cols.map(c=>`<th class="${c.num?'num':''}" onclick="setSort('${c.k}')">${c.l}${S.sortBy===c.k?(S.sortDir==='asc'?' ▲':' ▼'):''}</th>`).join('')}</tr>
+        </thead>
+        <tbody>
+          ${S.data.map(r=>renderRow(r,cols,mainCur)).join('')}
+        </tbody>
+        <tfoot>
+          ${S.view === 'accounts' ? Object.entries(byCur).map(([cur, t])=>{
+            const ctr = t.impressions ? (t.clicks/t.impressions*100) : 0;
+            const cpc = t.clicks ? (t.spend/t.clicks) : 0;
+            const cpm = t.impressions ? (t.spend/t.impressions*1000) : 0;
+            return `<tr class="total">
+              <td>Total ${cur}</td>
+              ${S.view!=='accounts'?'<td></td>':''}
+              <td class="num">${fmtMoney(t.spend, cur)}</td>
+              <td class="num">${fmtNum(t.impressions)}</td>
+              <td class="num">${fmtNum(t.clicks)}</td>
+              <td class="num">${fmtPct(ctr)}</td>
+              <td class="num">${fmtMoney(cpc, cur)}</td>
+              <td class="num">${fmtMoney(cpm, cur)}</td>
+            </tr>`;
+          }).join('') : `<tr class="total">
+            <td>Total</td>
+            <td></td>
+            <td class="num">${fmtMoney(tot.spend, mainCur)}</td>
+            <td class="num">${fmtNum(tot.impressions)}</td>
+            <td class="num">${fmtNum(tot.clicks)}</td>
+            <td class="num">${fmtPct(tot.ctr)}</td>
+            <td class="num">${fmtMoney(tot.cpc, mainCur)}</td>
+            <td class="num">${fmtMoney(tot.cpm, mainCur)}</td>
+          </tr>`}
+        </tfoot>
+      </table>
+    </div>
+    `}
+  </div>`;
+}
+
+function renderRow(r, cols, mainCur){
+  const cur = r.currency || r._currency || mainCur || 'BRL';
+  const clickable = S.view !== 'ads';
+  const onclick = clickable ? `onclick='drillInto(${JSON.stringify(r).replace(/'/g,"&apos;")})'` : '';
+  const cls = clickable ? 'row-link' : '';
+  const status = r.effective_status || r.status;
+  const statusBadge = status ? `<span class="badge ${statusBadgeClass(status)}">${status.replace(/_/g,' ').toLowerCase()}</span>` : '';
+  return `
+    <tr class="${cls}" ${onclick}>
+      <td>${esc(r.name||r.id)}${r._tokenLabel?`<span class="acct-tag">${esc(r._tokenLabel)}</span>`:''}${cur!=='BRL'?`<span class="acct-tag">${cur}</span>`:''}</td>
+      ${S.view!=='accounts'?`<td>${statusBadge}</td>`:''}
+      <td class="num">${fmtMoney(r.spend||0, cur)}</td>
+      <td class="num">${fmtNum(r.impressions||0)}</td>
+      <td class="num">${fmtNum(r.clicks||0)}</td>
+      <td class="num">${fmtPct(r.ctr||0)}</td>
+      <td class="num">${fmtMoney(r.cpc||0, cur)}</td>
+      <td class="num">${fmtMoney(r.cpm||0, cur)}</td>
+    </tr>`;
+}
+
+function statusBadgeClass(s){
+  const u = (s||'').toUpperCase();
+  if(u === 'ACTIVE') return 'b-green';
+  if(u === 'PAUSED') return 'b-orange';
+  if(u.includes('DISAPPROVED') || u.includes('REJECT')) return 'b-red';
+  return 'b-gray';
+}
+
+render();
+</script>
+</body>
+</html>
