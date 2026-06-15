@@ -592,14 +592,11 @@ async function run(){
         const needsPixel = c.objective === 'OUTCOME_SALES' ||
           (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm);
 
-        // Conjunto dinâmico só funciona com UM único anúncio que tem múltiplas variações.
-        // Se há vários anúncios, força conjunto normal (cada anúncio usa só 1 texto/título).
-        const anyMultiVariation = S.ads.length === 1 && (()=>{
-          const ad0 = S.ads[0];
-          const ts = (ad0.texts||[]).filter(t=>t?.trim());
-          const hs = (ad0.headlines||[]).filter(h=>h?.trim());
-          return ts.length > 1 || hs.length > 1;
-        })();
+        // Modos do Meta para multi-variação:
+        // - is_dynamic_creative: true → "Criativo Dinâmico" (limite 1 anúncio, Meta combina)
+        // - degrees_of_freedom_spec no creative → "Otimização Padrão" (vários anúncios OK)
+        // Usamos o segundo modo para permitir multi-anúncios E multi-variações juntos.
+        const anyMultiVariation = false; // não usa mais is_dynamic_creative no adset
 
         const adsetBody = {
           name: adsetName,
@@ -716,12 +713,10 @@ async function run(){
             // Normaliza texts/headlines (suporte a campos legados text/headline)
             const texts = (ad.texts||[ad.text||'']).filter(t=>t?.trim());
             const headlines = (ad.headlines||[ad.headline||'']).filter(h=>h?.trim());
-            // Meta: conjunto dinâmico só aceita 1 anúncio. Se há vários anúncios neste
-            // conjunto, força modo single-creative (usa apenas o 1º texto/título de cada).
-            const multiVariation = S.ads.length === 1 && (texts.length > 1 || headlines.length > 1);
-            if(S.ads.length > 1 && (texts.length > 1 || headlines.length > 1) && ad === S.ads[0]){
-              log(`⚠️ ${S.ads.length} anúncios no mesmo conjunto: usando apenas o 1º texto/título de cada (conjunto dinâmico só permite 1 anúncio).`,'w');
-            }
+            // Multi-variação = mais de 1 texto OU mais de 1 título no anúncio
+            // Usa asset_feed_spec + degrees_of_freedom_spec (Standard Enhancements),
+            // NÃO is_dynamic_creative no adset → permite múltiplos anúncios + variações
+            const multiVariation = texts.length > 1 || headlines.length > 1;
 
             if(ad.type==='image'){
               let hash = ad.imageHash?.trim();
@@ -739,6 +734,12 @@ async function run(){
                     link_urls: [{website_url:linkWithUtm}],
                     call_to_action_types: [ad.cta||'LEARN_MORE'],
                     ad_formats: ['SINGLE_IMAGE']
+                  },
+                  // Standard Enhancements: permite multi-variação SEM conjunto dinâmico
+                  degrees_of_freedom_spec:{
+                    creative_features_spec:{
+                      standard_enhancements:{ enroll_status:'OPT_IN' }
+                    }
                   }
                 };
                 if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
@@ -832,6 +833,12 @@ async function run(){
                     link_urls: [{website_url:linkWithUtm}],
                     call_to_action_types: [ad.cta||'LEARN_MORE'],
                     ad_formats: ['SINGLE_VIDEO']
+                  },
+                  // Standard Enhancements: permite multi-variação SEM conjunto dinâmico
+                  degrees_of_freedom_spec:{
+                    creative_features_spec:{
+                      standard_enhancements:{ enroll_status:'OPT_IN' }
+                    }
                   }
                 };
                 if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
