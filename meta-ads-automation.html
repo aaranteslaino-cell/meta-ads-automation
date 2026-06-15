@@ -173,7 +173,8 @@ let S = loadState() || {
     bidStrategy:'LOWEST_COST_WITHOUT_CAP',
     status:'PAUSED',
     shareAdsetBudget:false,
-    oneAdsetPerAd:false
+    oneAdsetPerAd:false,
+    duplicateCount:'1'
   },
   adsets:[],
   ads:[]
@@ -556,10 +557,15 @@ async function run(){
   const c = S.camp;
 
   try {
+   const campDups = Math.max(1, parseInt(c.duplicateCount)||1);
+   for(let campIdx=0; campIdx<campDups; campIdx++){
+    if(campDups>1) log(`━━━━━ Campanha ${campIdx+1} de ${campDups} ━━━━━`,'i');
+
     // ── 1. Campanha
     log('Criando campanha…','i');
+    const campName = campDups>1 ? `${c.name} (${campIdx+1})` : c.name;
     const campBody = {
-      name: c.name,
+      name: campName,
       objective: c.objective,
       status: c.status,
       special_ad_categories: ['NONE']
@@ -909,8 +915,11 @@ async function run(){
       }
     }
 
+    if(campDups>1) log(`✓ Campanha ${campIdx+1}/${campDups} concluída`,'s');
+   } // fim for(let campIdx=0; campIdx<campDups; campIdx++)
+
     log('','i');
-    log('🎉 CAMPANHA CRIADA COM SUCESSO!','s');
+    log(campDups>1 ? `🎉 ${campDups} CAMPANHAS CRIADAS COM SUCESSO!` : '🎉 CAMPANHA CRIADA COM SUCESSO!','s');
 
   } catch(e){
     log(`✗ ERRO: ${e.message}`,'e');
@@ -1188,6 +1197,15 @@ function buildCamp(){
         <option value="ACTIVE" ${c.status==='ACTIVE'?'selected':''}>Ativa</option>
       </select>
     </div>
+  </div>
+  <div class="row">
+    <div class="fg">
+      <label>Duplicar Campanha (qtd)</label>
+      <input type="number" min="1" max="50" value="${esc(c.duplicateCount||'1')}"
+        oninput="S.camp.duplicateCount=this.value;saveState();render()">
+      ${parseInt(c.duplicateCount||1)>1?`<div class="hint" style="color:#c47a00">⚠️ Serão criadas ${c.duplicateCount} campanhas idênticas (mídia sobe ${c.duplicateCount}x)</div>`:''}
+    </div>
+    <div></div>
   </div>
   <div class="fg">
     <label>Estratégia de Anúncios</label>
