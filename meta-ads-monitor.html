@@ -87,7 +87,8 @@ let S = loadState() || {
   tokens:[],
   connected:false,
   accounts:[],
-  view:'accounts',   // accounts | campaigns | adsets | ads
+  view:'accounts',   // accounts | allCampaigns | campaigns | adsets | ads
+  selectedAccountIds:[], // contas selecionadas para visão cross-account
   path:[],           // [{type, id, name}] breadcrumb
   period:'today',    // today | yesterday | last_7d | last_30d | last_14d
   showPaused:false,
@@ -278,13 +279,50 @@ function mergeInsightsAndEntities(insights, entities, idField){
   return Object.values(byId);
 }
 
+async function fetchAllCampaignsAcrossAccounts(){
+  // Busca campanhas de cada conta selecionada (ou todas se nenhuma selecionada)
+  const targets = S.selectedAccountIds.length
+    ? S.accounts.filter(a=>S.selectedAccountIds.includes(a.id))
+    : S.accounts;
+
+  const promises = targets.map(async acc=>{
+    try{
+      const insights = await fetchInsights(acc.id, 'campaign', acc._tokenId);
+      let entities = [];
+      try{ entities = await fetchEntityList(acc.id, 'campaign', acc._tokenId); }catch(e){}
+      const merged = mergeInsightsAndEntities(insights, entities, 'campaign_id');
+      merged.forEach(m=>{
+        m._accountId = acc.id;
+        m._accountName = acc.name;
+        m._currency = acc.currency;
+        m._tokenId = acc._tokenId;
+        m._tokenLabel = acc._tokenLabel;
+      });
+      return merged;
+    }catch(e){
+      return [];
+    }
+  });
+  const all = await Promise.all(promises);
+  return all.flat();
+}
+
 async function refreshData(){
   if(S.refreshing) return;
   S.refreshing = true;
   render();
 
   try{
-    if(S.view === 'accounts'){
+    if(S.view === 'allCampaigns'){
+      let data = await fetchAllCampaignsAcrossAccounts();
+      if(!S.showPaused){
+        data = data.filter(c=>{
+          const st = (c.effective_status||c.status||'').toUpperCase();
+          return st === 'ACTIVE' || c.spend > 0;
+        });
+      }
+      S.data = data;
+    } else if(S.view === 'accounts'){
       // Para cada conta, busca summary insights
       const promises = S.accounts.map(async acc=>{
         try{
@@ -387,6 +425,13 @@ async function drillInto(item){
   if(S.view === 'accounts'){
     S.path = [{type:'account', id:item.id, name:item.name, currency:item.currency, _tokenId:item._tokenId}];
     S.view = 'campaigns';
+  } else if(S.view === 'allCampaigns'){
+    // Cross-account: reconstrói path com a conta dona da campanha
+    S.path = [
+      {type:'account', id:item._accountId, name:item._accountName, currency:item._currency, _tokenId:item._tokenId},
+      {type:'campaign', id:item.id, name:item.name, _tokenId:item._tokenId}
+    ];
+    S.view = 'adsets';
   } else if(S.view === 'campaigns'){
     S.path.push({type:'campaign', id:item.id, name:item.name, _tokenId:S.path[0]._tokenId});
     S.view = 'adsets';
@@ -401,6 +446,8 @@ async function drillInto(item){
 function goTo(level){
   if(level === 'accounts'){
     S.path = []; S.view = 'accounts';
+  } else if(level === 'allCampaigns'){
+    S.path = []; S.view = 'allCampaigns';
   } else if(level === 'campaigns'){
     S.path = S.path.slice(0,1); S.view = 'campaigns';
   } else if(level === 'adsets'){
@@ -543,7 +590,11 @@ function applyFilters(rows){
 
 function buildBreadcrumb(){
   const parts = [];
-  parts.push(`<a onclick="goTo('accounts')">📊 Todas contas</a>`);
+  // Botões de visão de topo
+  parts.push(`<a onclick="goTo('accounts')" class="${S.view==='accounts'?'cur':''}">📊 Por Conta</a>`);
+  parts.push(`<span class="sep">·</span>`);
+  parts.push(`<a onclick="goTo('allCampaigns')" class="${S.view==='allCampaigns'?'cur':''}">🌐 Todas Campanhas</a>`);
+
   if(S.path[0]){
     parts.push(`<span class="sep">›</span>`);
     if(S.view === 'campaigns') parts.push(`<span class="cur">${esc(S.path[0].name)}</span>`);
@@ -576,7 +627,9 @@ function buildTable(){
   ];
   if(S.view !== 'accounts') cols.splice(2,0,{k:'effective_status', l:'Status', num:false});
 
-  const showName = S.view === 'accounts' ? 'Conta' : S.view === 'campaigns' ? 'Campanha' : S.view === 'adsets' ? 'Conjunto' : 'Anúncio';
+  const showName = S.view === 'accounts' ? 'Conta'
+    : (S.view === 'campaigns' || S.view === 'allCampaigns') ? 'Campanha'
+    : S.view === 'adsets' ? 'Conjunto' : 'Anúncio';
   cols[0].l = showName;
 
   // Aplica filtros (pesquisa + gasto mínimo)
@@ -608,9 +661,13 @@ function buildTable(){
   const filteredCount = filtered.length;
   const totalCount = S.data.length;
 
+  const title = S.view==='accounts' ? 'Contas de Anúncios'
+    : S.view==='allCampaigns' ? `🌐 Todas Campanhas (${S.accounts.length} contas)`
+    : S.view==='campaigns' ? 'Campanhas'
+    : S.view==='adsets' ? 'Conjuntos' : 'Anúncios';
   return `
   <div class="card">
-    <h2>${S.view==='accounts'?'Contas de Anúncios':S.view==='campaigns'?'Campanhas':S.view==='adsets'?'Conjuntos':'Anúncios'}
+    <h2>${title}
       <span style="font-weight:400;color:#888;font-size:13px">(${filteredCount}${filteredCount!==totalCount?` de ${totalCount}`:''})</span>
     </h2>
     ${filteredCount === 0 ? `
@@ -627,14 +684,16 @@ function buildTable(){
           ${filtered.map(r=>renderRow(r,cols,mainCur)).join('')}
         </tbody>
         <tfoot>
-          ${S.view === 'accounts' ? Object.entries(byCur).map(([cur, t])=>{
+          ${(S.view === 'accounts' || S.view === 'allCampaigns') ? Object.entries(byCur).map(([cur, t])=>{
             const ctr = t.impressions ? (t.clicks/t.impressions*100) : 0;
             const cpc = t.clicks ? (t.spend/t.clicks) : 0;
             const cpm = t.impressions ? (t.spend/t.impressions*1000) : 0;
             const cplpv = t.landing_page_views ? (t.spend/t.landing_page_views) : 0;
+            const hasStatusCol = S.view !== 'accounts';
             return `<tr class="total">
               <td>Total ${cur}</td>
               <td></td>
+              ${hasStatusCol?'<td></td>':''}
               <td class="num">${fmtMoney(t.spend, cur)}</td>
               <td class="num">${fmtNum(t.impressions)}</td>
               <td class="num">${fmtNum(t.clicks)}</td>
@@ -675,9 +734,10 @@ function renderRow(r, cols, mainCur){
   // ID: para conta usa account_id (sem o "act_"), para resto usa id puro
   const displayId = S.view === 'accounts' ? (r.account_id || r.id.replace('act_','')) : r.id;
   const idCell = `<span class="id-cell" title="${esc(displayId)}">${esc(displayId)}<button class="copy-btn" onclick="event.stopPropagation();copyId('${esc(displayId)}',this)" title="Copiar ID">📋</button></span>`;
+  const accTag = (S.view === 'allCampaigns' && r._accountName) ? `<span class="acct-tag" style="background:#e7f0fd;color:#1877f2">${esc(r._accountName)}</span>` : '';
   return `
     <tr class="${cls}" ${onclick}>
-      <td>${esc(r.name||r.id)}${r._tokenLabel?`<span class="acct-tag">${esc(r._tokenLabel)}</span>`:''}${cur!=='BRL'?`<span class="acct-tag">${cur}</span>`:''}</td>
+      <td>${esc(r.name||r.id)}${accTag}${r._tokenLabel?`<span class="acct-tag">${esc(r._tokenLabel)}</span>`:''}${cur!=='BRL'?`<span class="acct-tag">${cur}</span>`:''}</td>
       <td class="id-col">${idCell}</td>
       ${S.view!=='accounts'?`<td>${statusBadge}</td>`:''}
       <td class="num">${fmtMoney(r.spend||0, cur)}</td>
