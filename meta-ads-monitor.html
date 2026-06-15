@@ -130,16 +130,20 @@ function saveState(){
   }catch(e){}
 }
 
-// Reaproveita tokens da automação de subir campanhas (mesma chave de localStorage)
+// Reaproveita tokens da automação de subir campanhas (sincroniza sempre que tem novos)
 function loadSharedTokens(){
   try{
     const maa = JSON.parse(localStorage.getItem('maa_state'));
     if(maa?.tokens?.length){
-      // se nosso state não tem tokens, importa
-      if(!S.tokens.length){
-        S.tokens = maa.tokens;
-        saveState();
-      }
+      let changed = false;
+      maa.tokens.forEach(srcTok=>{
+        // adiciona tokens da automação que ainda não estão aqui (pelo valor do token)
+        if(!S.tokens.find(t=>t.token === srcTok.token)){
+          S.tokens.push({...srcTok, id: srcTok.id || Date.now()+Math.random()});
+          changed = true;
+        }
+      });
+      if(changed) saveState();
     }
   }catch(e){}
 }
