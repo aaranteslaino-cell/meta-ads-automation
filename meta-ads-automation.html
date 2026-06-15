@@ -172,7 +172,8 @@ let S = loadState() || {
     budget:'',
     bidStrategy:'LOWEST_COST_WITHOUT_CAP',
     status:'PAUSED',
-    shareAdsetBudget:false
+    shareAdsetBudget:false,
+    oneAdsetPerAd:false
   },
   adsets:[],
   ads:[]
@@ -580,11 +581,20 @@ async function run(){
     log(`✓ Campanha criada: ${campR.id}`,'s');
 
     // ── 2. Adsets
+    // Quando oneAdsetPerAd, cria N grupos (1 ad por grupo). Senão, 1 grupo com todos.
+    const adGroups = c.oneAdsetPerAd ? S.ads.map(a=>[a]) : [S.ads];
+
     for(const adset of S.adsets){
       const dups = Math.max(1, parseInt(adset.duplicateCount)||1);
 
       for(let d=0; d<dups; d++){
-        const adsetName = dups>1 ? `${adset.name} (${d+1})` : adset.name;
+        for(let g=0; g<adGroups.length; g++){
+          const adsInGroup = adGroups[g];
+          let adsetName = dups>1 ? `${adset.name} (${d+1})` : adset.name;
+          if(c.oneAdsetPerAd && adGroups.length > 1){
+            const adNameSuffix = adsInGroup[0]?.name || `Anúncio ${g+1}`;
+            adsetName = `${adsetName} - ${adNameSuffix}`;
+          }
         log(`Criando conjunto: ${adsetName}…`,'i');
 
         const optGoal = adset.optimizationGoal || OPT_GOAL[c.objective] || 'OFFSITE_CONVERSIONS';
@@ -592,11 +602,10 @@ async function run(){
         const needsPixel = c.objective === 'OUTCOME_SALES' ||
           (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm);
 
-        // Meta API: conjunto dinâmico (1 anúncio com várias variações) só aceita 1 anúncio.
-        // Multi-anúncios + multi-variações não é suportado no mesmo conjunto.
-        // Solução: se há 1 anúncio com variações → conjunto dinâmico. Senão → conjunto normal.
-        const anyMultiVariation = S.ads.length === 1 && (()=>{
-          const ad0 = S.ads[0];
+        // Conjunto dinâmico (asset_feed_spec) só funciona com 1 anúncio.
+        // Quando oneAdsetPerAd, sempre é 1 ad por conjunto, então sempre podemos ter dinâmico.
+        const anyMultiVariation = adsInGroup.length === 1 && (()=>{
+          const ad0 = adsInGroup[0];
           const ts = (ad0.texts||[]).filter(t=>t?.trim());
           const hs = (ad0.headlines||[]).filter(h=>h?.trim());
           return ts.length > 1 || hs.length > 1;
@@ -673,8 +682,8 @@ async function run(){
         const adsetR = await api(`/${acct}/adsets`,'POST',adsetBody);
         log(`✓ Conjunto criado: ${adsetR.id}`,'s');
 
-        // ── 3. Anúncios
-        for(const ad of S.ads){
+        // ── 3. Anúncios (do grupo deste conjunto)
+        for(const ad of adsInGroup){
           log(`Criando anúncio: ${ad.name}…`,'i');
           try {
             const linkUrl = https(ad.linkUrl);
@@ -717,11 +726,11 @@ async function run(){
             // Normaliza texts/headlines (suporte a campos legados text/headline)
             const texts = (ad.texts||[ad.text||'']).filter(t=>t?.trim());
             const headlines = (ad.headlines||[ad.headline||'']).filter(h=>h?.trim());
-            // Conjunto dinâmico (asset_feed_spec) só funciona com 1 anúncio no conjunto.
-            // Se há vários anúncios, força modo single-creative (1º texto + 1º título de cada).
-            const multiVariation = S.ads.length === 1 && (texts.length > 1 || headlines.length > 1);
-            if(S.ads.length > 1 && (texts.length > 1 || headlines.length > 1) && ad === S.ads[0]){
-              log(`⚠️ ${S.ads.length} anúncios no mesmo conjunto: usando apenas o 1º texto/título de cada (Meta não permite multi-anúncios + multi-variações simultaneamente).`,'w');
+            // Conjunto dinâmico só funciona com 1 anúncio. Se há vários no grupo,
+            // força modo single-creative (1º texto + 1º título).
+            const multiVariation = adsInGroup.length === 1 && (texts.length > 1 || headlines.length > 1);
+            if(adsInGroup.length > 1 && (texts.length > 1 || headlines.length > 1) && ad === adsInGroup[0]){
+              log(`⚠️ ${adsInGroup.length} anúncios no mesmo conjunto: usando apenas o 1º texto/título de cada. Para usar variações em todos, ative "Criar 1 conjunto separado para cada anúncio" na aba Campanha.`,'w');
             }
 
             if(ad.type==='image'){
@@ -896,6 +905,7 @@ async function run(){
           }
         }
         await sleep(200);
+        } // fim for(let g=0; g<adGroups.length; g++)
       }
     }
 
@@ -1178,6 +1188,14 @@ function buildCamp(){
         <option value="ACTIVE" ${c.status==='ACTIVE'?'selected':''}>Ativa</option>
       </select>
     </div>
+  </div>
+  <div class="fg">
+    <label>Estratégia de Anúncios</label>
+    <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;color:#1c1e21;padding:8px 10px;border:1.5px solid #ddd;border-radius:8px">
+      <input type="checkbox" style="width:auto;margin-top:2px" ${c.oneAdsetPerAd?'checked':''}
+        onchange="S.camp.oneAdsetPerAd=this.checked;saveState()">
+      <span>Criar 1 conjunto separado para cada anúncio<br><span style="font-size:11px;color:#888">Permite múltiplos anúncios COM múltiplas variações de texto/título cada. A configuração do conjunto (público, posicionamento, orçamento) é duplicada N vezes — uma para cada anúncio.</span></span>
+    </label>
   </div>`;
 }
 
