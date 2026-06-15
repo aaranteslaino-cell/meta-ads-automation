@@ -101,19 +101,24 @@ let S = loadState() || {
   search:'',         // texto da pesquisa
   filterMinSpend:''  // gasto mínimo (R$)
 };
+// SEMPRE força estado inicial limpo no load — evita state corrompido travar a UI
 S.refreshing = false;
-// Defaults defensivos (state antigo pode estar sem campos novos)
+S.connected = false;
+S.accounts = [];
+S.data = [];
+S.path = [];
+S.view = 'accounts';
+S.lastRefresh = null;
+// Defaults defensivos para os demais campos
 if(!Array.isArray(S.tokens)) S.tokens = [];
-if(!Array.isArray(S.accounts)) S.accounts = [];
 if(!Array.isArray(S.selectedAccountIds)) S.selectedAccountIds = [];
-if(!Array.isArray(S.path)) S.path = [];
-if(!Array.isArray(S.data)) S.data = [];
-if(!S.view) S.view = 'accounts';
 if(!S.period) S.period = 'today';
 if(!S.sortBy) S.sortBy = 'spend';
 if(!S.sortDir) S.sortDir = 'desc';
 if(typeof S.search !== 'string') S.search = '';
 if(typeof S.filterMinSpend !== 'string') S.filterMinSpend = '';
+if(typeof S.showPaused !== 'boolean') S.showPaused = false;
+if(typeof S.autoRefresh !== 'boolean') S.autoRefresh = true;
 
 function loadState(){
   try{ return JSON.parse(localStorage.getItem('mam_state')); }catch(e){ return null; }
