@@ -540,7 +540,7 @@ function buildHeader(){
       <div class="connected"><div class="dot"></div>Conectado · ${S.accounts.length} conta(s)</div>
       <div class="refresh-info">
         ${S.refreshing ? '<span class="loading"></span> Atualizando…' : ''}
-        ${S.lastRefresh && !S.refreshing ? `Última: ${S.lastRefresh.toLocaleTimeString('pt-BR')}` : ''}
+        ${S.lastRefresh && !S.refreshing ? `Última: ${(S.lastRefresh instanceof Date ? S.lastRefresh : new Date(S.lastRefresh)).toLocaleTimeString('pt-BR')}` : ''}
         ${S.autoRefresh && !S.refreshing ? ` · Próxima em <span id="countdown">5:00</span>` : ''}
       </div>
       <div class="row">
