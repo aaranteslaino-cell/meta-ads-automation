@@ -891,6 +891,10 @@ async function run(){
               if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
             }
 
+            // UTM vai no url_tags TANTO do creative QUANTO do ad — algumas contas leem só de um
+            if(ad.utm?.trim()){
+              creativeBody.url_tags = ad.utm.trim();
+            }
             log(`[Creative body] ${JSON.stringify(creativeBody)}`,'i');
             const crR = await api(`/${acct}/adcreatives`,'POST',creativeBody);
 
@@ -900,7 +904,6 @@ async function run(){
               creative:{ creative_id: crR.id },
               status: c.status
             };
-            // UTM vai no url_tags do anúncio (campo "Parâmetros de URL" no Meta)
             if(ad.utm?.trim()) adBody.url_tags = ad.utm.trim();
             const adR = await api(`/${acct}/ads`,'POST',adBody);
             log(`✓ Anúncio criado: ${adR.id}`,'s');
