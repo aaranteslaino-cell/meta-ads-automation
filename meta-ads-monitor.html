@@ -102,6 +102,18 @@ let S = loadState() || {
   filterMinSpend:''  // gasto mínimo (R$)
 };
 S.refreshing = false;
+// Defaults defensivos (state antigo pode estar sem campos novos)
+if(!Array.isArray(S.tokens)) S.tokens = [];
+if(!Array.isArray(S.accounts)) S.accounts = [];
+if(!Array.isArray(S.selectedAccountIds)) S.selectedAccountIds = [];
+if(!Array.isArray(S.path)) S.path = [];
+if(!Array.isArray(S.data)) S.data = [];
+if(!S.view) S.view = 'accounts';
+if(!S.period) S.period = 'today';
+if(!S.sortBy) S.sortBy = 'spend';
+if(!S.sortDir) S.sortDir = 'desc';
+if(typeof S.search !== 'string') S.search = '';
+if(typeof S.filterMinSpend !== 'string') S.filterMinSpend = '';
 
 function loadState(){
   try{ return JSON.parse(localStorage.getItem('mam_state')); }catch(e){ return null; }
