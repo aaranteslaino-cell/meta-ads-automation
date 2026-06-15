@@ -592,13 +592,14 @@ async function run(){
         const needsPixel = c.objective === 'OUTCOME_SALES' ||
           (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm);
 
-        // Detecta se algum anúncio terá múltiplas variações (asset_feed_spec)
-        // — nesse caso o conjunto precisa ser dinâmico
-        const anyMultiVariation = S.ads.some(ad=>{
-          const ts = (ad.texts||[]).filter(t=>t?.trim());
-          const hs = (ad.headlines||[]).filter(h=>h?.trim());
+        // Conjunto dinâmico só funciona com UM único anúncio que tem múltiplas variações.
+        // Se há vários anúncios, força conjunto normal (cada anúncio usa só 1 texto/título).
+        const anyMultiVariation = S.ads.length === 1 && (()=>{
+          const ad0 = S.ads[0];
+          const ts = (ad0.texts||[]).filter(t=>t?.trim());
+          const hs = (ad0.headlines||[]).filter(h=>h?.trim());
           return ts.length > 1 || hs.length > 1;
-        });
+        })();
 
         const adsetBody = {
           name: adsetName,
@@ -715,7 +716,12 @@ async function run(){
             // Normaliza texts/headlines (suporte a campos legados text/headline)
             const texts = (ad.texts||[ad.text||'']).filter(t=>t?.trim());
             const headlines = (ad.headlines||[ad.headline||'']).filter(h=>h?.trim());
-            const multiVariation = texts.length > 1 || headlines.length > 1;
+            // Meta: conjunto dinâmico só aceita 1 anúncio. Se há vários anúncios neste
+            // conjunto, força modo single-creative (usa apenas o 1º texto/título de cada).
+            const multiVariation = S.ads.length === 1 && (texts.length > 1 || headlines.length > 1);
+            if(S.ads.length > 1 && (texts.length > 1 || headlines.length > 1) && ad === S.ads[0]){
+              log(`⚠️ ${S.ads.length} anúncios no mesmo conjunto: usando apenas o 1º texto/título de cada (conjunto dinâmico só permite 1 anúncio).`,'w');
+            }
 
             if(ad.type==='image'){
               let hash = ad.imageHash?.trim();
