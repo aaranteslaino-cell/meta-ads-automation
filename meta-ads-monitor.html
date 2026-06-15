@@ -91,7 +91,8 @@ let S = loadState() || {
   selectedAccountIds:[], // contas selecionadas para visão cross-account
   path:[],           // [{type, id, name}] breadcrumb
   period:'today',    // today | yesterday | last_7d | last_30d | last_14d
-  showPaused:false,
+  statusFilter:'active',  // active | paused | review | rejected | all
+  showPaused:false,  // legado — mantido por compat
   autoRefresh:true,
   sortBy:'spend',
   sortDir:'desc',
@@ -119,6 +120,7 @@ if(typeof S.search !== 'string') S.search = '';
 if(typeof S.filterMinSpend !== 'string') S.filterMinSpend = '';
 if(typeof S.showPaused !== 'boolean') S.showPaused = false;
 if(typeof S.autoRefresh !== 'boolean') S.autoRefresh = true;
+if(!S.statusFilter) S.statusFilter = 'active';
 
 function loadState(){
   try{ return JSON.parse(localStorage.getItem('mam_state')); }catch(e){ return null; }
@@ -279,7 +281,7 @@ async function fetchEntityList(parentId, level, tokenId){
 
 function mergeInsightsAndEntities(insights, entities, idField){
   const byId = {};
-  entities.forEach(e=>{ byId[e.id] = {...e, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, landing_page_views:0, cost_per_landing_page_view:0}; });
+  entities.forEach(e=>{ byId[e.id] = {...e, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, landing_page_views:0, cost_per_landing_page_view:0, initiate_checkout:0, cost_per_initiate_checkout:0}; });
   insights.forEach(ins=>{
     const id = ins[idField];
     if(!id) return;
@@ -294,7 +296,9 @@ function mergeInsightsAndEntities(insights, entities, idField){
       cpc: parseFloat(ins.cpc)||0,
       cpm: parseFloat(ins.cpm)||0,
       landing_page_views: getActionValue(ins.actions, 'landing_page_view'),
-      cost_per_landing_page_view: getActionValue(ins.cost_per_action_type, 'landing_page_view')
+      cost_per_landing_page_view: getActionValue(ins.cost_per_action_type, 'landing_page_view'),
+      initiate_checkout: getActionValue(ins.actions, 'initiate_checkout') || getActionValue(ins.actions, 'offsite_conversion.fb_pixel_initiate_checkout'),
+      cost_per_initiate_checkout: getActionValue(ins.cost_per_action_type, 'initiate_checkout') || getActionValue(ins.cost_per_action_type, 'offsite_conversion.fb_pixel_initiate_checkout')
     });
   });
   return Object.values(byId);
@@ -335,22 +339,14 @@ async function refreshData(){
 
   try{
     if(S.view === 'allCampaigns'){
-      let data = await fetchAllCampaignsAcrossAccounts();
-      if(!S.showPaused){
-        data = data.filter(c=>{
-          const st = (c.effective_status||c.status||'').toUpperCase();
-          return st === 'ACTIVE' || c.spend > 0;
-        });
-      }
-      S.data = data;
+      // Sem filtro server-side: applyFilters faz no client com S.statusFilter
+      S.data = await fetchAllCampaignsAcrossAccounts();
     } else if(S.view === 'accounts'){
       // Para cada conta, busca summary insights
       const promises = S.accounts.map(async acc=>{
         try{
           const data = await fetchInsights(acc.id, 'account', acc._tokenId);
           const ins = data[0] || {};
-          const lpv = getActionValue(ins.actions, 'landing_page_view');
-          const cplpv = getActionValue(ins.cost_per_action_type, 'landing_page_view');
           return {
             ...acc,
             spend: parseFloat(ins.spend)||0,
@@ -361,12 +357,14 @@ async function refreshData(){
             cpm: parseFloat(ins.cpm)||0,
             reach: parseInt(ins.reach)||0,
             frequency: parseFloat(ins.frequency)||0,
-            landing_page_views: lpv,
-            cost_per_landing_page_view: cplpv,
+            landing_page_views: getActionValue(ins.actions, 'landing_page_view'),
+            cost_per_landing_page_view: getActionValue(ins.cost_per_action_type, 'landing_page_view'),
+            initiate_checkout: getActionValue(ins.actions, 'initiate_checkout') || getActionValue(ins.actions, 'offsite_conversion.fb_pixel_initiate_checkout'),
+            cost_per_initiate_checkout: getActionValue(ins.cost_per_action_type, 'initiate_checkout') || getActionValue(ins.cost_per_action_type, 'offsite_conversion.fb_pixel_initiate_checkout'),
             _error: null
           };
         }catch(e){
-          return {...acc, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, landing_page_views:0, cost_per_landing_page_view:0, _error:e.message};
+          return {...acc, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, landing_page_views:0, cost_per_landing_page_view:0, initiate_checkout:0, cost_per_initiate_checkout:0, _error:e.message};
         }
       });
       S.data = await Promise.all(promises);
@@ -384,13 +382,7 @@ async function refreshData(){
 
       let merged = mergeInsightsAndEntities(insights, entities, idField);
 
-      if(!S.showPaused){
-        merged = merged.filter(e=>{
-          const st = (e.effective_status||e.status||'').toUpperCase();
-          return st === 'ACTIVE' || e.spend > 0;
-        });
-      }
-
+      // Sem filtro server-side: applyFilters faz no client com S.statusFilter
       // Inserir currency da conta-mãe
       const acct = S.path.find(p=>p.type==='account');
       merged.forEach(m=>{ m._currency = acct?.currency || 'BRL'; m._tokenId = tokenId; });
@@ -573,15 +565,22 @@ function buildFilters(){
       </div>
       <div class="row">
         <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;margin:0;color:#1c1e21">
-          <input type="checkbox" style="width:auto" ${S.showPaused?'checked':''} onchange="togglePaused()">
-          Mostrar pausados
-        </label>
-        <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;margin:0;color:#1c1e21">
           <input type="checkbox" style="width:auto" ${S.autoRefresh?'checked':''} onchange="toggleAutoRefresh()">
           Auto-refresh (5min)
         </label>
       </div>
     </div>
+    ${S.view !== 'accounts' ? `
+    <div class="row" style="margin-bottom:12px">
+      <span style="font-size:12px;color:#888;font-weight:600;margin-right:4px">STATUS:</span>
+      <button class="chip ${S.statusFilter==='active'?'active':''}" onclick="setStatusFilter('active')">🟢 Ativos</button>
+      <button class="chip ${S.statusFilter==='paused'?'active':''}" onclick="setStatusFilter('paused')">🟠 Pausados</button>
+      <button class="chip ${S.statusFilter==='review'?'active':''}" onclick="setStatusFilter('review')">🟡 Em revisão</button>
+      <button class="chip ${S.statusFilter==='rejected'?'active':''}" onclick="setStatusFilter('rejected')">🔴 Reprovados</button>
+      <button class="chip ${S.statusFilter==='archived'?'active':''}" onclick="setStatusFilter('archived')">⚪ Arquivados</button>
+      <button class="chip ${S.statusFilter==='all'?'active':''}" onclick="setStatusFilter('all')">Todos</button>
+    </div>
+    ` : ''}
     <div class="row" style="gap:8px">
       <div style="flex:1;position:relative">
         <input id="search-inp" placeholder="🔍 Pesquisar por nome ou ID…" value="${esc(S.search||'')}"
@@ -606,8 +605,26 @@ function applyFilters(rows){
     const min = parseFloat(S.filterMinSpend);
     r = r.filter(x => (x.spend||0) >= min);
   }
+  // Filtro de status (não se aplica à visão de contas)
+  if(S.view !== 'accounts' && S.statusFilter && S.statusFilter !== 'all'){
+    r = r.filter(x => matchStatusFilter(x));
+  }
   return r;
 }
+
+function matchStatusFilter(item){
+  const st = (item.effective_status || item.status || '').toUpperCase();
+  switch(S.statusFilter){
+    case 'active': return st === 'ACTIVE';
+    case 'paused': return st.includes('PAUSED');
+    case 'review': return st.includes('PENDING_REVIEW') || st.includes('IN_PROCESS');
+    case 'rejected': return st.includes('DISAPPROVED') || st.includes('REJECTED');
+    case 'archived': return st.includes('ARCHIVED');
+    default: return true;
+  }
+}
+
+function setStatusFilter(f){ S.statusFilter = f; saveState(); render(); }
 
 function buildBreadcrumb(){
   const parts = [];
@@ -642,6 +659,8 @@ function buildTable(){
     {k:'clicks', l:'Cliques', num:true},
     {k:'landing_page_views', l:'Visualizações pág destino', num:true},
     {k:'cost_per_landing_page_view', l:'Custo por VPD', num:true},
+    {k:'initiate_checkout', l:'Finalização de compra', num:true},
+    {k:'cost_per_initiate_checkout', l:'Custo por finalização', num:true},
     {k:'ctr', l:'CTR', num:true},
     {k:'cpc', l:'CPC', num:true},
     {k:'cpm', l:'CPM', num:true}
@@ -661,21 +680,24 @@ function buildTable(){
     t.impressions += r.impressions||0;
     t.clicks += r.clicks||0;
     t.landing_page_views += r.landing_page_views||0;
+    t.initiate_checkout += r.initiate_checkout||0;
     return t;
-  }, {spend:0, impressions:0, clicks:0, landing_page_views:0});
+  }, {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0});
   tot.ctr = tot.impressions ? (tot.clicks/tot.impressions*100) : 0;
   tot.cpc = tot.clicks ? (tot.spend/tot.clicks) : 0;
   tot.cpm = tot.impressions ? (tot.spend/tot.impressions*1000) : 0;
   tot.cost_per_landing_page_view = tot.landing_page_views ? (tot.spend/tot.landing_page_views) : 0;
+  tot.cost_per_initiate_checkout = tot.initiate_checkout ? (tot.spend/tot.initiate_checkout) : 0;
 
   const byCur = {};
   filtered.forEach(r=>{
     const cur = r.currency || r._currency || 'BRL';
-    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0};
+    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0};
     byCur[cur].spend += r.spend||0;
     byCur[cur].impressions += r.impressions||0;
     byCur[cur].clicks += r.clicks||0;
     byCur[cur].landing_page_views += r.landing_page_views||0;
+    byCur[cur].initiate_checkout += r.initiate_checkout||0;
   });
 
   const mainCur = S.view === 'accounts' ? null : (S.path[0]?.currency || 'BRL');
@@ -710,6 +732,7 @@ function buildTable(){
             const cpc = t.clicks ? (t.spend/t.clicks) : 0;
             const cpm = t.impressions ? (t.spend/t.impressions*1000) : 0;
             const cplpv = t.landing_page_views ? (t.spend/t.landing_page_views) : 0;
+            const cpic = t.initiate_checkout ? (t.spend/t.initiate_checkout) : 0;
             const hasStatusCol = S.view !== 'accounts';
             return `<tr class="total">
               <td>Total ${cur}</td>
@@ -720,6 +743,8 @@ function buildTable(){
               <td class="num">${fmtNum(t.clicks)}</td>
               <td class="num">${fmtNum(t.landing_page_views)}</td>
               <td class="num">${fmtMoney(cplpv, cur)}</td>
+              <td class="num">${fmtNum(t.initiate_checkout)}</td>
+              <td class="num">${fmtMoney(cpic, cur)}</td>
               <td class="num">${fmtPct(ctr)}</td>
               <td class="num">${fmtMoney(cpc, cur)}</td>
               <td class="num">${fmtMoney(cpm, cur)}</td>
@@ -733,6 +758,8 @@ function buildTable(){
             <td class="num">${fmtNum(tot.clicks)}</td>
             <td class="num">${fmtNum(tot.landing_page_views)}</td>
             <td class="num">${fmtMoney(tot.cost_per_landing_page_view, mainCur)}</td>
+            <td class="num">${fmtNum(tot.initiate_checkout)}</td>
+            <td class="num">${fmtMoney(tot.cost_per_initiate_checkout, mainCur)}</td>
             <td class="num">${fmtPct(tot.ctr)}</td>
             <td class="num">${fmtMoney(tot.cpc, mainCur)}</td>
             <td class="num">${fmtMoney(tot.cpm, mainCur)}</td>
@@ -766,6 +793,8 @@ function renderRow(r, cols, mainCur){
       <td class="num">${fmtNum(r.clicks||0)}</td>
       <td class="num">${fmtNum(r.landing_page_views||0)}</td>
       <td class="num">${fmtMoney(r.cost_per_landing_page_view||0, cur)}</td>
+      <td class="num">${fmtNum(r.initiate_checkout||0)}</td>
+      <td class="num">${fmtMoney(r.cost_per_initiate_checkout||0, cur)}</td>
       <td class="num">${fmtPct(r.ctr||0)}</td>
       <td class="num">${fmtMoney(r.cpc||0, cur)}</td>
       <td class="num">${fmtMoney(r.cpm||0, cur)}</td>
