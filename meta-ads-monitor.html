@@ -59,6 +59,10 @@ tr.total td{border-top:2px solid #1877f2;border-bottom:none}
 .tbl-wrap{max-height:600px;overflow:auto;border-radius:8px;border:1px solid #eee}
 .right{text-align:right}
 .acct-tag{display:inline-block;padding:1px 6px;background:#eef0f3;border-radius:8px;font-size:10px;color:#65676b;font-weight:600;margin-left:6px}
+.id-col{font-family:'Consolas','Monaco',monospace;font-size:11px;color:#65676b;white-space:nowrap}
+.id-cell{display:inline-flex;align-items:center;gap:4px}
+.copy-btn{background:none;border:none;cursor:pointer;font-size:11px;padding:2px 4px;border-radius:4px;opacity:.5;transition:all .15s}
+.copy-btn:hover{background:#eef0f3;opacity:1}
 .refresh-info{display:flex;align-items:center;gap:6px;font-size:12px;color:#888}
 hr{border:none;border-top:1px solid #e4e6eb;margin:14px 0}
 .token-item{display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 10px;background:#f7f8fa;border-radius:6px;font-size:13px}
@@ -92,7 +96,9 @@ let S = loadState() || {
   sortDir:'desc',
   data:[],           // current view data
   lastRefresh:null,
-  refreshing:false
+  refreshing:false,
+  search:'',         // texto da pesquisa
+  filterMinSpend:''  // gasto mínimo (R$)
 };
 S.refreshing = false;
 
@@ -212,7 +218,14 @@ function removeToken(id){
 }
 
 // ── Fetch insights ────────────────────────────────────────────────────────────
-const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,inline_link_clicks,inline_link_click_ctr';
+const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,inline_link_clicks,inline_link_click_ctr,actions,cost_per_action_type';
+
+// Extrai métrica de actions[] da resposta da Meta
+function getActionValue(actions, type){
+  if(!Array.isArray(actions)) return 0;
+  const a = actions.find(x=>x.action_type===type);
+  return a ? parseFloat(a.value)||0 : 0;
+}
 
 async function fetchInsights(parentId, level, tokenId){
   const tok = getTokenById(tokenId);
@@ -243,10 +256,8 @@ async function fetchEntityList(parentId, level, tokenId){
 }
 
 function mergeInsightsAndEntities(insights, entities, idField){
-  // entities tem id, name, status
-  // insights tem campaign_id/name etc. + métricas
   const byId = {};
-  entities.forEach(e=>{ byId[e.id] = {...e, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0}; });
+  entities.forEach(e=>{ byId[e.id] = {...e, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, landing_page_views:0, cost_per_landing_page_view:0}; });
   insights.forEach(ins=>{
     const id = ins[idField];
     if(!id) return;
@@ -259,7 +270,9 @@ function mergeInsightsAndEntities(insights, entities, idField){
       frequency: parseFloat(ins.frequency)||0,
       ctr: parseFloat(ins.ctr)||0,
       cpc: parseFloat(ins.cpc)||0,
-      cpm: parseFloat(ins.cpm)||0
+      cpm: parseFloat(ins.cpm)||0,
+      landing_page_views: getActionValue(ins.actions, 'landing_page_view'),
+      cost_per_landing_page_view: getActionValue(ins.cost_per_action_type, 'landing_page_view')
     });
   });
   return Object.values(byId);
@@ -277,6 +290,8 @@ async function refreshData(){
         try{
           const data = await fetchInsights(acc.id, 'account', acc._tokenId);
           const ins = data[0] || {};
+          const lpv = getActionValue(ins.actions, 'landing_page_view');
+          const cplpv = getActionValue(ins.cost_per_action_type, 'landing_page_view');
           return {
             ...acc,
             spend: parseFloat(ins.spend)||0,
@@ -287,10 +302,12 @@ async function refreshData(){
             cpm: parseFloat(ins.cpm)||0,
             reach: parseInt(ins.reach)||0,
             frequency: parseFloat(ins.frequency)||0,
+            landing_page_views: lpv,
+            cost_per_landing_page_view: cplpv,
             _error: null
           };
         }catch(e){
-          return {...acc, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, _error:e.message};
+          return {...acc, spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0, landing_page_views:0, cost_per_landing_page_view:0, _error:e.message};
         }
       });
       S.data = await Promise.all(promises);
@@ -481,7 +498,7 @@ function buildFilters(){
   ];
   return `
   <div class="card">
-    <div class="row" style="justify-content:space-between">
+    <div class="row" style="justify-content:space-between;margin-bottom:12px">
       <div class="row">
         <span style="font-size:12px;color:#888;font-weight:600;margin-right:4px">PERÍODO:</span>
         ${periods.map(p=>`<button class="chip ${S.period===p.v?'active':''}" onclick="setPeriod('${p.v}')">${p.l}</button>`).join('')}
@@ -497,7 +514,31 @@ function buildFilters(){
         </label>
       </div>
     </div>
+    <div class="row" style="gap:8px">
+      <div style="flex:1;position:relative">
+        <input id="search-inp" placeholder="🔍 Pesquisar por nome ou ID…" value="${esc(S.search||'')}"
+          oninput="S.search=this.value;saveState();render()" style="padding-left:12px">
+      </div>
+      <div style="flex:0 0 180px">
+        <input type="number" min="0" step="0.01" placeholder="Gasto mín. (R$)" value="${esc(S.filterMinSpend||'')}"
+          oninput="S.filterMinSpend=this.value;saveState();render()">
+      </div>
+      ${(S.search||S.filterMinSpend)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';saveState();render()">✕ Limpar</button>`:''}
+    </div>
   </div>`;
+}
+
+function applyFilters(rows){
+  let r = rows.slice();
+  if(S.search?.trim()){
+    const q = S.search.toLowerCase();
+    r = r.filter(x => (x.name||'').toLowerCase().includes(q) || String(x.id||'').includes(q) || String(x.account_id||'').includes(q));
+  }
+  if(S.filterMinSpend && parseFloat(S.filterMinSpend)>0){
+    const min = parseFloat(S.filterMinSpend);
+    r = r.filter(x => (x.spend||0) >= min);
+  }
+  return r;
 }
 
 function buildBreadcrumb(){
@@ -523,49 +564,58 @@ function buildBreadcrumb(){
 function buildTable(){
   const cols = [
     {k:'name', l:'Nome', num:false},
+    {k:'id', l:'ID', num:false},
     {k:'spend', l:'Gasto', num:true},
     {k:'impressions', l:'Impressões', num:true},
     {k:'clicks', l:'Cliques', num:true},
+    {k:'landing_page_views', l:'Visualizações pág destino', num:true},
+    {k:'cost_per_landing_page_view', l:'Custo por VPD', num:true},
     {k:'ctr', l:'CTR', num:true},
     {k:'cpc', l:'CPC', num:true},
     {k:'cpm', l:'CPM', num:true}
   ];
-  if(S.view !== 'accounts') cols.splice(1,0,{k:'effective_status', l:'Status', num:false});
+  if(S.view !== 'accounts') cols.splice(2,0,{k:'effective_status', l:'Status', num:false});
 
   const showName = S.view === 'accounts' ? 'Conta' : S.view === 'campaigns' ? 'Campanha' : S.view === 'adsets' ? 'Conjunto' : 'Anúncio';
   cols[0].l = showName;
 
-  // Total row
-  const tot = S.data.reduce((t,r)=>{
+  // Aplica filtros (pesquisa + gasto mínimo)
+  const filtered = applyFilters(S.data);
+
+  const tot = filtered.reduce((t,r)=>{
     t.spend += r.spend||0;
     t.impressions += r.impressions||0;
     t.clicks += r.clicks||0;
+    t.landing_page_views += r.landing_page_views||0;
     return t;
-  }, {spend:0, impressions:0, clicks:0});
+  }, {spend:0, impressions:0, clicks:0, landing_page_views:0});
   tot.ctr = tot.impressions ? (tot.clicks/tot.impressions*100) : 0;
   tot.cpc = tot.clicks ? (tot.spend/tot.clicks) : 0;
   tot.cpm = tot.impressions ? (tot.spend/tot.impressions*1000) : 0;
+  tot.cost_per_landing_page_view = tot.landing_page_views ? (tot.spend/tot.landing_page_views) : 0;
 
-  // Mistura de currencies: mostra resumo por currency
   const byCur = {};
-  S.data.forEach(r=>{
+  filtered.forEach(r=>{
     const cur = r.currency || r._currency || 'BRL';
-    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0};
+    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0};
     byCur[cur].spend += r.spend||0;
     byCur[cur].impressions += r.impressions||0;
     byCur[cur].clicks += r.clicks||0;
+    byCur[cur].landing_page_views += r.landing_page_views||0;
   });
 
   const mainCur = S.view === 'accounts' ? null : (S.path[0]?.currency || 'BRL');
+  const filteredCount = filtered.length;
+  const totalCount = S.data.length;
 
   return `
   <div class="card">
     <h2>${S.view==='accounts'?'Contas de Anúncios':S.view==='campaigns'?'Campanhas':S.view==='adsets'?'Conjuntos':'Anúncios'}
-      <span style="font-weight:400;color:#888;font-size:13px">(${S.data.length})</span>
+      <span style="font-weight:400;color:#888;font-size:13px">(${filteredCount}${filteredCount!==totalCount?` de ${totalCount}`:''})</span>
     </h2>
-    ${S.data.length === 0 ? `
+    ${filteredCount === 0 ? `
       <div class="empty">
-        ${S.refreshing ? '<span class="loading"></span> Buscando dados…' : 'Sem dados para o período selecionado.'}
+        ${S.refreshing ? '<span class="loading"></span> Buscando dados…' : (totalCount > 0 ? 'Nenhum resultado para os filtros aplicados.' : 'Sem dados para o período selecionado.')}
       </div>
     ` : `
     <div class="tbl-wrap">
@@ -574,19 +624,22 @@ function buildTable(){
           <tr>${cols.map(c=>`<th class="${c.num?'num':''}" onclick="setSort('${c.k}')">${c.l}${S.sortBy===c.k?(S.sortDir==='asc'?' ▲':' ▼'):''}</th>`).join('')}</tr>
         </thead>
         <tbody>
-          ${S.data.map(r=>renderRow(r,cols,mainCur)).join('')}
+          ${filtered.map(r=>renderRow(r,cols,mainCur)).join('')}
         </tbody>
         <tfoot>
           ${S.view === 'accounts' ? Object.entries(byCur).map(([cur, t])=>{
             const ctr = t.impressions ? (t.clicks/t.impressions*100) : 0;
             const cpc = t.clicks ? (t.spend/t.clicks) : 0;
             const cpm = t.impressions ? (t.spend/t.impressions*1000) : 0;
+            const cplpv = t.landing_page_views ? (t.spend/t.landing_page_views) : 0;
             return `<tr class="total">
               <td>Total ${cur}</td>
-              ${S.view!=='accounts'?'<td></td>':''}
+              <td></td>
               <td class="num">${fmtMoney(t.spend, cur)}</td>
               <td class="num">${fmtNum(t.impressions)}</td>
               <td class="num">${fmtNum(t.clicks)}</td>
+              <td class="num">${fmtNum(t.landing_page_views)}</td>
+              <td class="num">${fmtMoney(cplpv, cur)}</td>
               <td class="num">${fmtPct(ctr)}</td>
               <td class="num">${fmtMoney(cpc, cur)}</td>
               <td class="num">${fmtMoney(cpm, cur)}</td>
@@ -594,9 +647,12 @@ function buildTable(){
           }).join('') : `<tr class="total">
             <td>Total</td>
             <td></td>
+            <td></td>
             <td class="num">${fmtMoney(tot.spend, mainCur)}</td>
             <td class="num">${fmtNum(tot.impressions)}</td>
             <td class="num">${fmtNum(tot.clicks)}</td>
+            <td class="num">${fmtNum(tot.landing_page_views)}</td>
+            <td class="num">${fmtMoney(tot.cost_per_landing_page_view, mainCur)}</td>
             <td class="num">${fmtPct(tot.ctr)}</td>
             <td class="num">${fmtMoney(tot.cpc, mainCur)}</td>
             <td class="num">${fmtMoney(tot.cpm, mainCur)}</td>
@@ -611,21 +667,37 @@ function buildTable(){
 function renderRow(r, cols, mainCur){
   const cur = r.currency || r._currency || mainCur || 'BRL';
   const clickable = S.view !== 'ads';
-  const onclick = clickable ? `onclick='drillInto(${JSON.stringify(r).replace(/'/g,"&apos;")})'` : '';
+  const safe = JSON.stringify(r).replace(/'/g,"&apos;").replace(/"/g,'&quot;');
+  const onclick = clickable ? `onclick='drillInto(${safe})'` : '';
   const cls = clickable ? 'row-link' : '';
   const status = r.effective_status || r.status;
-  const statusBadge = status ? `<span class="badge ${statusBadgeClass(status)}">${status.replace(/_/g,' ').toLowerCase()}</span>` : '';
+  const statusBadge = status && status !== '?' ? `<span class="badge ${statusBadgeClass(status)}">${status.replace(/_/g,' ').toLowerCase()}</span>` : '';
+  // ID: para conta usa account_id (sem o "act_"), para resto usa id puro
+  const displayId = S.view === 'accounts' ? (r.account_id || r.id.replace('act_','')) : r.id;
+  const idCell = `<span class="id-cell" title="${esc(displayId)}">${esc(displayId)}<button class="copy-btn" onclick="event.stopPropagation();copyId('${esc(displayId)}',this)" title="Copiar ID">📋</button></span>`;
   return `
     <tr class="${cls}" ${onclick}>
       <td>${esc(r.name||r.id)}${r._tokenLabel?`<span class="acct-tag">${esc(r._tokenLabel)}</span>`:''}${cur!=='BRL'?`<span class="acct-tag">${cur}</span>`:''}</td>
+      <td class="id-col">${idCell}</td>
       ${S.view!=='accounts'?`<td>${statusBadge}</td>`:''}
       <td class="num">${fmtMoney(r.spend||0, cur)}</td>
       <td class="num">${fmtNum(r.impressions||0)}</td>
       <td class="num">${fmtNum(r.clicks||0)}</td>
+      <td class="num">${fmtNum(r.landing_page_views||0)}</td>
+      <td class="num">${fmtMoney(r.cost_per_landing_page_view||0, cur)}</td>
       <td class="num">${fmtPct(r.ctr||0)}</td>
       <td class="num">${fmtMoney(r.cpc||0, cur)}</td>
       <td class="num">${fmtMoney(r.cpm||0, cur)}</td>
     </tr>`;
+}
+
+function copyId(id, btn){
+  navigator.clipboard.writeText(id).then(()=>{
+    const old = btn.textContent;
+    btn.textContent = '✓';
+    btn.style.color = '#42b72a';
+    setTimeout(()=>{ btn.textContent = old; btn.style.color = ''; }, 1500);
+  }).catch(()=>alert('ID: '+id));
 }
 
 function statusBadgeClass(s){
