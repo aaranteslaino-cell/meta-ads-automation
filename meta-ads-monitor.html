@@ -461,14 +461,17 @@ async function fetchRevenue(){
     });
     if(!res.ok) throw new Error('HTTP '+res.status+' '+(await res.text()).slice(0,120));
     const rows = await res.json();
-    const byCampaign={}, byAdset={}, byAd={};
+    const byCampaign={}, byAdset={}, byAd={}, adsetsOf={}, adsOf={};
     const add = (m,k,v)=>{ if(!k) return; if(!m[k]) m[k]={vendas:0,receita:0}; m[k].vendas+=v.vendas; m[k].receita+=v.receita; };
     (rows||[]).forEach(r=>{
       const v = { vendas: parseInt(r.vendas)||0, receita: parseFloat(r.receita_bruta)||0 };
       add(byCampaign, r.campaign_id, v); add(byAdset, r.adset_id, v); add(byAd, r.ad_id, v);
+      // hierarquia (p/ recuperar vendas de conjuntos/anúncios que não estão na lista atual)
+      if(r.campaign_id && r.adset_id){ adsetsOf[r.campaign_id] = adsetsOf[r.campaign_id]||{}; add(adsetsOf[r.campaign_id], r.adset_id, v); }
+      if(r.adset_id && r.ad_id){ adsOf[r.adset_id] = adsOf[r.adset_id]||{}; add(adsOf[r.adset_id], r.ad_id, v); }
     });
-    return { byCampaign, byAdset, byAd };
-  }catch(e){ console.warn('[receita Supabase] falhou:', e.message); return { _error:e.message, byCampaign:{}, byAdset:{}, byAd:{} }; }
+    return { byCampaign, byAdset, byAd, adsetsOf, adsOf };
+  }catch(e){ console.warn('[receita Supabase] falhou:', e.message); return { _error:e.message, byCampaign:{}, byAdset:{}, byAd:{}, adsetsOf:{}, adsOf:{} }; }
 }
 
 // Anexa receita/ROAS às linhas conforme o nível (campaign|adset|ad)
@@ -486,6 +489,28 @@ function attachRevenue(rows, level){
   });
 }
 
+// Cria linhas para vendas cujo ID (campanha/conjunto/anúncio) NÃO está na lista atual
+// do Meta — ex: anúncio duplicado/pausado/excluído. Garante que nenhuma venda suma.
+function injectMissingSalesRows(rows, level, cur){
+  if(!S._rev) return rows;
+  let src = null;
+  if(level==='campaign') src = S._rev.byCampaign;
+  else if(level==='adset'){ const c = S.path.find(p=>p.type==='campaign'); src = c ? S._rev.adsetsOf[c.id] : null; }
+  else if(level==='ad'){ const a = S.path.find(p=>p.type==='adset'); src = a ? S._rev.adsOf[a.id] : null; }
+  if(!src) return rows;
+  const present = new Set(rows.map(r=>String(r.id)));
+  Object.entries(src).forEach(([id, s])=>{
+    if(present.has(String(id)) || !s.vendas) return;
+    rows.push({ id, name:'(sem gasto no período)', effective_status:'archived',
+      _currency: cur||'BRL', _synthetic:true,
+      spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0,
+      landing_page_views:0, cost_per_landing_page_view:0, initiate_checkout:0, cost_per_initiate_checkout:0,
+      _vendas:s.vendas, _receita:s.receita, _roas:null, _cpa:null,
+      _ticket:(s.vendas>0 ? s.receita/s.vendas : null) });
+  });
+  return rows;
+}
+
 async function refreshData(){
   if(S.refreshing) return;
   S.refreshing = true;
@@ -499,6 +524,7 @@ async function refreshData(){
       // Sem filtro server-side: applyFilters faz no client com S.statusFilter
       S.data = await fetchAllCampaignsAcrossAccounts();
       attachRevenue(S.data, 'campaign');
+      injectMissingSalesRows(S.data, 'campaign', 'BRL');
     } else if(S.view === 'accounts'){
       // Para cada conta, busca summary insights
       const promises = S.accounts.map(async acc=>{
@@ -545,6 +571,7 @@ async function refreshData(){
       const acct = S.path.find(p=>p.type==='account');
       merged.forEach(m=>{ m._currency = acct?.currency || 'BRL'; m._tokenId = tokenId; });
       attachRevenue(merged, level);
+      injectMissingSalesRows(merged, level, acct?.currency || 'BRL');
 
       S.data = merged;
     }
@@ -784,7 +811,7 @@ function applyFilters(rows){
   }
   // Filtro de status (não se aplica à visão de contas)
   if(S.view !== 'accounts' && S.statusFilter && S.statusFilter !== 'all'){
-    r = r.filter(x => matchStatusFilter(x));
+    r = r.filter(x => x._synthetic || matchStatusFilter(x));  // vendas órfãs sempre visíveis
   }
   return r;
 }
