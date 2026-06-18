@@ -466,9 +466,9 @@ async function fetchRevenue(){
     if(!res.ok) throw new Error('HTTP '+res.status+' '+(await res.text()).slice(0,120));
     const rows = await res.json();
     const byCampaign={}, byAdset={}, byAd={}, adsetsOf={}, adsOf={};
-    const add = (m,k,v)=>{ if(!k) return; if(!m[k]) m[k]={vendas:0,receita:0}; m[k].vendas+=v.vendas; m[k].receita+=v.receita; };
+    const add = (m,k,v)=>{ if(!k) return; if(!m[k]) m[k]={front:0,total:0,receita:0}; m[k].front+=v.front; m[k].total+=v.total; m[k].receita+=v.receita; };
     (rows||[]).forEach(r=>{
-      const v = { vendas: parseInt(r.vendas)||0, receita: parseFloat(r.receita_bruta)||0 };
+      const v = { front: parseInt(r.vendas_front)||0, total: parseInt(r.vendas_total)||0, receita: parseFloat(r.receita_bruta)||0 };
       add(byCampaign, r.campaign_id, v); add(byAdset, r.adset_id, v); add(byAd, r.ad_id, v);
       // hierarquia (p/ recuperar vendas de conjuntos/anúncios que não estão na lista atual)
       if(r.campaign_id && r.adset_id){ adsetsOf[r.campaign_id] = adsetsOf[r.campaign_id]||{}; add(adsetsOf[r.campaign_id], r.adset_id, v); }
@@ -484,12 +484,13 @@ function attachRevenue(rows, level){
   const map = level==='ad' ? S._rev.byAd : level==='adset' ? S._rev.byAdset : S._rev.byCampaign;
   rows.forEach(r=>{
     const hit = map[String(r.id)];
-    r._receita = hit ? hit.receita : 0;
-    r._vendas  = hit ? hit.vendas  : 0;
+    r._receita     = hit ? hit.receita : 0;
+    r._vendasFront = hit ? hit.front : 0;
+    r._vendasTotal = hit ? hit.total : 0;
     const cur = r.currency || r._currency || 'BRL';
     r._roas   = (cur==='BRL' && (r.spend>0)) ? (r._receita / r.spend) : null;
-    r._cpa    = (r._vendas>0) ? (r.spend / r._vendas) : null;        // custo por venda (moeda da conta)
-    r._ticket = (r._vendas>0) ? (r._receita / r._vendas) : null;     // ticket médio (R$)
+    r._cpa    = (r._vendasFront>0) ? (r.spend / r._vendasFront) : null;     // custo por aquisição (front)
+    r._ticket = (r._vendasFront>0) ? (r._receita / r._vendasFront) : null;  // ticket médio (front)
   });
 }
 
@@ -504,13 +505,13 @@ function injectMissingSalesRows(rows, level, cur){
   if(!src) return rows;
   const present = new Set(rows.map(r=>String(r.id)));
   Object.entries(src).forEach(([id, s])=>{
-    if(present.has(String(id)) || !s.vendas) return;
+    if(present.has(String(id)) || !s.total) return;
     rows.push({ id, name:'(sem gasto no período)', effective_status:'archived',
       _currency: cur||'BRL', _synthetic:true,
       spend:0, impressions:0, clicks:0, ctr:0, cpc:0, cpm:0,
       landing_page_views:0, cost_per_landing_page_view:0, initiate_checkout:0, cost_per_initiate_checkout:0,
-      _vendas:s.vendas, _receita:s.receita, _roas:null, _cpa:null,
-      _ticket:(s.vendas>0 ? s.receita/s.vendas : null) });
+      _vendasFront:s.front, _vendasTotal:s.total, _receita:s.receita, _roas:null, _cpa:null,
+      _ticket:(s.front>0 ? s.receita/s.front : null) });
   });
   return rows;
 }
@@ -898,8 +899,8 @@ function totalRowCells(t, cur, cols){
     cost_per_initiate_checkout: t.initiate_checkout ? (t.spend/t.initiate_checkout) : 0,
     _receita: t._receita||0,
     _roas: (cur==='BRL' && t.spend>0) ? ((t._receita||0)/t.spend) : null,
-    _cpa: (t._vendas>0) ? (t.spend/t._vendas) : null,
-    _ticket: (t._vendas>0) ? ((t._receita||0)/t._vendas) : null
+    _cpa: (t._vendasFront>0) ? (t.spend/t._vendasFront) : null,
+    _ticket: (t._vendasFront>0) ? ((t._receita||0)/t._vendasFront) : null
   };
   const val = k => (k in t) ? t[k] : d[k];
   const money = ['spend','cpc','cpm','cost_per_landing_page_view','cost_per_initiate_checkout'];
@@ -939,11 +940,12 @@ function buildTable(){
   // Métricas de venda real (Assiny/Supabase) — no FIM, fechando o funil
   if(S.showRevenue && S.view !== 'accounts'){
     cols.push(
-      {k:'_vendas',  l:'Vendas',       num:true},
-      {k:'_receita', l:'Receita',      num:true},
-      {k:'_cpa',     l:'CPA',          num:true},
-      {k:'_ticket',  l:'Ticket Médio', num:true},
-      {k:'_roas',    l:'ROAS',         num:true});
+      {k:'_vendasFront', l:'Vendas Front',  num:true},
+      {k:'_vendasTotal', l:'Vendas Totais', num:true},
+      {k:'_receita',     l:'Receita',       num:true},
+      {k:'_cpa',         l:'CPA',           num:true},
+      {k:'_ticket',      l:'Ticket Médio',  num:true},
+      {k:'_roas',        l:'ROAS',          num:true});
   }
 
   const showName = S.view === 'accounts' ? 'Conta'
@@ -961,9 +963,10 @@ function buildTable(){
     t.landing_page_views += r.landing_page_views||0;
     t.initiate_checkout += r.initiate_checkout||0;
     t._receita += r._receita||0;
-    t._vendas += r._vendas||0;
+    t._vendasFront += r._vendasFront||0;
+    t._vendasTotal += r._vendasTotal||0;
     return t;
-  }, {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0, _receita:0, _vendas:0});
+  }, {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0, _receita:0, _vendasFront:0, _vendasTotal:0});
   tot.ctr = tot.impressions ? (tot.clicks/tot.impressions*100) : 0;
   tot.cpc = tot.clicks ? (tot.spend/tot.clicks) : 0;
   tot.cpm = tot.impressions ? (tot.spend/tot.impressions*1000) : 0;
@@ -973,14 +976,15 @@ function buildTable(){
   const byCur = {};
   filtered.forEach(r=>{
     const cur = r.currency || r._currency || 'BRL';
-    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0, _receita:0, _vendas:0};
+    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0, _receita:0, _vendasFront:0, _vendasTotal:0};
     byCur[cur].spend += r.spend||0;
     byCur[cur].impressions += r.impressions||0;
     byCur[cur].clicks += r.clicks||0;
     byCur[cur].landing_page_views += r.landing_page_views||0;
     byCur[cur].initiate_checkout += r.initiate_checkout||0;
     byCur[cur]._receita += r._receita||0;
-    byCur[cur]._vendas += r._vendas||0;
+    byCur[cur]._vendasFront += r._vendasFront||0;
+    byCur[cur]._vendasTotal += r._vendasTotal||0;
   });
 
   const mainCur = S.view === 'accounts' ? null : (S.path[0]?.currency || 'BRL');
@@ -1040,7 +1044,7 @@ function renderRow(r, cols, mainCur){
     if(c.k==='effective_status') return `<td>${statusBadge}</td>`;
     if(c.k==='_roas'){
       const hasRev = r._receita!=null;
-      return `<td class="num" style="color:${roasColor(r._roas)};font-weight:600" title="${hasRev?(r._vendas||0)+' venda(s)':'sem dado de receita'}">${fmtRoas(r._roas)}</td>`;
+      return `<td class="num" style="color:${roasColor(r._roas)};font-weight:600" title="${hasRev?(r._vendasFront||0)+' front · '+(r._vendasTotal||0)+' totais':'sem dado de receita'}">${fmtRoas(r._roas)}</td>`;
     }
     if(c.k==='_receita') return `<td class="num">${r._receita!=null?fmtMoney(r._receita||0,'BRL'):'—'}</td>`;
     if(c.k==='_ticket') return `<td class="num">${r._ticket!=null?fmtMoney(r._ticket,'BRL'):'—'}</td>`;
