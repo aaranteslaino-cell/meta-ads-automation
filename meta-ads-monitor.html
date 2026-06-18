@@ -480,7 +480,9 @@ function attachRevenue(rows, level){
     r._receita = hit ? hit.receita : 0;
     r._vendas  = hit ? hit.vendas  : 0;
     const cur = r.currency || r._currency || 'BRL';
-    r._roas = (cur==='BRL' && (r.spend>0)) ? (r._receita / r.spend) : null;
+    r._roas   = (cur==='BRL' && (r.spend>0)) ? (r._receita / r.spend) : null;
+    r._cpa    = (r._vendas>0) ? (r.spend / r._vendas) : null;        // custo por venda (moeda da conta)
+    r._ticket = (r._vendas>0) ? (r._receita / r._vendas) : null;     // ticket médio (R$)
   });
 }
 
@@ -834,7 +836,9 @@ function totalRowCells(t, cur, cols){
     cost_per_landing_page_view: t.landing_page_views ? (t.spend/t.landing_page_views) : 0,
     cost_per_initiate_checkout: t.initiate_checkout ? (t.spend/t.initiate_checkout) : 0,
     _receita: t._receita||0,
-    _roas: (cur==='BRL' && t.spend>0) ? ((t._receita||0)/t.spend) : null
+    _roas: (cur==='BRL' && t.spend>0) ? ((t._receita||0)/t.spend) : null,
+    _cpa: (t._vendas>0) ? (t.spend/t._vendas) : null,
+    _ticket: (t._vendas>0) ? ((t._receita||0)/t._vendas) : null
   };
   const val = k => (k in t) ? t[k] : d[k];
   const money = ['spend','cpc','cpm','cost_per_landing_page_view','cost_per_initiate_checkout'];
@@ -844,6 +848,8 @@ function totalRowCells(t, cur, cols){
     else if(c.k==='id' || c.k==='effective_status') cells += '<td></td>';
     else if(c.k==='_roas') cells += `<td class="num" style="color:${roasColor(d._roas)};font-weight:600">${fmtRoas(d._roas)}</td>`;
     else if(c.k==='_receita') cells += `<td class="num">${fmtMoney(d._receita,'BRL')}</td>`;
+    else if(c.k==='_ticket') cells += `<td class="num">${d._ticket!=null?fmtMoney(d._ticket,'BRL'):'—'}</td>`;
+    else if(c.k==='_cpa') cells += `<td class="num">${d._cpa!=null?fmtMoney(d._cpa,cur):'—'}</td>`;
     else if(money.includes(c.k)) cells += `<td class="num">${fmtMoney(val(c.k), cur)}</td>`;
     else if(c.k==='ctr') cells += `<td class="num">${fmtPct(d.ctr)}</td>`;
     else cells += `<td class="num">${fmtNum(val(c.k)||0)}</td>`;
@@ -852,29 +858,31 @@ function totalRowCells(t, cur, cols){
 }
 
 function buildTable(){
+  // Ordem do funil: entrega/criativo → meio de funil → checkout → vendas (fim)
   const cols = [
     {k:'name', l:'Nome', num:false},
     {k:'id', l:'ID', num:false},
     {k:'spend', l:'Gasto', num:true},
     {k:'impressions', l:'Impressões', num:true},
     {k:'clicks', l:'Cliques', num:true},
+    {k:'ctr', l:'CTR', num:true},
+    {k:'cpc', l:'CPC', num:true},
+    {k:'cpm', l:'CPM', num:true},
     {k:'landing_page_views', l:'Visualizações pág destino', num:true},
     {k:'cost_per_landing_page_view', l:'Custo por VPD', num:true},
     {k:'initiate_checkout', l:'Finalização de compra', num:true},
-    {k:'cost_per_initiate_checkout', l:'Custo por finalização', num:true},
-    {k:'ctr', l:'CTR', num:true},
-    {k:'cpc', l:'CPC', num:true},
-    {k:'cpm', l:'CPM', num:true}
+    {k:'cost_per_initiate_checkout', l:'Custo por finalização', num:true}
   ];
   if(S.view !== 'accounts') cols.splice(2,0,{k:'effective_status', l:'Status', num:false});
 
-  // Colunas de receita real (Supabase) — não na visão de contas
+  // Métricas de venda real (Assiny/Supabase) — no FIM, fechando o funil
   if(S.showRevenue && S.view !== 'accounts'){
-    const si = cols.findIndex(c=>c.k==='spend');
-    cols.splice(si+1, 0,
-      {k:'_vendas',  l:'Vendas',  num:true},
-      {k:'_receita', l:'Receita', num:true},
-      {k:'_roas',    l:'ROAS',    num:true});
+    cols.push(
+      {k:'_vendas',  l:'Vendas',       num:true},
+      {k:'_receita', l:'Receita',      num:true},
+      {k:'_cpa',     l:'CPA',          num:true},
+      {k:'_ticket',  l:'Ticket Médio', num:true},
+      {k:'_roas',    l:'ROAS',         num:true});
   }
 
   const showName = S.view === 'accounts' ? 'Conta'
@@ -974,6 +982,8 @@ function renderRow(r, cols, mainCur){
       return `<td class="num" style="color:${roasColor(r._roas)};font-weight:600" title="${hasRev?(r._vendas||0)+' venda(s)':'sem dado de receita'}">${fmtRoas(r._roas)}</td>`;
     }
     if(c.k==='_receita') return `<td class="num">${r._receita!=null?fmtMoney(r._receita||0,'BRL'):'—'}</td>`;
+    if(c.k==='_ticket') return `<td class="num">${r._ticket!=null?fmtMoney(r._ticket,'BRL'):'—'}</td>`;
+    if(c.k==='_cpa') return `<td class="num">${r._cpa!=null?fmtMoney(r._cpa,cur):'—'}</td>`;
     if(money.includes(c.k)) return `<td class="num">${fmtMoney(r[c.k]||0, cur)}</td>`;
     if(c.k==='ctr') return `<td class="num">${fmtPct(r.ctr||0)}</td>`;
     return `<td class="num">${fmtNum(r[c.k]||0)}</td>`;
