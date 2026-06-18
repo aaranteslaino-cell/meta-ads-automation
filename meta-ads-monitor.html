@@ -43,8 +43,12 @@ th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
 tr.row-link{cursor:pointer;transition:background .12s}
 tr.row-link:hover{background:#f7f8fa}
 tr.row-link td:first-child{color:#1877f2;font-weight:500}
-tr.total{background:#f7f8fa;font-weight:700}
+tr.total{background:#eef3fb;font-weight:700}
 tr.total td{border-top:2px solid #1877f2;border-bottom:none}
+/* Rodapé de totais fixo no fim da tabela (sempre visível, como no Meta) */
+tfoot td{position:sticky;background:#eef3fb;z-index:3}
+tfoot tr:last-child td{bottom:0}
+tfoot tr:nth-last-child(2) td{bottom:39px}
 .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
 .b-green{background:#e6f4ea;color:#137333}
 .b-orange{background:#fef3e2;color:#c47a00}
