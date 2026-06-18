@@ -82,6 +82,13 @@ hr{border:none;border-top:1px solid #e4e6eb;margin:14px 0}
 <script>
 const GQL = 'https://graph.facebook.com/v21.0';
 
+// ── Supabase: receita real cruzada por campanha/conjunto/anúncio ──────────────
+// Consome a RPC agregada public.meta_revenue_by_ad (sem dados pessoais), que
+// deriva campaign_id/adset_id/ad_id das UTMs (contorna o bug do n8n que grava
+// meta_campaign_id/ad_id = 'direct'). Receita = valor_bruto/100 (todas as vendas).
+const SB_URL_DEFAULT = 'https://mnrnnmfaupvmjfgpzkou.supabase.co';
+const SB_KEY_DEFAULT = 'sb_publishable_KraV-pqYINerxc0nCgdHaA_xHj7ew87';
+
 // ── Estado ────────────────────────────────────────────────────────────────────
 let S = loadState() || {
   tokens:[],
@@ -121,6 +128,11 @@ if(typeof S.filterMinSpend !== 'string') S.filterMinSpend = '';
 if(typeof S.showPaused !== 'boolean') S.showPaused = false;
 if(typeof S.autoRefresh !== 'boolean') S.autoRefresh = true;
 if(!S.statusFilter) S.statusFilter = 'active';
+// Supabase / receita
+if(typeof S.sbUrl !== 'string' || !S.sbUrl) S.sbUrl = SB_URL_DEFAULT;
+if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
+if(typeof S.showRevenue !== 'boolean') S.showRevenue = true;
+S._rev = null; // cache de receita do refresh atual (não persistido)
 
 function loadState(){
   try{ return JSON.parse(localStorage.getItem('mam_state')); }catch(e){ return null; }
@@ -163,6 +175,8 @@ const fmtMoney = (v, cur='BRL') => {
 };
 const fmtNum = v => Math.round(parseFloat(v)||0).toLocaleString('pt-BR');
 const fmtPct = v => (parseFloat(v)||0).toFixed(2)+'%';
+const fmtRoas = r => (r==null) ? '—' : (parseFloat(r)||0).toFixed(2)+'x';
+const roasColor = r => (r==null) ? '#888' : (r>=1.5?'#1a9e3e':r>=1?'#2e7d32':r>=0.7?'#b08900':'#d32f2f');
 
 function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 
@@ -196,8 +210,10 @@ async function connect(){
   for(const tk of S.tokens){
     if(!tk.token) continue;
     try{
-      const r = await api('/me/adaccounts',{fields:'id,name,account_id,currency,account_status',limit:500}, tk.token);
-      const accs = (r.data||[]).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label}));
+      const r = await api('/me/adaccounts',{fields:'id,name,account_id,currency,account_status,timezone_name,timezone_offset_hours_utc',limit:500}, tk.token);
+      const accs = (r.data||[]).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label,
+        _tzOffset: (a.timezone_offset_hours_utc!=null ? Number(a.timezone_offset_hours_utc) : null),
+        _tzName: a.timezone_name}));
       S.accounts.push(...accs);
     }catch(e){ errs.push(`[${tk.label}] ${e.message}`); }
   }
@@ -251,7 +267,28 @@ function getActionValue(actions, type){
   return a ? parseFloat(a.value)||0 : 0;
 }
 
-async function fetchInsights(parentId, level, tokenId){
+// ── Fuso de Brasília uniforme ──────────────────────────────────────────────────
+// O Meta reporta cada conta no fuso DELA (sem override na API). Para contas fora de
+// Brasília, puxamos o gasto por HORA (no fuso do anunciante) e re-agrupamos nos dias
+// do Brasil, deixando todo o monitor consistente em BRT.
+const BR_OFFSET = -3; // UTC-3
+
+// Data de HOJE em Brasília (YYYY-MM-DD), independente do fuso do navegador
+const brToday = () => new Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo', year:'numeric', month:'2-digit', day:'2-digit'}).format(new Date());
+const addDaysStr = (s, days) => { const d=new Date(s+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); };
+function brWindow(period){
+  const today = brToday();
+  if(period==='today')     return {since:today, until:today};
+  if(period==='yesterday'){ const y=addDaysStr(today,-1); return {since:y, until:y}; }
+  const n = period==='last_3d'?3 : period==='last_7d'?7 : period==='last_14d'?14 : period==='last_30d'?30 : 7;
+  return {since: addDaysStr(today,-n), until: addDaysStr(today,-1)}; // N dias terminando ontem (igual ao last_Nd do Meta)
+}
+
+async function fetchInsights(parentId, level, tokenId, tzOffset){
+  // Conta fora do fuso BR → caminho horário re-agrupado
+  if(tzOffset != null && Number(tzOffset) !== BR_OFFSET){
+    return await fetchInsightsHourlyBRT(parentId, level, tokenId, Number(tzOffset));
+  }
   const tok = getTokenById(tokenId);
   if(!tok) throw new Error('Token não encontrado');
   const params = {
@@ -260,12 +297,74 @@ async function fetchInsights(parentId, level, tokenId){
     date_preset: S.period,
     limit: 500
   };
-  const path = level === 'campaign' ? `/${parentId}/insights`
-            : level === 'adset' ? `/${parentId}/insights`
-            : `/${parentId}/insights`;
-  // Para nível conta, parentId = act_XXX
-  const r = await api(path, params, tok);
+  const r = await api(`/${parentId}/insights`, params, tok);
   return r.data || [];
+}
+
+// Puxa gasto/métricas por hora (fuso do anunciante) e re-agrupa em dias de Brasília,
+// devolvendo no MESMO formato que mergeInsightsAndEntities espera.
+async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
+  const tok = getTokenById(tokenId);
+  if(!tok) throw new Error('Token não encontrado');
+  const win = brWindow(S.period);
+  const shift = BR_OFFSET - tzOffset;            // horas a somar no horário da conta → BRT
+  const accSince = addDaysStr(win.since, -1);     // folga de 1 dia em cada ponta
+  const accUntil = addDaysStr(win.until, 1);
+  const idField = level==='campaign'?'campaign_id' : level==='adset'?'adset_id' : level==='ad'?'ad_id' : null;
+  const nameField = idField ? idField.replace('_id','_name') : null;
+
+  // campos enxutos: reach/frequency não combinam com breakdown horário; ctr/cpc/cpm recalculados aqui
+  let url = `${GQL}/${parentId}/insights?` + [
+    'level='+level,
+    'fields='+encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name'),
+    'breakdowns=hourly_stats_aggregated_by_advertiser_time_zone',
+    'time_increment=1',
+    'time_range='+encodeURIComponent(JSON.stringify({since:accSince, until:accUntil})),
+    'limit=500',
+    'access_token='+encodeURIComponent(tok)
+  ].join('&');
+
+  const acc = {};
+  let pages = 0;
+  while(url && pages < 60){
+    pages++;
+    const json = await (await fetch(url)).json();
+    if(json.error) throw new Error(`(${json.error.code}) ${json.error.message}`);
+    (json.data||[]).forEach(row=>{
+      const hStr = row.hourly_stats_aggregated_by_advertiser_time_zone || '00';
+      const hr = parseInt(hStr.slice(0,2),10) || 0;
+      const base = new Date(row.date_start+'T00:00:00Z');
+      base.setUTCHours(hr + shift);               // desloca para o relógio de Brasília
+      const brDate = base.toISOString().slice(0,10);
+      if(brDate < win.since || brDate > win.until) return;   // fora da janela BR
+      const id = idField ? row[idField] : '__acct__';
+      if(!id) return;
+      if(!acc[id]) acc[id] = {id, name: nameField ? (row[nameField]||id) : id, spend:0, impressions:0, clicks:0, lpv:0, ic:0};
+      const a = acc[id];
+      a.spend += parseFloat(row.spend)||0;
+      a.impressions += parseInt(row.impressions)||0;
+      a.clicks += parseInt(row.clicks)||0;
+      a.lpv += getActionValue(row.actions,'landing_page_view');
+      a.ic  += getActionValue(row.actions,'initiate_checkout') || getActionValue(row.actions,'offsite_conversion.fb_pixel_initiate_checkout');
+    });
+    url = (json.paging && json.paging.next) ? json.paging.next : null;
+  }
+
+  return Object.values(acc).map(a=>{
+    const ins = {
+      spend:a.spend, impressions:a.impressions, clicks:a.clicks,
+      ctr: a.impressions ? (a.clicks/a.impressions*100) : 0,
+      cpc: a.clicks ? (a.spend/a.clicks) : 0,
+      cpm: a.impressions ? (a.spend/a.impressions*1000) : 0,
+      actions: [{action_type:'landing_page_view', value:a.lpv}, {action_type:'initiate_checkout', value:a.ic}],
+      cost_per_action_type: [
+        {action_type:'landing_page_view', value: a.lpv ? a.spend/a.lpv : 0},
+        {action_type:'initiate_checkout', value: a.ic ? a.spend/a.ic : 0}
+      ]
+    };
+    if(idField){ ins[idField]=a.id; ins[nameField]=a.name; }
+    return ins;
+  });
 }
 
 async function fetchEntityList(parentId, level, tokenId){
@@ -312,7 +411,7 @@ async function fetchAllCampaignsAcrossAccounts(){
 
   const promises = targets.map(async acc=>{
     try{
-      const insights = await fetchInsights(acc.id, 'campaign', acc._tokenId);
+      const insights = await fetchInsights(acc.id, 'campaign', acc._tokenId, acc._tzOffset);
       let entities = [];
       try{ entities = await fetchEntityList(acc.id, 'campaign', acc._tokenId); }catch(e){}
       const merged = mergeInsightsAndEntities(insights, entities, 'campaign_id');
@@ -322,6 +421,7 @@ async function fetchAllCampaignsAcrossAccounts(){
         m._currency = acc.currency;
         m._tokenId = acc._tokenId;
         m._tokenLabel = acc._tokenLabel;
+        m._tzOffset = acc._tzOffset;
       });
       return merged;
     }catch(e){
@@ -332,20 +432,72 @@ async function fetchAllCampaignsAcrossAccounts(){
   return all.flat();
 }
 
+// ── Receita real (Supabase RPC) ───────────────────────────────────────────────
+// Converte o período do monitor (date_preset do Meta) numa janela [since, until)
+// para casar com a receita. Aproximação: usa meia-noite local; pequenas diferenças
+// de fuso entre a conta de anúncio e o created_at (UTC) são esperadas.
+function periodRange(period){
+  // Mesma janela do gasto (brWindow): meia-noite de Brasília, N dias terminando ontem.
+  const today = brToday();
+  const at = s => `${s}T00:00:00-03:00`;
+  if(period === 'today')     return { since: at(today),                until: at(addDaysStr(today,1)) };
+  if(period === 'yesterday') return { since: at(addDaysStr(today,-1)), until: at(today) };
+  const n = period==='last_3d'?3 : period==='last_7d'?7 : period==='last_14d'?14 : period==='last_30d'?30 : 7;
+  return { since: at(addDaysStr(today,-n)), until: at(today) };
+}
+
+async function fetchRevenue(){
+  if(!S.showRevenue || !S.sbUrl || !S.sbKey) return null;
+  const { since, until } = periodRange(S.period);
+  try{
+    const res = await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_by_ad`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},
+      body: JSON.stringify({ p_since: since, p_until: until })
+    });
+    if(!res.ok) throw new Error('HTTP '+res.status+' '+(await res.text()).slice(0,120));
+    const rows = await res.json();
+    const byCampaign={}, byAdset={}, byAd={};
+    const add = (m,k,v)=>{ if(!k) return; if(!m[k]) m[k]={vendas:0,receita:0}; m[k].vendas+=v.vendas; m[k].receita+=v.receita; };
+    (rows||[]).forEach(r=>{
+      const v = { vendas: parseInt(r.vendas)||0, receita: parseFloat(r.receita_bruta)||0 };
+      add(byCampaign, r.campaign_id, v); add(byAdset, r.adset_id, v); add(byAd, r.ad_id, v);
+    });
+    return { byCampaign, byAdset, byAd };
+  }catch(e){ console.warn('[receita Supabase] falhou:', e.message); return { _error:e.message, byCampaign:{}, byAdset:{}, byAd:{} }; }
+}
+
+// Anexa receita/ROAS às linhas conforme o nível (campaign|adset|ad)
+function attachRevenue(rows, level){
+  if(!S._rev) return;
+  const map = level==='ad' ? S._rev.byAd : level==='adset' ? S._rev.byAdset : S._rev.byCampaign;
+  rows.forEach(r=>{
+    const hit = map[String(r.id)];
+    r._receita = hit ? hit.receita : 0;
+    r._vendas  = hit ? hit.vendas  : 0;
+    const cur = r.currency || r._currency || 'BRL';
+    r._roas = (cur==='BRL' && (r.spend>0)) ? (r._receita / r.spend) : null;
+  });
+}
+
 async function refreshData(){
   if(S.refreshing) return;
   S.refreshing = true;
   render();
 
   try{
+    // Receita do período (1 chamada por refresh, reaproveitada por todos os níveis)
+    S._rev = await fetchRevenue();
+
     if(S.view === 'allCampaigns'){
       // Sem filtro server-side: applyFilters faz no client com S.statusFilter
       S.data = await fetchAllCampaignsAcrossAccounts();
+      attachRevenue(S.data, 'campaign');
     } else if(S.view === 'accounts'){
       // Para cada conta, busca summary insights
       const promises = S.accounts.map(async acc=>{
         try{
-          const data = await fetchInsights(acc.id, 'account', acc._tokenId);
+          const data = await fetchInsights(acc.id, 'account', acc._tokenId, acc._tzOffset);
           const ins = data[0] || {};
           return {
             ...acc,
@@ -375,7 +527,7 @@ async function refreshData(){
       const level = S.view === 'campaigns' ? 'campaign' : S.view === 'adsets' ? 'adset' : 'ad';
       const idField = level + '_id';
 
-      const insights = await fetchInsights(last.id, level, tokenId);
+      const insights = await fetchInsights(last.id, level, tokenId, (S.path[0]||{})._tzOffset);
       let entities = [];
       try{ entities = await fetchEntityList(last.id, level, tokenId); }
       catch(e){ /* sem entidade — usa insights apenas */ }
@@ -386,6 +538,7 @@ async function refreshData(){
       // Inserir currency da conta-mãe
       const acct = S.path.find(p=>p.type==='account');
       merged.forEach(m=>{ m._currency = acct?.currency || 'BRL'; m._tokenId = tokenId; });
+      attachRevenue(merged, level);
 
       S.data = merged;
     }
@@ -436,12 +589,12 @@ function scheduleAutoRefresh(){
 // ── Drill-down ────────────────────────────────────────────────────────────────
 async function drillInto(item){
   if(S.view === 'accounts'){
-    S.path = [{type:'account', id:item.id, name:item.name, currency:item.currency, _tokenId:item._tokenId}];
+    S.path = [{type:'account', id:item.id, name:item.name, currency:item.currency, _tokenId:item._tokenId, _tzOffset:item._tzOffset}];
     S.view = 'campaigns';
   } else if(S.view === 'allCampaigns'){
     // Cross-account: reconstrói path com a conta dona da campanha
     S.path = [
-      {type:'account', id:item._accountId, name:item._accountName, currency:item._currency, _tokenId:item._tokenId},
+      {type:'account', id:item._accountId, name:item._accountName, currency:item._currency, _tokenId:item._tokenId, _tzOffset:item._tzOffset},
       {type:'campaign', id:item.id, name:item.name, _tokenId:item._tokenId}
     ];
     S.view = 'adsets';
@@ -477,6 +630,7 @@ function setSort(col){
   sortData(); render();
 }
 function togglePaused(){ S.showPaused = !S.showPaused; saveState(); refreshData(); }
+function toggleRevenue(){ S.showRevenue = !S.showRevenue; saveState(); refreshData(); }
 function toggleAutoRefresh(){
   S.autoRefresh = !S.autoRefresh; saveState();
   if(S.autoRefresh) scheduleAutoRefresh();
@@ -524,8 +678,21 @@ function buildMain(){
   return `
   ${buildHeader()}
   ${buildFilters()}
+  ${buildRevenueNote()}
   ${buildBreadcrumb()}
   ${buildTable()}`;
+}
+
+function buildRevenueNote(){
+  if(!S.showRevenue || S.view==='accounts') return '';
+  if(S._rev && S._rev._error){
+    return `<div class="card" style="border-left:4px solid #d32f2f;background:#fff4f4">
+      ⚠️ Receita do Supabase indisponível (${esc(S._rev._error)}). Mostrando só métricas do Meta.</div>`;
+  }
+  return `<div class="card" style="border-left:4px solid #b08900;background:#fffdf3;font-size:13px;color:#5a4a00">
+    💰 <b>Receita real</b> cruzada do Supabase (via UTMs) por <b>${S.view==='ads'?'anúncio':S.view==='adsets'?'conjunto':'campanha'}</b>.
+    ROAS = receita ÷ gasto (só contas BRL). ⚠️ A captura do webhook ainda está parcial e começou em 16/06 —
+    use como tendência relativa, não valor absoluto.</div>`;
 }
 
 function buildHeader(){
@@ -563,7 +730,11 @@ function buildFilters(){
         <span style="font-size:12px;color:#888;font-weight:600;margin-right:4px">PERÍODO:</span>
         ${periods.map(p=>`<button class="chip ${S.period===p.v?'active':''}" onclick="setPeriod('${p.v}')">${p.l}</button>`).join('')}
       </div>
-      <div class="row">
+      <div class="row" style="gap:14px">
+        <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;margin:0;color:#1c1e21" title="Cruza receita real (Supabase) por campanha/conjunto/anúncio">
+          <input type="checkbox" style="width:auto" ${S.showRevenue?'checked':''} onchange="toggleRevenue()">
+          💰 Receita + ROAS
+        </label>
         <label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;margin:0;color:#1c1e21">
           <input type="checkbox" style="width:auto" ${S.autoRefresh?'checked':''} onchange="toggleAutoRefresh()">
           Auto-refresh (5min)
@@ -650,6 +821,32 @@ function buildBreadcrumb(){
   return `<div class="card"><div class="bread">${parts.join('')}</div></div>`;
 }
 
+// Gera as <td> de uma linha de total a partir das colunas ativas (mantém alinhamento)
+function totalRowCells(t, cur, cols){
+  const d = {
+    ctr: t.impressions ? (t.clicks/t.impressions*100) : 0,
+    cpc: t.clicks ? (t.spend/t.clicks) : 0,
+    cpm: t.impressions ? (t.spend/t.impressions*1000) : 0,
+    cost_per_landing_page_view: t.landing_page_views ? (t.spend/t.landing_page_views) : 0,
+    cost_per_initiate_checkout: t.initiate_checkout ? (t.spend/t.initiate_checkout) : 0,
+    _receita: t._receita||0,
+    _roas: (cur==='BRL' && t.spend>0) ? ((t._receita||0)/t.spend) : null
+  };
+  const val = k => (k in t) ? t[k] : d[k];
+  const money = ['spend','cpc','cpm','cost_per_landing_page_view','cost_per_initiate_checkout'];
+  let cells = '';
+  cols.forEach((c, idx)=>{
+    if(idx===0) cells += `<td>Total ${cur||''}</td>`;
+    else if(c.k==='id' || c.k==='effective_status') cells += '<td></td>';
+    else if(c.k==='_roas') cells += `<td class="num" style="color:${roasColor(d._roas)};font-weight:600">${fmtRoas(d._roas)}</td>`;
+    else if(c.k==='_receita') cells += `<td class="num">${fmtMoney(d._receita,'BRL')}</td>`;
+    else if(money.includes(c.k)) cells += `<td class="num">${fmtMoney(val(c.k), cur)}</td>`;
+    else if(c.k==='ctr') cells += `<td class="num">${fmtPct(d.ctr)}</td>`;
+    else cells += `<td class="num">${fmtNum(val(c.k)||0)}</td>`;
+  });
+  return cells;
+}
+
 function buildTable(){
   const cols = [
     {k:'name', l:'Nome', num:false},
@@ -667,6 +864,15 @@ function buildTable(){
   ];
   if(S.view !== 'accounts') cols.splice(2,0,{k:'effective_status', l:'Status', num:false});
 
+  // Colunas de receita real (Supabase) — não na visão de contas
+  if(S.showRevenue && S.view !== 'accounts'){
+    const si = cols.findIndex(c=>c.k==='spend');
+    cols.splice(si+1, 0,
+      {k:'_vendas',  l:'Vendas',  num:true},
+      {k:'_receita', l:'Receita', num:true},
+      {k:'_roas',    l:'ROAS',    num:true});
+  }
+
   const showName = S.view === 'accounts' ? 'Conta'
     : (S.view === 'campaigns' || S.view === 'allCampaigns') ? 'Campanha'
     : S.view === 'adsets' ? 'Conjunto' : 'Anúncio';
@@ -681,8 +887,10 @@ function buildTable(){
     t.clicks += r.clicks||0;
     t.landing_page_views += r.landing_page_views||0;
     t.initiate_checkout += r.initiate_checkout||0;
+    t._receita += r._receita||0;
+    t._vendas += r._vendas||0;
     return t;
-  }, {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0});
+  }, {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0, _receita:0, _vendas:0});
   tot.ctr = tot.impressions ? (tot.clicks/tot.impressions*100) : 0;
   tot.cpc = tot.clicks ? (tot.spend/tot.clicks) : 0;
   tot.cpm = tot.impressions ? (tot.spend/tot.impressions*1000) : 0;
@@ -692,12 +900,14 @@ function buildTable(){
   const byCur = {};
   filtered.forEach(r=>{
     const cur = r.currency || r._currency || 'BRL';
-    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0};
+    if(!byCur[cur]) byCur[cur] = {spend:0, impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0, _receita:0, _vendas:0};
     byCur[cur].spend += r.spend||0;
     byCur[cur].impressions += r.impressions||0;
     byCur[cur].clicks += r.clicks||0;
     byCur[cur].landing_page_views += r.landing_page_views||0;
     byCur[cur].initiate_checkout += r.initiate_checkout||0;
+    byCur[cur]._receita += r._receita||0;
+    byCur[cur]._vendas += r._vendas||0;
   });
 
   const mainCur = S.view === 'accounts' ? null : (S.path[0]?.currency || 'BRL');
@@ -727,43 +937,9 @@ function buildTable(){
           ${filtered.map(r=>renderRow(r,cols,mainCur)).join('')}
         </tbody>
         <tfoot>
-          ${(S.view === 'accounts' || S.view === 'allCampaigns') ? Object.entries(byCur).map(([cur, t])=>{
-            const ctr = t.impressions ? (t.clicks/t.impressions*100) : 0;
-            const cpc = t.clicks ? (t.spend/t.clicks) : 0;
-            const cpm = t.impressions ? (t.spend/t.impressions*1000) : 0;
-            const cplpv = t.landing_page_views ? (t.spend/t.landing_page_views) : 0;
-            const cpic = t.initiate_checkout ? (t.spend/t.initiate_checkout) : 0;
-            const hasStatusCol = S.view !== 'accounts';
-            return `<tr class="total">
-              <td>Total ${cur}</td>
-              <td></td>
-              ${hasStatusCol?'<td></td>':''}
-              <td class="num">${fmtMoney(t.spend, cur)}</td>
-              <td class="num">${fmtNum(t.impressions)}</td>
-              <td class="num">${fmtNum(t.clicks)}</td>
-              <td class="num">${fmtNum(t.landing_page_views)}</td>
-              <td class="num">${fmtMoney(cplpv, cur)}</td>
-              <td class="num">${fmtNum(t.initiate_checkout)}</td>
-              <td class="num">${fmtMoney(cpic, cur)}</td>
-              <td class="num">${fmtPct(ctr)}</td>
-              <td class="num">${fmtMoney(cpc, cur)}</td>
-              <td class="num">${fmtMoney(cpm, cur)}</td>
-            </tr>`;
-          }).join('') : `<tr class="total">
-            <td>Total</td>
-            <td></td>
-            <td></td>
-            <td class="num">${fmtMoney(tot.spend, mainCur)}</td>
-            <td class="num">${fmtNum(tot.impressions)}</td>
-            <td class="num">${fmtNum(tot.clicks)}</td>
-            <td class="num">${fmtNum(tot.landing_page_views)}</td>
-            <td class="num">${fmtMoney(tot.cost_per_landing_page_view, mainCur)}</td>
-            <td class="num">${fmtNum(tot.initiate_checkout)}</td>
-            <td class="num">${fmtMoney(tot.cost_per_initiate_checkout, mainCur)}</td>
-            <td class="num">${fmtPct(tot.ctr)}</td>
-            <td class="num">${fmtMoney(tot.cpc, mainCur)}</td>
-            <td class="num">${fmtMoney(tot.cpm, mainCur)}</td>
-          </tr>`}
+          ${(S.view === 'accounts' || S.view === 'allCampaigns')
+            ? Object.entries(byCur).map(([cur, t])=>`<tr class="total">${totalRowCells(t, cur, cols)}</tr>`).join('')
+            : `<tr class="total">${totalRowCells(tot, mainCur, cols)}</tr>`}
         </tfoot>
       </table>
     </div>
@@ -783,22 +959,22 @@ function renderRow(r, cols, mainCur){
   const displayId = S.view === 'accounts' ? (r.account_id || r.id.replace('act_','')) : r.id;
   const idCell = `<span class="id-cell" title="${esc(displayId)}">${esc(displayId)}<button class="copy-btn" onclick="event.stopPropagation();copyId('${esc(displayId)}',this)" title="Copiar ID">📋</button></span>`;
   const accTag = (S.view === 'allCampaigns' && r._accountName) ? `<span class="acct-tag" style="background:#e7f0fd;color:#1877f2">${esc(r._accountName)}</span>` : '';
-  return `
-    <tr class="${cls}" ${onclick}>
-      <td>${esc(r.name||r.id)}${accTag}${r._tokenLabel?`<span class="acct-tag">${esc(r._tokenLabel)}</span>`:''}${cur!=='BRL'?`<span class="acct-tag">${cur}</span>`:''}</td>
-      <td class="id-col">${idCell}</td>
-      ${S.view!=='accounts'?`<td>${statusBadge}</td>`:''}
-      <td class="num">${fmtMoney(r.spend||0, cur)}</td>
-      <td class="num">${fmtNum(r.impressions||0)}</td>
-      <td class="num">${fmtNum(r.clicks||0)}</td>
-      <td class="num">${fmtNum(r.landing_page_views||0)}</td>
-      <td class="num">${fmtMoney(r.cost_per_landing_page_view||0, cur)}</td>
-      <td class="num">${fmtNum(r.initiate_checkout||0)}</td>
-      <td class="num">${fmtMoney(r.cost_per_initiate_checkout||0, cur)}</td>
-      <td class="num">${fmtPct(r.ctr||0)}</td>
-      <td class="num">${fmtMoney(r.cpc||0, cur)}</td>
-      <td class="num">${fmtMoney(r.cpm||0, cur)}</td>
-    </tr>`;
+  const nameCell = `${esc(r.name||r.id)}${accTag}${r._tokenLabel?`<span class="acct-tag">${esc(r._tokenLabel)}</span>`:''}${cur!=='BRL'?`<span class="acct-tag">${cur}</span>`:''}`;
+  const money = ['spend','cpc','cpm','cost_per_landing_page_view','cost_per_initiate_checkout'];
+  const cells = cols.map((c, idx)=>{
+    if(idx===0) return `<td>${nameCell}</td>`;
+    if(c.k==='id') return `<td class="id-col">${idCell}</td>`;
+    if(c.k==='effective_status') return `<td>${statusBadge}</td>`;
+    if(c.k==='_roas'){
+      const hasRev = r._receita!=null;
+      return `<td class="num" style="color:${roasColor(r._roas)};font-weight:600" title="${hasRev?(r._vendas||0)+' venda(s)':'sem dado de receita'}">${fmtRoas(r._roas)}</td>`;
+    }
+    if(c.k==='_receita') return `<td class="num">${r._receita!=null?fmtMoney(r._receita||0,'BRL'):'—'}</td>`;
+    if(money.includes(c.k)) return `<td class="num">${fmtMoney(r[c.k]||0, cur)}</td>`;
+    if(c.k==='ctr') return `<td class="num">${fmtPct(r.ctr||0)}</td>`;
+    return `<td class="num">${fmtNum(r[c.k]||0)}</td>`;
+  }).join('');
+  return `<tr class="${cls}" ${onclick}>${cells}</tr>`;
 }
 
 function copyId(id, btn){
