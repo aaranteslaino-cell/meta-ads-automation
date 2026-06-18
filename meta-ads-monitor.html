@@ -136,6 +136,8 @@ if(!S.statusFilter) S.statusFilter = 'active';
 if(typeof S.sbUrl !== 'string' || !S.sbUrl) S.sbUrl = SB_URL_DEFAULT;
 if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
 if(typeof S.showRevenue !== 'boolean') S.showRevenue = true;
+if(!S.searchMode) S.searchMode = 'all';            // all | any | none (filtro de nome)
+if(!Array.isArray(S.objFilter)) S.objFilter = [];   // objetivos selecionados (vazio = todos)
 S._rev = null; // cache de receita do refresh atual (não persistido)
 
 function loadState(){
@@ -181,6 +183,8 @@ const fmtNum = v => Math.round(parseFloat(v)||0).toLocaleString('pt-BR');
 const fmtPct = v => (parseFloat(v)||0).toFixed(2)+'%';
 const fmtRoas = r => (r==null) ? '—' : (parseFloat(r)||0).toFixed(2)+'x';
 const roasColor = r => (r==null) ? '#888' : (r>=1.5?'#1a9e3e':r>=1?'#2e7d32':r>=0.7?'#b08900':'#d32f2f');
+const OBJ_LABELS = {OUTCOME_SALES:'Vendas', OUTCOME_ENGAGEMENT:'Engajamento', OUTCOME_LEADS:'Cadastros', OUTCOME_TRAFFIC:'Tráfego', OUTCOME_AWARENESS:'Reconhecimento', OUTCOME_APP_PROMOTION:'App'};
+const objLabel = o => OBJ_LABELS[o] || o || '?';
 
 function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 
@@ -373,7 +377,7 @@ async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
 
 async function fetchEntityList(parentId, level, tokenId){
   const tok = getTokenById(tokenId);
-  const fields = 'id,name,status,effective_status';
+  const fields = 'id,name,status,effective_status' + (level==='campaign' ? ',objective' : '');
   let path;
   if(level==='campaign') path = `/${parentId}/campaigns`;
   else if(level==='adset') path = `/${parentId}/adsets`;
@@ -785,33 +789,58 @@ function buildFilters(){
       <button class="chip ${S.statusFilter==='all'?'active':''}" onclick="setStatusFilter('all')">Todos</button>
     </div>
     ` : ''}
+    ${(S.view==='allCampaigns'||S.view==='campaigns') ? (()=>{
+      const objs=[...new Set((S.data||[]).map(r=>r.objective).filter(Boolean))];
+      return (objs.length>1 || S.objFilter.length) ? `
+      <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
+        <span style="font-size:12px;color:#888;font-weight:600;margin-right:4px">OBJETIVO:</span>
+        ${objs.map(o=>`<button class="chip ${S.objFilter.includes(o)?'active':''}" onclick="toggleObj('${o}')">${objLabel(o)}</button>`).join('')}
+        ${S.objFilter.length?`<button class="chip" onclick="S.objFilter=[];saveState();render()">✕ limpar</button>`:''}
+      </div>` : '';
+    })() : ''}
     <div class="row" style="gap:8px">
+      <select onchange="S.searchMode=this.value;saveState();render()" style="flex:0 0 165px">
+        <option value="all"  ${S.searchMode==='all'?'selected':''}>Contém tudo de</option>
+        <option value="any"  ${S.searchMode==='any'?'selected':''}>Contém qualquer um</option>
+        <option value="none" ${S.searchMode==='none'?'selected':''}>Não contém nenhum</option>
+      </select>
       <div style="flex:1;position:relative">
-        <input id="search-inp" placeholder="🔍 Pesquisar por nome ou ID…" value="${esc(S.search||'')}"
+        <input id="search-inp" placeholder="🔍 nome ou ID (separe palavras por espaço)" value="${esc(S.search||'')}"
           oninput="S.search=this.value;saveState();render()" style="padding-left:12px">
       </div>
       <div style="flex:0 0 180px">
         <input type="number" min="0" step="0.01" placeholder="Gasto mín. (R$)" value="${esc(S.filterMinSpend||'')}"
           oninput="S.filterMinSpend=this.value;saveState();render()">
       </div>
-      ${(S.search||S.filterMinSpend)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';saveState();render()">✕ Limpar</button>`:''}
+      ${(S.search||S.filterMinSpend||S.objFilter.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];saveState();render()">✕ Limpar</button>`:''}
     </div>
   </div>`;
 }
 
 function applyFilters(rows){
   let r = rows.slice();
-  if(S.search?.trim()){
-    const q = S.search.toLowerCase();
-    r = r.filter(x => (x.name||'').toLowerCase().includes(q) || String(x.id||'').includes(q) || String(x.account_id||'').includes(q));
+  // Nome/ID com modos: contém tudo / qualquer um / nenhum (palavras separadas por espaço)
+  const q = (S.search||'').trim().toLowerCase();
+  if(q){
+    const kws = q.split(/\s+/).filter(Boolean);
+    r = r.filter(x=>{
+      const hay = ((x.name||'')+' '+(x.id||'')+' '+(x.account_id||'')).toLowerCase();
+      if(S.searchMode==='none') return kws.every(k=>!hay.includes(k));
+      if(S.searchMode==='any')  return kws.some(k=>hay.includes(k));
+      return kws.every(k=>hay.includes(k)); // 'all' (contém tudo)
+    });
   }
   if(S.filterMinSpend && parseFloat(S.filterMinSpend)>0){
     const min = parseFloat(S.filterMinSpend);
     r = r.filter(x => (x.spend||0) >= min);
   }
-  // Filtro de status (não se aplica à visão de contas)
+  // Filtro de status (não se aplica à visão de contas; vendas órfãs sempre visíveis)
   if(S.view !== 'accounts' && S.statusFilter && S.statusFilter !== 'all'){
-    r = r.filter(x => x._synthetic || matchStatusFilter(x));  // vendas órfãs sempre visíveis
+    r = r.filter(x => x._synthetic || matchStatusFilter(x));
+  }
+  // Objetivo (só afeta linhas que têm objetivo = campanhas; conjuntos/anúncios passam)
+  if(S.objFilter && S.objFilter.length){
+    r = r.filter(x => !x.objective || S.objFilter.includes(x.objective));
   }
   return r;
 }
@@ -829,6 +858,11 @@ function matchStatusFilter(item){
 }
 
 function setStatusFilter(f){ S.statusFilter = f; saveState(); render(); }
+function toggleObj(o){
+  const i = S.objFilter.indexOf(o);
+  if(i>=0) S.objFilter.splice(i,1); else S.objFilter.push(o);
+  saveState(); render();
+}
 
 function buildBreadcrumb(){
   const parts = [];
