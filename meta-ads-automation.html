@@ -174,7 +174,8 @@ let S = loadState() || {
     status:'PAUSED',
     shareAdsetBudget:false,
     oneAdsetPerAd:false,
-    duplicateCount:'1'
+    duplicateCount:'1',
+    advertiser:''
   },
   adsets:[],
   ads:[]
@@ -360,6 +361,17 @@ async function loadAccountAssets(accountId){
     const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name',limit:200});
     S.catalogs = r.data || [];
   } catch(e){ S.catalogs=[]; }
+}
+
+// Sugere o anunciante verificado (beneficiário/pagador) da conta selecionada
+async function sugerirAnunciante(){
+  if(!S.selectedAccount){ alert('Selecione uma conta primeiro.'); return; }
+  try{
+    const r = await api(`/${S.selectedAccount}/dsa_recommendations`,'GET',{});
+    const rec = r.data && r.data[0] && r.data[0].recommendations && r.data[0].recommendations[0];
+    if(rec){ S.camp.advertiser = rec; saveState(); render(); }
+    else alert('Nenhuma sugestão para essa conta. Digite o nome EXATO do anunciante verificado (Configurações do Negócio → Centro de transparência).');
+  }catch(e){ alert('Não consegui buscar a sugestão: '+e.message); }
 }
 
 // ── Resolver instagram_user_id ───────────────────────────────────────────────
@@ -622,6 +634,12 @@ async function run(){
           targeting: buildTargeting(adset)
         };
         if(anyMultiVariation) adsetBody.is_dynamic_creative = true;
+
+        // Anunciante verificado (beneficiário/pagador) — exigido pelo Meta p/ veicular no Brasil
+        if(c.advertiser && c.advertiser.trim()){
+          adsetBody.dsa_beneficiary = c.advertiser.trim();
+          adsetBody.dsa_payor = c.advertiser.trim();
+        }
 
         const bidRequiresAmount = ['LOWEST_COST_WITH_BID_CAP','COST_CAP','MINIMUM_ROAS'].includes(c.bidStrategy);
         if(bidRequiresAmount && adset.bidAmount && parseFloat(adset.bidAmount) > 0){
@@ -1210,7 +1228,12 @@ function buildCamp(){
         oninput="S.camp.duplicateCount=this.value;saveState();render()">
       ${parseInt(c.duplicateCount||1)>1?`<div class="hint" style="color:#c47a00">⚠️ Serão criadas ${c.duplicateCount} campanhas idênticas (mídia sobe ${c.duplicateCount}x)</div>`:''}
     </div>
-    <div></div>
+    <div class="fg">
+      <label>Anunciante (beneficiário/pagador)</label>
+      <input id="adv-inp" value="${esc(c.advertiser||'')}" oninput="S.camp.advertiser=this.value;saveState()" placeholder="Ex: Roi Ventures LTDA">
+      <div class="hint">Exigido pelo Meta p/ veicular no Brasil. Use o nome EXATO do anunciante verificado.
+        <a onclick="sugerirAnunciante()" style="color:#1877f2;cursor:pointer;font-weight:600">Sugerir da conta</a></div>
+    </div>
   </div>
   <div class="fg">
     <label>Estratégia de Anúncios</label>
