@@ -157,7 +157,7 @@ let S = loadState() || {
   connected:false,
   accounts:[],        // cada conta tem _tokenId indicando qual token usar
   selectedAccount:'',
-  dsaOptions:[],
+  regOptions:[],
   pixels:[],
   pages:[],           // cada página tem _tokenId
   catalogs:[],
@@ -176,7 +176,7 @@ let S = loadState() || {
     shareAdsetBudget:false,
     oneAdsetPerAd:false,
     duplicateCount:'1',
-    advertiser:''
+    advertiserId:''
   },
   adsets:[],
   ads:[]
@@ -186,7 +186,7 @@ S.connected = false;
 S.running = false;
 // Sempre começa sem conta selecionada — usuário escolhe manualmente
 S.selectedAccount = '';
-if(!Array.isArray(S.dsaOptions)) S.dsaOptions = [];
+if(!Array.isArray(S.regOptions)) S.regOptions = [];
 S.accounts = []; S.pages = []; S.pixels = []; S.catalogs = []; S.igCache = {};
 // Migração: se tiver token legado mas sem tokens[], cria um
 if(S.token && (!S.tokens || !S.tokens.length)){
@@ -363,25 +363,33 @@ async function loadAccountAssets(accountId){
     const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name',limit:200});
     S.catalogs = r.data || [];
   } catch(e){ S.catalogs=[]; }
-  await loadDsaOptions(accountId);
+  await loadRegulationOptions(accountId);
 }
 
-// Carrega os anunciantes verificados (beneficiário/pagador) da conta selecionada
-async function loadDsaOptions(accountId){
+// Detecta os anunciantes verificados (beneficiário/pagador por ID) lendo os conjuntos
+// que JÁ existem na conta — garante o ID exato que aquela conta usa, sem adivinhar.
+async function loadRegulationOptions(accountId){
   try{
-    const r = await api(`/${accountId}/dsa_recommendations`,'GET',{});
-    const opts=[];
-    (r.data||[]).forEach(d=>(d.recommendations||[]).forEach(x=>{ if(x && !opts.includes(x)) opts.push(x); }));
-    S.dsaOptions = opts;
-    // auto-seleciona o verificado quando o atual está vazio ou inválido p/ esta conta
-    if(opts.length && (!S.camp.advertiser || !opts.includes(S.camp.advertiser))) S.camp.advertiser = opts[0];
-  }catch(e){ S.dsaOptions = []; }
+    const r = await api(`/${accountId}/adsets`,'GET',{fields:'regional_regulation_identities,regional_regulated_categories',limit:50});
+    const map={};
+    (r.data||[]).forEach(a=>{
+      const ri=a.regional_regulation_identities; if(!ri||!ri.universal_beneficiary) return;
+      const id=ri.universal_beneficiary;
+      if(!map[id]) map[id]={ id, beneficiary:id, payer:ri.universal_payer||id,
+        categories:a.regional_regulated_categories||['BRAZIL_REGULATION','VOLUNTARY_VERIFICATION'], label:id, count:0 };
+      map[id].count++;
+    });
+    const opts=Object.values(map).sort((a,b)=>b.count-a.count);
+    for(const o of opts){ try{ const b=await api(`/${o.id}`,'GET',{fields:'name'}); if(b&&b.name) o.label=b.name; }catch(e){} }
+    S.regOptions=opts;
+    if(opts.length && !opts.find(o=>o.id===S.camp.advertiserId)) S.camp.advertiserId=opts[0].id;
+  }catch(e){ S.regOptions=[]; }
 }
-async function sugerirAnunciante(){
+async function recarregarAnunciantes(){
   if(!S.selectedAccount){ alert('Selecione uma conta primeiro.'); return; }
-  await loadDsaOptions(S.selectedAccount);
+  await loadRegulationOptions(S.selectedAccount);
   saveState(); render();
-  if(!S.dsaOptions.length) alert('Nenhum anunciante verificado retornado p/ essa conta. Verifique no Centro de transparência do Meta e digite o nome exato.');
+  if(!S.regOptions.length) alert('Não encontrei anunciante verificado nos conjuntos dessa conta. Cole o ID do negócio verificado manualmente.');
 }
 
 // ── Resolver instagram_user_id ───────────────────────────────────────────────
@@ -645,10 +653,17 @@ async function run(){
         };
         if(anyMultiVariation) adsetBody.is_dynamic_creative = true;
 
-        // Anunciante verificado (beneficiário/pagador) — exigido pelo Meta p/ veicular no Brasil
-        if(c.advertiser && c.advertiser.trim()){
-          adsetBody.dsa_beneficiary = c.advertiser.trim();
-          adsetBody.dsa_payor = c.advertiser.trim();
+        // Anunciante verificado (Brasil): beneficiário/pagador por ID + categorias reguladas
+        {
+          const advId = (c.advertiserId||'').trim();
+          if(advId){
+            const opt = (S.regOptions||[]).find(o=>o.id===advId);
+            adsetBody.regional_regulation_identities = {
+              universal_beneficiary: opt ? opt.beneficiary : advId,
+              universal_payer:       opt ? opt.payer       : advId
+            };
+            adsetBody.regional_regulated_categories = (opt && opt.categories) || ['BRAZIL_REGULATION','VOLUNTARY_VERIFICATION'];
+          }
         }
 
         const bidRequiresAmount = ['LOWEST_COST_WITH_BID_CAP','COST_CAP','MINIMUM_ROAS'].includes(c.bidStrategy);
@@ -1239,16 +1254,15 @@ function buildCamp(){
       ${parseInt(c.duplicateCount||1)>1?`<div class="hint" style="color:#c47a00">⚠️ Serão criadas ${c.duplicateCount} campanhas idênticas (mídia sobe ${c.duplicateCount}x)</div>`:''}
     </div>
     <div class="fg">
-      <label>Anunciante (beneficiário/pagador)</label>
-      ${(S.dsaOptions && S.dsaOptions.length) ? `
-      <select onchange="S.camp.advertiser=this.value;saveState();render()">
-        ${S.dsaOptions.map(o=>`<option value="${esc(o)}" ${c.advertiser===o?'selected':''}>${esc(o)}</option>`).join('')}
-        <option value="" ${!S.dsaOptions.includes(c.advertiser)?'selected':''}>✏️ Outro (digitar abaixo)…</option>
+      <label>Anunciante verificado (beneficiário/pagador) — exigido p/ Brasil</label>
+      ${(S.regOptions && S.regOptions.length) ? `
+      <select onchange="S.camp.advertiserId=this.value;saveState();render()">
+        ${S.regOptions.map(o=>`<option value="${esc(o.id)}" ${c.advertiserId===o.id?'selected':''}>${esc(o.label)}${o.label!==o.id?` (${esc(o.id)})`:''}</option>`).join('')}
       </select>` : ''}
-      <input ${(S.dsaOptions&&S.dsaOptions.length)?'style="margin-top:6px"':''} value="${esc(c.advertiser||'')}"
-        oninput="S.camp.advertiser=this.value;saveState()" placeholder="Nome EXATO do anunciante verificado">
-      <div class="hint">${(S.dsaOptions&&S.dsaOptions.length)?`✅ ${S.dsaOptions.length} anunciante(s) verificado(s) desta conta`:'Selecione a conta para puxar os anunciantes verificados'}
-        · <a onclick="sugerirAnunciante()" style="color:#1877f2;cursor:pointer;font-weight:600">Recarregar da conta</a></div>
+      <input ${(S.regOptions&&S.regOptions.length)?'style="margin-top:6px"':''} value="${esc(c.advertiserId||'')}"
+        oninput="S.camp.advertiserId=this.value;saveState()" placeholder="ID do anunciante verificado (ex: 937439154251557)">
+      <div class="hint">${(S.regOptions&&S.regOptions.length)?`✅ auto-detectado dos conjuntos da conta`:'Selecione a conta — eu detecto o anunciante verificado dela'}
+        · <a onclick="recarregarAnunciantes()" style="color:#1877f2;cursor:pointer;font-weight:600">Recarregar</a></div>
     </div>
   </div>
   <div class="fg">
