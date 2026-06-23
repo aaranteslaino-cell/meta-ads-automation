@@ -157,6 +157,7 @@ let S = loadState() || {
   connected:false,
   accounts:[],        // cada conta tem _tokenId indicando qual token usar
   selectedAccount:'',
+  dsaOptions:[],
   pixels:[],
   pages:[],           // cada página tem _tokenId
   catalogs:[],
@@ -185,6 +186,7 @@ S.connected = false;
 S.running = false;
 // Sempre começa sem conta selecionada — usuário escolhe manualmente
 S.selectedAccount = '';
+if(!Array.isArray(S.dsaOptions)) S.dsaOptions = [];
 S.accounts = []; S.pages = []; S.pixels = []; S.catalogs = []; S.igCache = {};
 // Migração: se tiver token legado mas sem tokens[], cria um
 if(S.token && (!S.tokens || !S.tokens.length)){
@@ -361,17 +363,25 @@ async function loadAccountAssets(accountId){
     const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name',limit:200});
     S.catalogs = r.data || [];
   } catch(e){ S.catalogs=[]; }
+  await loadDsaOptions(accountId);
 }
 
-// Sugere o anunciante verificado (beneficiário/pagador) da conta selecionada
+// Carrega os anunciantes verificados (beneficiário/pagador) da conta selecionada
+async function loadDsaOptions(accountId){
+  try{
+    const r = await api(`/${accountId}/dsa_recommendations`,'GET',{});
+    const opts=[];
+    (r.data||[]).forEach(d=>(d.recommendations||[]).forEach(x=>{ if(x && !opts.includes(x)) opts.push(x); }));
+    S.dsaOptions = opts;
+    // auto-seleciona o verificado quando o atual está vazio ou inválido p/ esta conta
+    if(opts.length && (!S.camp.advertiser || !opts.includes(S.camp.advertiser))) S.camp.advertiser = opts[0];
+  }catch(e){ S.dsaOptions = []; }
+}
 async function sugerirAnunciante(){
   if(!S.selectedAccount){ alert('Selecione uma conta primeiro.'); return; }
-  try{
-    const r = await api(`/${S.selectedAccount}/dsa_recommendations`,'GET',{});
-    const rec = r.data && r.data[0] && r.data[0].recommendations && r.data[0].recommendations[0];
-    if(rec){ S.camp.advertiser = rec; saveState(); render(); }
-    else alert('Nenhuma sugestão para essa conta. Digite o nome EXATO do anunciante verificado (Configurações do Negócio → Centro de transparência).');
-  }catch(e){ alert('Não consegui buscar a sugestão: '+e.message); }
+  await loadDsaOptions(S.selectedAccount);
+  saveState(); render();
+  if(!S.dsaOptions.length) alert('Nenhum anunciante verificado retornado p/ essa conta. Verifique no Centro de transparência do Meta e digite o nome exato.');
 }
 
 // ── Resolver instagram_user_id ───────────────────────────────────────────────
@@ -1230,9 +1240,15 @@ function buildCamp(){
     </div>
     <div class="fg">
       <label>Anunciante (beneficiário/pagador)</label>
-      <input id="adv-inp" value="${esc(c.advertiser||'')}" oninput="S.camp.advertiser=this.value;saveState()" placeholder="Ex: Roi Ventures LTDA">
-      <div class="hint">Exigido pelo Meta p/ veicular no Brasil. Use o nome EXATO do anunciante verificado.
-        <a onclick="sugerirAnunciante()" style="color:#1877f2;cursor:pointer;font-weight:600">Sugerir da conta</a></div>
+      ${(S.dsaOptions && S.dsaOptions.length) ? `
+      <select onchange="S.camp.advertiser=this.value;saveState();render()">
+        ${S.dsaOptions.map(o=>`<option value="${esc(o)}" ${c.advertiser===o?'selected':''}>${esc(o)}</option>`).join('')}
+        <option value="" ${!S.dsaOptions.includes(c.advertiser)?'selected':''}>✏️ Outro (digitar abaixo)…</option>
+      </select>` : ''}
+      <input ${(S.dsaOptions&&S.dsaOptions.length)?'style="margin-top:6px"':''} value="${esc(c.advertiser||'')}"
+        oninput="S.camp.advertiser=this.value;saveState()" placeholder="Nome EXATO do anunciante verificado">
+      <div class="hint">${(S.dsaOptions&&S.dsaOptions.length)?`✅ ${S.dsaOptions.length} anunciante(s) verificado(s) desta conta`:'Selecione a conta para puxar os anunciantes verificados'}
+        · <a onclick="sugerirAnunciante()" style="color:#1877f2;cursor:pointer;font-weight:600">Recarregar da conta</a></div>
     </div>
   </div>
   <div class="fg">
