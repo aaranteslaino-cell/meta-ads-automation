@@ -139,6 +139,9 @@ if(typeof S.showRevenue !== 'boolean') S.showRevenue = true;
 if(!Array.isArray(S.nameFilters)) S.nameFilters = [];  // [{op:'contains'|'not', v:'meta'}]
 if(!S.filterJoin) S.filterJoin = 'and';                // and | or — como os "contém" se combinam
 if(!S.searchOp) S.searchOp = 'contains';               // operador do campo de digitação
+if(!Array.isArray(S.metricFilters)) S.metricFilters = []; // [{k:'_roas', op:'lt', v:1, v2:null}]
+if(!S.mfK) S.mfK = 'spend';                            // campo do construtor de filtro de métrica
+if(!S.mfOp) S.mfOp = 'gt';                             // operador do construtor
 if(!Array.isArray(S.objFilter)) S.objFilter = [];   // objetivos selecionados (vazio = todos)
 S._rev = null; // cache de receita do refresh atual (não persistido)
 
@@ -187,6 +190,28 @@ const fmtRoas = r => (r==null) ? '—' : (parseFloat(r)||0).toFixed(2)+'x';
 const roasColor = r => (r==null) ? '#888' : (r>=1.5?'#1a9e3e':r>=1?'#2e7d32':r>=0.7?'#b08900':'#d32f2f');
 const OBJ_LABELS = {OUTCOME_SALES:'Vendas', OUTCOME_ENGAGEMENT:'Engajamento', OUTCOME_LEADS:'Cadastros', OUTCOME_TRAFFIC:'Tráfego', OUTCOME_AWARENESS:'Reconhecimento', OUTCOME_APP_PROMOTION:'App'};
 const objLabel = o => OBJ_LABELS[o] || o || '?';
+
+// ── Filtros por métrica ───────────────────────────────────────────────────────
+const METRICS = [
+  {k:'spend',                        l:'Gasto',                     money:true},
+  {k:'impressions',                  l:'Impressões'},
+  {k:'clicks',                       l:'Cliques'},
+  {k:'ctr',                          l:'CTR (%)'},
+  {k:'cpc',                          l:'CPC',                       money:true},
+  {k:'cpm',                          l:'CPM',                       money:true},
+  {k:'landing_page_views',           l:'Visualizações pág destino'},
+  {k:'cost_per_landing_page_view',   l:'Custo por VPD',             money:true},
+  {k:'initiate_checkout',            l:'Finalização de compra'},
+  {k:'cost_per_initiate_checkout',   l:'Custo por finalização',     money:true},
+  {k:'_vendasFront',                 l:'Vendas Front'},
+  {k:'_vendasTotal',                 l:'Vendas Totais'},
+  {k:'_receita',                     l:'Receita',                   money:true},
+  {k:'_cpa',                         l:'CPA',                       money:true},
+  {k:'_ticket',                      l:'Ticket Médio',              money:true},
+  {k:'_roas',                        l:'ROAS'}
+];
+const OPS = {gt:'>', gte:'≥', lt:'<', lte:'≤', eq:'=', between:'entre'};
+const metricLabel = k => (METRICS.find(m=>m.k===k)||{}).l || k;
 
 function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 
@@ -827,7 +852,7 @@ function buildFilters(){
         <input type="number" min="0" step="0.01" placeholder="Gasto mín. (R$)" value="${esc(S.filterMinSpend||'')}"
           oninput="S.filterMinSpend=this.value;saveState();render()">
       </div>
-      ${(S.search||S.filterMinSpend||S.objFilter.length||S.nameFilters.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];S.nameFilters=[];saveState();render()">✕ Limpar</button>`:''}
+      ${(S.search||S.filterMinSpend||S.objFilter.length||S.nameFilters.length||S.metricFilters.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];S.nameFilters=[];S.metricFilters=[];saveState();render()">✕ Limpar</button>`:''}
     </div>
     ${S.nameFilters.length?`
     <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px">
@@ -837,8 +862,40 @@ function buildFilters(){
         <button class="chip ${S.filterJoin==='and'?'active':''}" onclick="S.filterJoin='and';saveState();render()">E (todos)</button>
         <button class="chip ${S.filterJoin==='or'?'active':''}" onclick="S.filterJoin='or';saveState();render()">OU (qualquer)</button>`:''}
     </div>`:''}
+
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #e4e6eb">
+      <span style="font-size:12px;color:#888;font-weight:600;align-self:center">MÉTRICA:</span>
+      <select onchange="S.mfK=this.value;saveState();render()" style="flex:0 0 200px">
+        ${METRICS.map(m=>`<option value="${m.k}" ${S.mfK===m.k?'selected':''}>${m.l}</option>`).join('')}
+      </select>
+      <select onchange="S.mfOp=this.value;saveState();render()" style="flex:0 0 105px">
+        ${Object.entries(OPS).map(([k,l])=>`<option value="${k}" ${S.mfOp===k?'selected':''}>${l}</option>`).join('')}
+      </select>
+      <input id="mf-v" type="number" step="any" placeholder="valor" style="flex:0 0 110px">
+      ${S.mfOp==='between'?`<input id="mf-v2" type="number" step="any" placeholder="até" style="flex:0 0 110px">`:''}
+      <button class="btn btn-gray btn-sm" onclick="addMetricFilter()">+ Adicionar</button>
+    </div>
+    ${S.metricFilters.length?`
+    <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+      ${S.metricFilters.map((f,i)=>`<span class="chip" style="cursor:default">${esc(metricLabel(f.k))} ${OPS[f.op]} <b>${esc(String(f.v))}${f.op==='between'?' e '+esc(String(f.v2)):''}</b><a onclick="removeMetricFilter(${i})" style="cursor:pointer;color:#d32f2f;font-weight:700;margin-left:6px">✕</a></span>`).join('')}
+    </div>`:''}
   </div>`;
 }
+
+function addMetricFilter(){
+  const el = $('mf-v');
+  const v = parseFloat(el && el.value);
+  if(isNaN(v)){ alert('Informe um valor numérico.'); return; }
+  let v2 = null;
+  if(S.mfOp==='between'){
+    const el2 = $('mf-v2');
+    v2 = parseFloat(el2 && el2.value);
+    if(isNaN(v2)){ alert('Informe o segundo valor (até).'); return; }
+  }
+  S.metricFilters.push({k:S.mfK, op:S.mfOp, v, v2});
+  saveState(); render();
+}
+function removeMetricFilter(i){ S.metricFilters.splice(i,1); saveState(); render(); }
 
 function addNameFilter(){
   const v = (S.search||'').trim();
@@ -869,6 +926,23 @@ function applyFilters(rows){
   if(S.filterMinSpend && parseFloat(S.filterMinSpend)>0){
     const min = parseFloat(S.filterMinSpend);
     r = r.filter(x => (x.spend||0) >= min);
+  }
+  // Filtros por métrica (combinam com E). Linha sem valor na métrica não passa.
+  if(S.metricFilters && S.metricFilters.length){
+    r = r.filter(x => S.metricFilters.every(f=>{
+      const raw = x[f.k];
+      if(raw === null || raw === undefined || raw === '' || isNaN(parseFloat(raw))) return false;
+      const n = parseFloat(raw);
+      switch(f.op){
+        case 'gt':  return n >  f.v;
+        case 'gte': return n >= f.v;
+        case 'lt':  return n <  f.v;
+        case 'lte': return n <= f.v;
+        case 'eq':  return n === f.v;
+        case 'between': return n >= Math.min(f.v,f.v2) && n <= Math.max(f.v,f.v2);
+        default: return true;
+      }
+    }));
   }
   // Filtro de status (não se aplica à visão de contas; vendas órfãs sempre visíveis)
   if(S.view !== 'accounts' && S.statusFilter && S.statusFilter !== 'all'){
