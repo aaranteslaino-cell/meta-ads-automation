@@ -517,8 +517,9 @@ function injectMissingSalesRows(rows, level, cur){
 }
 
 async function refreshData(){
-  if(S.refreshing) return;
+  if(S.refreshing){ S._pendingRefresh = true; return; }  // troca de período/filtro nunca é ignorada
   S.refreshing = true;
+  S._pendingRefresh = false;
   render();
 
   try{
@@ -589,6 +590,8 @@ async function refreshData(){
   }finally{
     S.refreshing = false;
     render();
+    // Se o usuário trocou período/filtro durante o refresh, refaz agora com o valor novo
+    if(S._pendingRefresh){ S._pendingRefresh = false; refreshData(); }
   }
 }
 
