@@ -142,6 +142,9 @@ if(!S.searchOp) S.searchOp = 'contains';               // operador do campo de d
 if(!Array.isArray(S.metricFilters)) S.metricFilters = []; // [{k:'_roas', op:'lt', v:1, v2:null}]
 if(!S.mfK) S.mfK = 'spend';                            // campo do construtor de filtro de métrica
 if(!S.mfOp) S.mfOp = 'gt';                             // operador do construtor
+if(!Array.isArray(S.dimFilters)) S.dimFilters = [];    // [{k:'_budgetType', op:'is', v:'CBO (na campanha)'}]
+if(!S.dfK) S.dfK = '_budgetType';                      // dimensão do construtor
+if(!S.dfOp) S.dfOp = 'is';                             // é | não é
 if(!Array.isArray(S.objFilter)) S.objFilter = [];   // objetivos selecionados (vazio = todos)
 S._rev = null; // cache de receita do refresh atual (não persistido)
 
@@ -212,6 +215,58 @@ const METRICS = [
 ];
 const OPS = {gt:'>', gte:'≥', lt:'<', lte:'≤', eq:'=', between:'entre'};
 const metricLabel = k => (METRICS.find(m=>m.k===k)||{}).l || k;
+
+// ── Filtros por dimensão (config. de campanha, público, posicionamento…) ──────
+const BID_LABELS = {LOWEST_COST_WITHOUT_CAP:'Maior volume', LOWEST_COST_WITH_BID_CAP:'Limite de lance', COST_CAP:'Meta de custo', LOWEST_COST_WITH_MIN_ROAS:'ROAS mínimo', MINIMUM_ROAS:'ROAS mínimo'};
+const OPT_LABELS = {OFFSITE_CONVERSIONS:'Conversões', VALUE:'Valor', LINK_CLICKS:'Cliques no link', LANDING_PAGE_VIEWS:'Visualizações da página', IMPRESSIONS:'Impressões', REACH:'Alcance', LEAD_GENERATION:'Cadastros', THRUPLAY:'ThruPlay', POST_ENGAGEMENT:'Engajamento', QUALITY_LEAD:'Lead qualificado'};
+const LEARN_LABELS = {LEARNING:'Em aprendizado', SUCCESS:'Aprendizado concluído', FAIL:'Aprendizado limitado', LEARNING_LIMITED:'Aprendizado limitado'};
+const dimValLabel = (k,v) =>
+    k==='bid_strategy'      ? (BID_LABELS[v]   || v)
+  : k==='optimization_goal' ? (OPT_LABELS[v]   || v)
+  : k==='_learning'         ? (LEARN_LABELS[v] || v)
+  : String(v);
+
+const DIMS = [
+  {k:'_budgetType',       l:'Estratégia de orçamento'},
+  {k:'bid_strategy',      l:'Estratégia de lance'},
+  {k:'_specialCat',       l:'Categoria de anúncio especial'},
+  {k:'_tags',             l:'Tag da campanha',           multi:true},
+  {k:'optimization_goal', l:'Meta de desempenho'},
+  {k:'_learning',         l:'Fase de aprendizado'},
+  {k:'_placements',       l:'Posicionamento',            multi:true},
+  {k:'_audiences',        l:'Público personalizado',     multi:true},
+  {k:'_catalog',          l:'Catálogo'},
+  {k:'_attribution',      l:'Configuração de atribuição'},
+  {k:'_updatedRecent',    l:'Alterado recentemente'}
+];
+const dimLabel = k => (DIMS.find(d=>d.k===k)||{}).l || k;
+
+// Normaliza os campos crus da API em dimensões filtráveis
+function deriveDims(rows, level){
+  (rows||[]).forEach(r=>{
+    if(level==='campaign'){
+      const hasBudget = (parseFloat(r.daily_budget)||0) > 0 || (parseFloat(r.lifetime_budget)||0) > 0;
+      r._budgetType = hasBudget ? 'CBO (na campanha)' : 'ABO (no conjunto)';
+      r._specialCat = (Array.isArray(r.special_ad_categories) && r.special_ad_categories.length) ? r.special_ad_categories.join(', ') : 'Nenhuma';
+      r._tags = (r.adlabels||[]).map(a=>a.name).filter(Boolean);
+    }
+    if(level==='adset'){
+      r._learning = (r.learning_stage_info && r.learning_stage_info.status) || 'Sem info';
+      r._catalog  = (r.promoted_object && r.promoted_object.product_catalog_id) ? 'Com catálogo' : 'Sem catálogo';
+      r._attribution = (Array.isArray(r.attribution_spec) && r.attribution_spec.length)
+        ? r.attribution_spec.map(a=>`${a.event_type==='CLICK_THROUGH'?'clique':'visualização'} ${a.window_days}d`).join(' + ')
+        : 'Padrão';
+      const t = r.targeting || {};
+      r._placements = (t.publisher_platforms && t.publisher_platforms.length) ? t.publisher_platforms.slice() : ['Automático'];
+      const ca = (t.custom_audiences||[]).map(a=>a.name||a.id).filter(Boolean);
+      r._audiences = ca.length ? ca : ['Nenhum'];
+    }
+    if(r.updated_time){
+      const h = (Date.now() - new Date(r.updated_time).getTime())/36e5;
+      r._updatedRecent = h<=24 ? 'Últimas 24h' : h<=168 ? 'Últimos 7 dias' : h<=720 ? 'Últimos 30 dias' : 'Mais de 30 dias';
+    }
+  });
+}
 
 function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 
@@ -404,7 +459,9 @@ async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
 
 async function fetchEntityList(parentId, level, tokenId){
   const tok = getTokenById(tokenId);
-  const fields = 'id,name,status,effective_status' + (level==='campaign' ? ',objective' : '');
+  let fields = 'id,name,status,effective_status,updated_time';
+  if(level==='campaign')   fields += ',objective,bid_strategy,daily_budget,lifetime_budget,special_ad_categories,adlabels{name}';
+  else if(level==='adset') fields += ',optimization_goal,learning_stage_info,promoted_object{product_catalog_id},attribution_spec,targeting{publisher_platforms,facebook_positions,instagram_positions,age_min,age_max,genders,custom_audiences,excluded_custom_audiences}';
   let path;
   if(level==='campaign') path = `/${parentId}/campaigns`;
   else if(level==='adset') path = `/${parentId}/adsets`;
@@ -450,6 +507,7 @@ async function fetchAllCampaignsAcrossAccounts(){
       let entities = [];
       try{ entities = await fetchEntityList(acc.id, 'campaign', acc._tokenId); }catch(e){}
       const merged = mergeInsightsAndEntities(insights, entities, 'campaign_id');
+      deriveDims(merged, 'campaign');
       merged.forEach(m=>{
         m._accountId = acc.id;
         m._accountName = acc.name;
@@ -598,6 +656,7 @@ async function refreshData(){
       catch(e){ /* sem entidade — usa insights apenas */ }
 
       let merged = mergeInsightsAndEntities(insights, entities, idField);
+      deriveDims(merged, level);
 
       // Sem filtro server-side: applyFilters faz no client com S.statusFilter
       // Inserir currency da conta-mãe
@@ -852,7 +911,7 @@ function buildFilters(){
         <input type="number" min="0" step="0.01" placeholder="Gasto mín. (R$)" value="${esc(S.filterMinSpend||'')}"
           oninput="S.filterMinSpend=this.value;saveState();render()">
       </div>
-      ${(S.search||S.filterMinSpend||S.objFilter.length||S.nameFilters.length||S.metricFilters.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];S.nameFilters=[];S.metricFilters=[];saveState();render()">✕ Limpar</button>`:''}
+      ${(S.search||S.filterMinSpend||S.objFilter.length||S.nameFilters.length||S.metricFilters.length||S.dimFilters.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];S.nameFilters=[];S.metricFilters=[];S.dimFilters=[];saveState();render()">✕ Limpar</button>`:''}
     </div>
     ${S.nameFilters.length?`
     <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px">
@@ -879,8 +938,47 @@ function buildFilters(){
     <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
       ${S.metricFilters.map((f,i)=>`<span class="chip" style="cursor:default">${esc(metricLabel(f.k))} ${OPS[f.op]} <b>${esc(String(f.v))}${f.op==='between'?' e '+esc(String(f.v2)):''}</b><a onclick="removeMetricFilter(${i})" style="cursor:pointer;color:#d32f2f;font-weight:700;margin-left:6px">✕</a></span>`).join('')}
     </div>`:''}
+
+    ${(()=>{
+      const has = (r,k)=>{ const v=r[k]; return Array.isArray(v) ? v.length>0 : (v!==undefined && v!==null && v!==''); };
+      const avail = DIMS.filter(d => (S.data||[]).some(r=>has(r,d.k)));
+      if(!avail.length) return '';
+      const cur = avail.find(d=>d.k===S.dfK) || avail[0];
+      const vals = [...new Set((S.data||[]).flatMap(r=>{ const v=r[cur.k]; return Array.isArray(v)?v:[v]; })
+                    .filter(v=>v!==undefined && v!==null && v!=='').map(String))].sort();
+      return `
+      <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed #e4e6eb">
+        <span style="font-size:12px;color:#888;font-weight:600;align-self:center">MAIS FILTROS:</span>
+        <select id="df-k" onchange="S.dfK=this.value;saveState();render()" style="flex:0 0 215px">
+          ${avail.map(d=>`<option value="${d.k}" ${cur.k===d.k?'selected':''}>${d.l}</option>`).join('')}
+        </select>
+        <select id="df-op" onchange="S.dfOp=this.value;saveState();render()" style="flex:0 0 95px">
+          <option value="is"  ${S.dfOp==='is'?'selected':''}>é</option>
+          <option value="not" ${S.dfOp==='not'?'selected':''}>não é</option>
+        </select>
+        <select id="df-v" style="flex:0 0 230px">
+          ${vals.map(v=>`<option value="${esc(v)}">${esc(dimValLabel(cur.k,v))}</option>`).join('')}
+        </select>
+        <button class="btn btn-gray btn-sm" onclick="addDimFilter()">+ Adicionar</button>
+      </div>
+      ${S.dimFilters.length?`
+      <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px">
+        ${S.dimFilters.map((f,i)=>`<span class="chip" style="cursor:default">${esc(dimLabel(f.k))} ${f.op==='not'?'não é':'é'} <b>${esc(dimValLabel(f.k,f.v))}</b><a onclick="removeDimFilter(${i})" style="cursor:pointer;color:#d32f2f;font-weight:700;margin-left:6px">✕</a></span>`).join('')}
+      </div>`:''}`;
+    })()}
   </div>`;
 }
+
+function addDimFilter(){
+  const kEl=$('df-k'), opEl=$('df-op'), vEl=$('df-v');
+  const k = kEl ? kEl.value : S.dfK;
+  const op = opEl ? opEl.value : S.dfOp;
+  const v = vEl ? vEl.value : '';
+  if(!k || !v){ alert('Escolha a dimensão e o valor.'); return; }
+  if(!S.dimFilters.some(f=>f.k===k && f.op===op && f.v===v)) S.dimFilters.push({k, op, v});
+  saveState(); render();
+}
+function removeDimFilter(i){ S.dimFilters.splice(i,1); saveState(); render(); }
 
 function addMetricFilter(){
   const el = $('mf-v');
@@ -947,6 +1045,16 @@ function applyFilters(rows){
   // Filtro de status (não se aplica à visão de contas; vendas órfãs sempre visíveis)
   if(S.view !== 'accounts' && S.statusFilter && S.statusFilter !== 'all'){
     r = r.filter(x => x._synthetic || matchStatusFilter(x));
+  }
+  // Dimensões (orçamento, posicionamento, público, aprendizado…). Linha sem o campo
+  // (porque é de outro nível) passa — igual ao comportamento do Meta.
+  if(S.dimFilters && S.dimFilters.length){
+    r = r.filter(x => S.dimFilters.every(f=>{
+      const raw = x[f.k];
+      if(raw === undefined) return true;
+      const match = Array.isArray(raw) ? raw.map(String).includes(f.v) : String(raw) === f.v;
+      return f.op==='not' ? !match : match;
+    }));
   }
   // Objetivo (só afeta linhas que têm objetivo = campanhas; conjuntos/anúncios passam)
   if(S.objFilter && S.objFilter.length){
