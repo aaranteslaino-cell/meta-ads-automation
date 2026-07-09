@@ -136,7 +136,9 @@ if(!S.statusFilter) S.statusFilter = 'active';
 if(typeof S.sbUrl !== 'string' || !S.sbUrl) S.sbUrl = SB_URL_DEFAULT;
 if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
 if(typeof S.showRevenue !== 'boolean') S.showRevenue = true;
-if(!S.searchMode) S.searchMode = 'all';            // all | any | none (filtro de nome)
+if(!Array.isArray(S.nameFilters)) S.nameFilters = [];  // [{op:'contains'|'not', v:'meta'}]
+if(!S.filterJoin) S.filterJoin = 'and';                // and | or — como os "contém" se combinam
+if(!S.searchOp) S.searchOp = 'contains';               // operador do campo de digitação
 if(!Array.isArray(S.objFilter)) S.objFilter = [];   // objetivos selecionados (vazio = todos)
 S._rev = null; // cache de receita do refresh atual (não persistido)
 
@@ -681,7 +683,15 @@ function toggleAutoRefresh(){
 
 // ── Render ────────────────────────────────────────────────────────────────────
 function render(){
+  // preserva foco/cursor do campo de busca (o innerHTML recria o input a cada tecla)
+  const ae = document.activeElement;
+  const wasSearch = ae && ae.id === 'search-inp';
+  const pos = wasSearch ? ae.selectionStart : null;
   $('root').innerHTML = !S.connected ? buildLogin() : buildMain();
+  if(wasSearch){
+    const el = $('search-inp');
+    if(el){ el.focus(); try{ el.setSelectionRange(pos, pos); }catch(e){} }
+  }
 }
 
 function buildLogin(){
@@ -803,35 +813,57 @@ function buildFilters(){
       </div>` : '';
     })() : ''}
     <div class="row" style="gap:8px">
-      <select onchange="S.searchMode=this.value;saveState();render()" style="flex:0 0 165px">
-        <option value="all"  ${S.searchMode==='all'?'selected':''}>Contém tudo de</option>
-        <option value="any"  ${S.searchMode==='any'?'selected':''}>Contém qualquer um</option>
-        <option value="none" ${S.searchMode==='none'?'selected':''}>Não contém nenhum</option>
+      <select onchange="S.searchOp=this.value;saveState();render()" style="flex:0 0 140px">
+        <option value="contains" ${S.searchOp==='contains'?'selected':''}>Contém</option>
+        <option value="not"      ${S.searchOp==='not'?'selected':''}>Não contém</option>
       </select>
-      <div style="flex:1;position:relative">
-        <input id="search-inp" placeholder="🔍 nome ou ID (separe palavras por espaço)" value="${esc(S.search||'')}"
-          oninput="S.search=this.value;saveState();render()" style="padding-left:12px">
+      <div style="flex:1;min-width:180px;position:relative">
+        <input id="search-inp" placeholder="🔍 nome ou ID (Enter para fixar como filtro)" value="${esc(S.search||'')}"
+          oninput="S.search=this.value;saveState();render()"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();addNameFilter();}" style="padding-left:12px">
       </div>
-      <div style="flex:0 0 180px">
+      <button class="btn btn-gray btn-sm" onclick="addNameFilter()" ${(S.search||'').trim()?'':'disabled'}>+ Adicionar</button>
+      <div style="flex:0 0 170px">
         <input type="number" min="0" step="0.01" placeholder="Gasto mín. (R$)" value="${esc(S.filterMinSpend||'')}"
           oninput="S.filterMinSpend=this.value;saveState();render()">
       </div>
-      ${(S.search||S.filterMinSpend||S.objFilter.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];saveState();render()">✕ Limpar</button>`:''}
+      ${(S.search||S.filterMinSpend||S.objFilter.length||S.nameFilters.length)?`<button class="btn btn-gray btn-sm" onclick="S.search='';S.filterMinSpend='';S.objFilter=[];S.nameFilters=[];saveState();render()">✕ Limpar</button>`:''}
     </div>
+    ${S.nameFilters.length?`
+    <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      ${S.nameFilters.map((f,i)=>`<span class="chip" style="cursor:default">${f.op==='not'?'não contém':'contém'} <b>${esc(f.v)}</b><a onclick="removeNameFilter(${i})" style="cursor:pointer;color:#d32f2f;font-weight:700;margin-left:6px">✕</a></span>`).join('')}
+      ${S.nameFilters.filter(f=>f.op!=='not').length>1?`
+        <span style="font-size:12px;color:#888;margin:0 4px 0 8px;font-weight:600">COMBINAR:</span>
+        <button class="chip ${S.filterJoin==='and'?'active':''}" onclick="S.filterJoin='and';saveState();render()">E (todos)</button>
+        <button class="chip ${S.filterJoin==='or'?'active':''}" onclick="S.filterJoin='or';saveState();render()">OU (qualquer)</button>`:''}
+    </div>`:''}
   </div>`;
 }
 
+function addNameFilter(){
+  const v = (S.search||'').trim();
+  if(!v) return;
+  if(!S.nameFilters.some(f=>f.op===S.searchOp && f.v.toLowerCase()===v.toLowerCase()))
+    S.nameFilters.push({op:S.searchOp, v});
+  S.search = '';
+  saveState(); render();
+}
+function removeNameFilter(i){ S.nameFilters.splice(i,1); saveState(); render(); }
+
 function applyFilters(rows){
   let r = rows.slice();
-  // Nome/ID com modos: contém tudo / qualquer um / nenhum (palavras separadas por espaço)
-  const q = (S.search||'').trim().toLowerCase();
-  if(q){
-    const kws = q.split(/\s+/).filter(Boolean);
+  // Filtros de nome/ID: chips fixados + o texto que está sendo digitado
+  const terms = (S.nameFilters||[]).slice();
+  const live = (S.search||'').trim();
+  if(live) terms.push({op:S.searchOp, v:live});
+  if(terms.length){
+    const pos = terms.filter(t=>t.op!=='not').map(t=>t.v.toLowerCase());
+    const neg = terms.filter(t=>t.op==='not').map(t=>t.v.toLowerCase());
     r = r.filter(x=>{
       const hay = ((x.name||'')+' '+(x.id||'')+' '+(x.account_id||'')).toLowerCase();
-      if(S.searchMode==='none') return kws.every(k=>!hay.includes(k));
-      if(S.searchMode==='any')  return kws.some(k=>hay.includes(k));
-      return kws.every(k=>hay.includes(k)); // 'all' (contém tudo)
+      if(neg.some(n=>hay.includes(n))) return false;   // "não contém" sempre exclui
+      if(!pos.length) return true;
+      return S.filterJoin==='or' ? pos.some(p=>hay.includes(p)) : pos.every(p=>hay.includes(p));
     });
   }
   if(S.filterMinSpend && parseFloat(S.filterMinSpend)>0){
