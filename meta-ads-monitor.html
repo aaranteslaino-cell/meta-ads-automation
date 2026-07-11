@@ -49,6 +49,8 @@ tr.total td{border-top:2px solid #1877f2;border-bottom:none}
 tfoot td{position:sticky;background:#eef3fb;z-index:3}
 tfoot tr:last-child td{bottom:0}
 tfoot tr:nth-last-child(2) td{bottom:39px}
+tfoot tr:nth-last-child(3) td{bottom:78px}
+tfoot tr:nth-last-child(4) td{bottom:117px}
 .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px}
 .b-green{background:#e6f4ea;color:#137333}
 .b-orange{background:#fef3e2;color:#c47a00}
@@ -559,8 +561,17 @@ async function fetchRevenue(){
       if(r.campaign_id && r.adset_id){ adsetsOf[r.campaign_id] = adsetsOf[r.campaign_id]||{}; add(adsetsOf[r.campaign_id], r.adset_id, v); }
       if(r.adset_id && r.ad_id){ adsOf[r.adset_id] = adsOf[r.adset_id]||{}; add(adsOf[r.adset_id], r.ad_id, v); }
     });
-    return { byCampaign, byAdset, byAd, adsetsOf, adsOf };
-  }catch(e){ console.warn('[receita Supabase] falhou:', e.message); return { _error:e.message, byCampaign:{}, byAdset:{}, byAd:{}, adsetsOf:{}, adsOf:{} }; }
+    // vendas SEM atribuição meta (direct/ig/orgânico) do mesmo período
+    let offsite = {front:0,total:0,receita:0};
+    try{
+      const r2 = await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_offsite`, {
+        method:'POST', headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},
+        body: JSON.stringify({ p_since: since, p_until: until })
+      });
+      if(r2.ok){ const o=(await r2.json())[0]||{}; offsite={front:parseInt(o.vendas_front)||0, total:parseInt(o.vendas_total)||0, receita:parseFloat(o.receita_bruta)||0}; }
+    }catch(_){}
+    return { byCampaign, byAdset, byAd, adsetsOf, adsOf, offsite };
+  }catch(e){ console.warn('[receita Supabase] falhou:', e.message); return { _error:e.message, byCampaign:{}, byAdset:{}, byAd:{}, adsetsOf:{}, adsOf:{}, offsite:{front:0,total:0,receita:0} }; }
 }
 
 // Anexa receita/ROAS às linhas conforme o nível (campaign|adset|ad)
@@ -1107,7 +1118,7 @@ function buildBreadcrumb(){
 }
 
 // Gera as <td> de uma linha de total a partir das colunas ativas (mantém alinhamento)
-function totalRowCells(t, cur, cols){
+function totalRowCells(t, cur, cols, label){
   const d = {
     ctr: t.impressions ? (t.clicks/t.impressions*100) : 0,
     cpc: t.clicks ? (t.spend/t.clicks) : 0,
@@ -1123,7 +1134,7 @@ function totalRowCells(t, cur, cols){
   const money = ['spend','cpc','cpm','cost_per_landing_page_view','cost_per_initiate_checkout'];
   let cells = '';
   cols.forEach((c, idx)=>{
-    if(idx===0) cells += `<td>Total ${cur||''}</td>`;
+    if(idx===0) cells += `<td>${label!=null ? label : ('Total '+(cur||''))}</td>`;
     else if(c.k==='id' || c.k==='effective_status') cells += '<td></td>';
     else if(c.k==='_roas') cells += `<td class="num" style="color:${roasColor(d._roas)};font-weight:600">${fmtRoas(d._roas)}</td>`;
     else if(c.k==='_receita') cells += `<td class="num">${fmtMoney(d._receita,'BRL')}</td>`;
@@ -1234,6 +1245,16 @@ function buildTable(){
           ${(S.view === 'accounts' || S.view === 'allCampaigns')
             ? Object.entries(byCur).map(([cur, t])=>`<tr class="total">${totalRowCells(t, cur, cols)}</tr>`).join('')
             : `<tr class="total">${totalRowCells(tot, mainCur, cols)}</tr>`}
+          ${(()=>{
+            const off = S.showRevenue && S._rev && S._rev.offsite;
+            if(!off || (off.total<=0 && off.receita<=0)) return '';
+            const metaBRL = (S.view==='accounts'||S.view==='allCampaigns') ? (byCur['BRL']||{spend:0,_receita:0,_vendasFront:0,_vendasTotal:0}) : tot;
+            const base = {impressions:0, clicks:0, landing_page_views:0, initiate_checkout:0};
+            const offRow  = {...base, spend:0, _receita:off.receita, _vendasFront:off.front, _vendasTotal:off.total};
+            const geral   = {...base, spend:metaBRL.spend||0, _receita:(metaBRL._receita||0)+off.receita, _vendasFront:(metaBRL._vendasFront||0)+off.front, _vendasTotal:(metaBRL._vendasTotal||0)+off.total};
+            return `<tr class="total" style="opacity:.8">${totalRowCells(offRow, 'BRL', cols, '🌐 Outras fontes (sem UTM meta)')}</tr>`
+                 + `<tr class="total" style="font-weight:700">${totalRowCells(geral, 'BRL', cols, 'Σ TOTAL GERAL')}</tr>`;
+          })()}
         </tfoot>
       </table>
     </div>
