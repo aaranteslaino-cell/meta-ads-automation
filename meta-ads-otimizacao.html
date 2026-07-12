@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meta Ads — Otimização</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1c1e21;min-height:100vh}
+.wrap{max-width:1400px;margin:0 auto;padding:20px}
+.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+h1{color:#7b2ff7;font-size:22px;margin-bottom:2px}
+h2{font-size:17px;margin-bottom:14px}
+h3{font-size:14px;margin-bottom:10px;color:#444}
+.sub{color:#888;font-size:13px}
+.btn{padding:8px 16px;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-purple{background:#7b2ff7;color:#fff}.btn-purple:not(:disabled):hover{background:#6822d8}
+.btn-gray{background:#e4e6eb;color:#1c1e21}.btn-gray:not(:disabled):hover{background:#d0d2d8}
+label{display:block;font-size:12px;font-weight:700;color:#65676b;margin-bottom:5px;text-transform:uppercase;letter-spacing:.4px}
+input,select{width:100%;padding:8px 11px;border:1.5px solid #ddd;border-radius:8px;font-size:14px;background:#fff}
+input:focus,select:focus{outline:none;border-color:#7b2ff7}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.row > *{flex:0 0 auto}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:6px 12px;border-radius:999px;background:#f0f2f5;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s;border:none;color:#1c1e21}
+.chip:hover{background:#e4e6eb}
+.chip.active{background:#7b2ff7;color:#fff}
+.connected{display:flex;align-items:center;gap:6px;font-size:13px;color:#42b72a;font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:#42b72a;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+table{width:100%;border-collapse:collapse}
+th,td{padding:9px 11px;text-align:left;border-bottom:1px solid #eee;font-size:13px}
+th{font-weight:700;font-size:11px;color:#65676b;text-transform:uppercase;letter-spacing:.3px;background:#f7f8fa;cursor:pointer;user-select:none;position:sticky;top:0}
+th.num,td.num{text-align:right;font-variant-numeric:tabular-nums}
+tr.total{background:#f3eefe;font-weight:700}
+.loading{display:inline-block;width:14px;height:14px;border:2px solid #ddd;border-top-color:#7b2ff7;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{padding:40px;text-align:center;color:#888;font-style:italic}
+.tbl-wrap{max-height:560px;overflow:auto;border-radius:8px;border:1px solid #eee}
+.info-box{background:#e7f0fd;border-radius:8px;padding:10px 14px;font-size:13px;color:#1877f2}
+.warn-box{background:#fef3e2;border-radius:8px;padding:10px 14px;font-size:13px;color:#c47a00}
+.err-box{background:#fce8e6;border-radius:8px;padding:10px 14px;font-size:13px;color:#c5221f}
+.token-item{display:flex;gap:8px;align-items:center;margin-bottom:6px;padding:6px 10px;background:#f7f8fa;border-radius:6px;font-size:13px}
+.token-item .lbl{font-weight:600;color:#7b2ff7}
+.token-item .id{color:#888;font-family:monospace;font-size:11px}
+/* KPIs */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:#faf9ff;border:1px solid #efeaff;border-radius:10px;padding:14px}
+.kpi .k-l{font-size:11px;font-weight:700;color:#7a7a8c;text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px}
+.kpi .k-v{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums}
+.kpi .k-s{font-size:12px;color:#888;margin-top:3px}
+.kpi.danger{background:#fff5f5;border-color:#ffdada}
+.kpi.danger .k-v{color:#d32f2f}
+.kpi.good{background:#f2fbf4;border-color:#cfeed6}
+/* Colunas bom/ruim */
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:900px){.cols2{grid-template-columns:1fr}}
+.lane h3{display:flex;align-items:center;gap:8px;font-size:15px}
+.item{border-radius:10px;padding:11px 13px;margin-bottom:8px;border:1px solid #eee}
+.item.bom{background:#f2fbf4;border-color:#cfeed6}
+.item.ruim{background:#fff5f5;border-color:#ffdada}
+.item.observar{background:#fffdf3;border-color:#f2eccf}
+.item .i-top{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.item .i-name{font-weight:700;font-size:13px;line-height:1.3}
+.item .i-metric{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
+.item .i-reason{font-size:12px;color:#555;margin-top:4px}
+.item .i-sub{font-size:11px;color:#8a8a8a;margin-top:3px;font-family:monospace}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.3px}
+.b-bom{background:#e6f4ea;color:#137333}
+.b-ruim{background:#fce8e6;color:#c5221f}
+.b-observar{background:#fef7e0;color:#a86b00}
+.b-novo{background:#eef0f3;color:#65676b}
+.verdict-good{color:#137333}.verdict-bad{color:#c5221f}
+.act{background:#faf9ff;border-left:3px solid #7b2ff7;border-radius:6px;padding:10px 13px;margin-bottom:8px;font-size:13.5px;line-height:1.45}
+.act b{color:#7b2ff7}
+.mini{font-size:11px;color:#8a8a8a}
+.pill{display:inline-block;padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;background:#eef0f3;color:#555;margin-left:5px}
+.winner{color:#137333;font-weight:800}
+.loser{color:#c5221f;font-weight:800}
+details{margin-top:6px}
+summary{cursor:pointer;font-weight:600;color:#7b2ff7;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Meta Ads — Otimização</h1>
+    <p class="sub">Diagnóstico automático: o que escalar, o que cortar e leituras por conta, lance e oferta. Cruza gasto do Meta com receita real do Supabase.</p>
+  </div>
+  <div id="root"></div>
+</div>
+
+<script>
+const GQL = 'https://graph.facebook.com/v21.0';
+const SB_URL_DEFAULT = 'https://mnrnnmfaupvmjfgpzkou.supabase.co';
+const SB_KEY_DEFAULT = 'sb_publishable_KraV-pqYINerxc0nCgdHaA_xHj7ew87';
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+let S = loadState() || {};
+S.tokens = Array.isArray(S.tokens) ? S.tokens : [];
+S.connected = false;
+S.accounts = [];
+S.data = [];
+S.refreshing = false;
+S.lastRefresh = null;
+if(!S.period) S.period = 'last_7d';
+if(typeof S.nameContains !== 'string') S.nameContains = 'NATH';
+if(typeof S.sbUrl !== 'string' || !S.sbUrl) S.sbUrl = SB_URL_DEFAULT;
+if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
+if(S.cpaAlvo == null) S.cpaAlvo = '';       // vazio = usa CPA médio da carteira
+if(S.roasAlvo == null || S.roasAlvo === '') S.roasAlvo = 1.0;
+if(S.minSpend == null) S.minSpend = '';     // vazio = default por período
+S._rev = null;
+
+function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, refreshing:false})); }catch(e){} }
+
+// Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
+function loadSharedTokens(){
+  ['mam_state','maa_state'].forEach(key=>{
+    try{
+      const src = JSON.parse(localStorage.getItem(key));
+      (src?.tokens||[]).forEach(t=>{
+        if(t.token && !S.tokens.find(x=>x.token===t.token)) S.tokens.push({...t, id:t.id||Date.now()+Math.random()});
+      });
+    }catch(e){}
+  });
+  saveState();
+}
+loadSharedTokens();
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const fmtMoney = (v)=> 'R$ '+(parseFloat(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtMoney0 = (v)=> 'R$ '+(parseFloat(v)||0).toLocaleString('pt-BR',{maximumFractionDigits:0});
+const fmtNum = v => Math.round(parseFloat(v)||0).toLocaleString('pt-BR');
+const fmtPct = v => (parseFloat(v)||0).toFixed(2)+'%';
+const fmtRoas = r => (r==null) ? '—' : (parseFloat(r)||0).toFixed(2)+'x';
+const roasColor = r => (r==null) ? '#888' : (r>=1.5?'#137333':r>=1?'#2e7d32':r>=0.7?'#b08900':'#d32f2f');
+function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
+
+// ── API ─────────────────────────────────────────────────────────────────────
+async function api(path, params={}, token=null){
+  let url = path.startsWith('http') ? path : GQL+path;
+  const sep = url.includes('?') ? '&' : '?';
+  url += sep+'access_token='+encodeURIComponent(token);
+  Object.entries(params).forEach(([k,v])=>{ url += '&'+encodeURIComponent(k)+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v); });
+  const res = await fetch(url);
+  const json = await res.json();
+  if(json.error){ const e=json.error; throw new Error(`(${e.code}${e.error_subcode?'/'+e.error_subcode:''}) ${e.message}`); }
+  return json;
+}
+
+// ── Conectar ────────────────────────────────────────────────────────────────
+async function connect(){
+  if(!S.tokens.length){ alert('Nenhum token encontrado. Conecte no monitor/automação primeiro (os tokens são compartilhados).'); return; }
+  const btn = $('btn-connect'); if(btn){ btn.disabled=true; btn.textContent='Conectando…'; }
+  S.accounts = []; const errs=[];
+  for(const tk of S.tokens){
+    if(!tk.token) continue;
+    try{
+      const r = await api('/me/adaccounts',{fields:'id,name,account_id,currency,account_status,timezone_name,timezone_offset_hours_utc',limit:500}, tk.token);
+      const accs = (r.data||[]).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label,
+        _tzOffset:(a.timezone_offset_hours_utc!=null?Number(a.timezone_offset_hours_utc):null), _tzName:a.timezone_name}));
+      S.accounts.push(...accs);
+    }catch(e){ errs.push(`[${tk.label}] ${e.message}`); }
+  }
+  const seen=new Set(); S.accounts = S.accounts.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
+  if(!S.accounts.length){ if(btn){ btn.disabled=false; btn.textContent='Conectar'; } alert('Nenhuma conta encontrada.'+(errs.length?'\n\n'+errs.join('\n'):'')); return; }
+  S.connected = true; render(); await refreshData();
+}
+function disconnect(){ S.connected=false; S.accounts=[]; S.data=[]; saveState(); render(); }
+
+// ── Insights ────────────────────────────────────────────────────────────────
+const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,cost_per_action_type';
+function getActionValue(actions, type){ if(!Array.isArray(actions)) return 0; const a=actions.find(x=>x.action_type===type); return a?parseFloat(a.value)||0:0; }
+const BR_OFFSET = -3;
+const brToday = () => new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const addDaysStr = (s,days)=>{ const d=new Date(s+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); };
+function brWindow(period){
+  const today=brToday();
+  if(period==='today') return {since:today,until:today};
+  if(period==='yesterday'){ const y=addDaysStr(today,-1); return {since:y,until:y}; }
+  const n=period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7;
+  return {since:addDaysStr(today,-n),until:addDaysStr(today,-1)};
+}
+function periodDays(period){ return period==='today'||period==='yesterday'?1:(period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7); }
+
+async function fetchInsights(parentId, level, tokenId, tzOffset){
+  if(tzOffset!=null && Number(tzOffset)!==BR_OFFSET) return await fetchInsightsHourlyBRT(parentId, level, tokenId, Number(tzOffset));
+  const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
+  const r = await api(`/${parentId}/insights`, {level, fields:`${INSIGHT_FIELDS},campaign_id,campaign_name`, date_preset:S.period, limit:500}, tok);
+  return r.data||[];
+}
+async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
+  const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
+  const win=brWindow(S.period); const shift=BR_OFFSET-tzOffset;
+  const accSince=addDaysStr(win.since,-1), accUntil=addDaysStr(win.until,1);
+  let url=`${GQL}/${parentId}/insights?`+[
+    'level='+level,
+    'fields='+encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name'),
+    'breakdowns=hourly_stats_aggregated_by_advertiser_time_zone',
+    'time_increment=1',
+    'time_range='+encodeURIComponent(JSON.stringify({since:accSince,until:accUntil})),
+    'limit=500','access_token='+encodeURIComponent(tok)
+  ].join('&');
+  const acc={}; let pages=0;
+  while(url && pages<60){
+    pages++;
+    const json=await (await fetch(url)).json();
+    if(json.error) throw new Error(`(${json.error.code}) ${json.error.message}`);
+    (json.data||[]).forEach(row=>{
+      const hStr=row.hourly_stats_aggregated_by_advertiser_time_zone||'00';
+      const hr=parseInt(hStr.slice(0,2),10)||0;
+      const base=new Date(row.date_start+'T00:00:00Z'); base.setUTCHours(hr+shift);
+      const brDate=base.toISOString().slice(0,10);
+      if(brDate<win.since||brDate>win.until) return;
+      const id=row.campaign_id; if(!id) return;
+      if(!acc[id]) acc[id]={id,name:row.campaign_name||id,spend:0,impressions:0,clicks:0,lpv:0,ic:0};
+      const a=acc[id];
+      a.spend+=parseFloat(row.spend)||0; a.impressions+=parseInt(row.impressions)||0; a.clicks+=parseInt(row.clicks)||0;
+      a.lpv+=getActionValue(row.actions,'landing_page_view');
+      a.ic +=getActionValue(row.actions,'initiate_checkout')||getActionValue(row.actions,'offsite_conversion.fb_pixel_initiate_checkout');
+    });
+    url=(json.paging&&json.paging.next)?json.paging.next:null;
+  }
+  return Object.values(acc).map(a=>({
+    spend:a.spend, impressions:a.impressions, clicks:a.clicks,
+    ctr:a.impressions?(a.clicks/a.impressions*100):0, cpc:a.clicks?(a.spend/a.clicks):0, cpm:a.impressions?(a.spend/a.impressions*1000):0,
+    actions:[{action_type:'landing_page_view',value:a.lpv},{action_type:'initiate_checkout',value:a.ic}],
+    cost_per_action_type:[{action_type:'landing_page_view',value:a.lpv?a.spend/a.lpv:0},{action_type:'initiate_checkout',value:a.ic?a.spend/a.ic:0}],
+    campaign_id:a.id, campaign_name:a.name
+  }));
+}
+async function fetchEntityList(parentId, tokenId){
+  const tok=getTokenById(tokenId);
+  const r=await api(`/${parentId}/campaigns`, {fields:'id,name,status,effective_status,objective,bid_strategy,daily_budget,lifetime_budget,updated_time', limit:500}, tok);
+  return r.data||[];
+}
+function mergeInsightsAndEntities(insights, entities){
+  const byId={};
+  entities.forEach(e=>{ byId[e.id]={...e, spend:0,impressions:0,clicks:0,ctr:0,cpc:0,cpm:0,landing_page_views:0,cost_per_landing_page_view:0,initiate_checkout:0,cost_per_initiate_checkout:0}; });
+  insights.forEach(ins=>{
+    const id=ins.campaign_id; if(!id) return;
+    if(!byId[id]) byId[id]={id, name:ins.campaign_name||id, status:'?', effective_status:'?'};
+    Object.assign(byId[id], {
+      spend:parseFloat(ins.spend)||0, impressions:parseInt(ins.impressions)||0, clicks:parseInt(ins.clicks)||0,
+      ctr:parseFloat(ins.ctr)||0, cpc:parseFloat(ins.cpc)||0, cpm:parseFloat(ins.cpm)||0,
+      landing_page_views:getActionValue(ins.actions,'landing_page_view'),
+      cost_per_landing_page_view:getActionValue(ins.cost_per_action_type,'landing_page_view'),
+      initiate_checkout:getActionValue(ins.actions,'initiate_checkout')||getActionValue(ins.actions,'offsite_conversion.fb_pixel_initiate_checkout'),
+      cost_per_initiate_checkout:getActionValue(ins.cost_per_action_type,'initiate_checkout')||getActionValue(ins.cost_per_action_type,'offsite_conversion.fb_pixel_initiate_checkout')
+    });
+  });
+  return Object.values(byId);
+}
+async function fetchAllCampaigns(){
+  const promises = S.accounts.map(async acc=>{
+    try{
+      const insights = await fetchInsights(acc.id,'campaign',acc._tokenId,acc._tzOffset);
+      let entities=[]; try{ entities=await fetchEntityList(acc.id,acc._tokenId); }catch(e){}
+      const merged = mergeInsightsAndEntities(insights, entities);
+      merged.forEach(m=>{ m._accountId=acc.id; m._accountName=acc.name; m._currency=acc.currency; m._tokenId=acc._tokenId; });
+      return merged;
+    }catch(e){ return []; }
+  });
+  return (await Promise.all(promises)).flat();
+}
+
+// ── Receita (Supabase) ──────────────────────────────────────────────────────
+function periodRange(period){
+  const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
+  if(period==='today') return {since:at(today),until:at(addDaysStr(today,1))};
+  if(period==='yesterday') return {since:at(addDaysStr(today,-1)),until:at(today)};
+  const n=periodDays(period);
+  return {since:at(addDaysStr(today,-n)),until:at(today)};
+}
+async function fetchRevenue(){
+  const {since,until}=periodRange(S.period);
+  try{
+    const res=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_by_ad`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const rows=await res.json(); const byCampaign={};
+    const add=(m,k,v)=>{ if(!k) return; if(!m[k]) m[k]={front:0,total:0,receita:0}; m[k].front+=v.front; m[k].total+=v.total; m[k].receita+=v.receita; };
+    (rows||[]).forEach(r=>{ add(byCampaign, r.campaign_id, {front:parseInt(r.vendas_front)||0,total:parseInt(r.vendas_total)||0,receita:parseFloat(r.receita_bruta)||0}); });
+    let offsite={front:0,total:0,receita:0};
+    try{ const r2=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_offsite`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})}); if(r2.ok){ const o=(await r2.json())[0]||{}; offsite={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
+    return {byCampaign, offsite};
+  }catch(e){ console.warn('receita falhou',e.message); return {byCampaign:{}, offsite:{front:0,total:0,receita:0}, _error:e.message}; }
+}
+function attachRevenue(rows){
+  const map=(S._rev&&S._rev.byCampaign)||{};
+  rows.forEach(r=>{
+    const hit=map[String(r.id)];
+    r._receita=hit?hit.receita:0; r._vendasFront=hit?hit.front:0; r._vendasTotal=hit?hit.total:0;
+    const cur=r._currency||'BRL';
+    r._roas=(cur==='BRL'&&r.spend>0)?(r._receita/r.spend):null;
+    r._cpa=(r._vendasFront>0)?(r.spend/r._vendasFront):null;
+    r._ticket=(r._vendasFront>0)?(r._receita/r._vendasFront):null;
+  });
+}
+
+async function refreshData(){
+  if(S.refreshing) return;
+  S.refreshing=true; render();
+  try{
+    S._rev=await fetchRevenue();
+    S.data=await fetchAllCampaigns();
+    attachRevenue(S.data);
+    S.lastRefresh=new Date();
+  }catch(e){ alert('Erro: '+e.message); }
+  finally{ S.refreshing=false; render(); }
+}
+
+// ── Tags derivadas do nome ──────────────────────────────────────────────────
+function tagCA(r){ const m=(r.name||'').match(/\[CA\s*0*(\d+)\s*\]/i); return m?('CA '+String(m[1]).padStart(2,'0')):(r._accountName||'Outra'); }
+function tagLance(r){ const m=(r.name||'').match(/CBO\s*(TRAD|CPA)/i); if(m) return 'CBO '+m[1].toUpperCase(); if(/\bABO\b/i.test(r.name||'')) return 'ABO'; if(r.daily_budget>0||r.lifetime_budget>0) return 'CBO'; return 'ABO'; }
+function tagOferta(r){ const n=r.name||''; const d=(n.match(/(\d{2}\.\d{2})/)||[])[1]||'s/data'; const c=(n.match(/VSL\s*37\s*(QUIZ|LP)/i)||[])[1]; return d+(c?(' '+c.toUpperCase()):''); }
+function tagEstrutura(r){ const m=(r.name||'').match(/1-(\d)-X/i); return m?('1-'+m[1]):'—'; }
+function shortName(n){
+  n=String(n||'');
+  const ca=(n.match(/\[CA\s*0*(\d+)\s*\]/i)||[])[0]||'';
+  const of=tagOferta({name:n});
+  const la=tagLance({name:n});
+  const es=tagEstrutura({name:n});
+  let s=[of,la,es].filter(x=>x&&x!=='—').join(' ');
+  if(ca) s=ca.replace(/[\[\]]/g,'')+' · '+s;
+  return s||n.slice(0,60);
+}
+
+// ── Motor de análise ────────────────────────────────────────────────────────
+function analyze(){
+  const days=periodDays(S.period);
+  const nc=(S.nameContains||'').trim().toLowerCase();
+  // universo: BRL, ativa, com gasto, batendo o filtro de nome
+  let rows=(S.data||[]).filter(r=>{
+    if((r._currency||'BRL')!=='BRL') return false;
+    if((r.effective_status||'')!=='ACTIVE') return false;
+    if((r.spend||0)<=0) return false;
+    if(nc && !String(r.name||'').toLowerCase().includes(nc)) return false;
+    return true;
+  });
+  // totais
+  const T={spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,lpv:0};
+  rows.forEach(r=>{ T.spend+=r.spend||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
+  const blendedCPA = T.front>0 ? T.spend/T.front : 0;
+  const off=(S._rev&&S._rev.offsite)||{front:0,total:0,receita:0};
+
+  // config
+  const cpaAlvo = (parseFloat(S.cpaAlvo)>0) ? parseFloat(S.cpaAlvo) : (blendedCPA||9999);
+  const roasAlvo = (parseFloat(S.roasAlvo)>0) ? parseFloat(S.roasAlvo) : 1.0;
+  const defMin = ({1:60,3:150,7:250,14:450,30:800})[days] || 250;
+  const minSpend = (parseFloat(S.minSpend)>=0 && S.minSpend!=='') ? parseFloat(S.minSpend) : defMin;
+
+  // classifica
+  rows.forEach(r=>{
+    const spend=r.spend||0, front=r._vendasFront||0, roas=r._roas, cpa=r._cpa;
+    let v,reason;
+    if(spend<minSpend){ v='novo'; reason='gasto abaixo do mínimo para julgar ('+fmtMoney0(spend)+')'; }
+    else if(front===0){
+      if(spend>=cpaAlvo){ v='ruim'; reason=fmtMoney0(spend)+' gastos sem NENHUMA venda front'; }
+      else { v='observar'; reason='ainda sem venda, gasto ainda baixo'; }
+    } else if(cpa<=cpaAlvo*0.8 || (roas!=null && roas>=roasAlvo*1.4)){
+      v='bom'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — bem acima da média';
+    } else if(cpa>=cpaAlvo*1.3 || (roas!=null && roas<roasAlvo*0.55)){
+      v='ruim'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — bem abaixo da média';
+    } else { v='observar'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — perto da média'; }
+    r._verdict=v; r._reason=reason;
+  });
+
+  const good=rows.filter(r=>r._verdict==='bom').sort((a,b)=>(b._roas||0)-(a._roas||0));
+  const bad =rows.filter(r=>r._verdict==='ruim').sort((a,b)=>(b.spend||0)-(a.spend||0));
+  const watch=rows.filter(r=>r._verdict==='observar').sort((a,b)=>(b.spend||0)-(a.spend||0));
+  const gastoRuim=bad.reduce((s,r)=>s+(r.spend||0),0);
+
+  // agregações
+  const aggBy=(keyFn)=>{
+    const m={};
+    rows.forEach(r=>{ const k=keyFn(r); if(k==null) return; if(!m[k]) m[k]={key:k,spend:0,receita:0,front:0,total:0,imp:0,clicks:0,n:0}; const a=m[k]; a.spend+=r.spend||0; a.receita+=r._receita||0; a.front+=r._vendasFront||0; a.total+=r._vendasTotal||0; a.imp+=r.impressions||0; a.clicks+=r.clicks||0; a.n++; });
+    return Object.values(m).map(a=>({...a, roas:a.spend>0?a.receita/a.spend:null, cpa:a.front>0?a.spend/a.front:null, ctr:a.imp>0?a.clicks/a.imp*100:0})).sort((x,y)=>y.spend-x.spend);
+  };
+  const byConta=aggBy(tagCA);
+  const byLance=aggBy(tagLance);
+  const byOferta=aggBy(tagOferta);
+
+  // fragmentação: grupos (conta+lance+oferta+estrutura) com >2 campanhas
+  const fragMap={};
+  rows.forEach(r=>{ const k=tagCA(r)+' | '+tagLance(r)+' | '+tagOferta(r)+' | '+tagEstrutura(r); if(!fragMap[k]) fragMap[k]={key:k,n:0,spend:0}; fragMap[k].n++; fragMap[k].spend+=r.spend||0; });
+  const frag=Object.values(fragMap).filter(g=>g.n>=3).sort((a,b)=>b.n-a.n);
+
+  // ações recomendadas
+  const actions=[];
+  if(bad.length){ actions.push(`<b>Pausar ${bad.length} campanha(s) ruim(ns)</b>, liberando ${fmtMoney0(gastoRuim)} no período (${fmtMoney0(gastoRuim/days)}/dia) para realocar nas vencedoras.`); }
+  if(good.length){ actions.push(`<b>Escalar as ${good.length} melhores</b> (subir orçamento 20% a 30% aos poucos): ${good.slice(0,4).map(r=>esc(shortName(r.name))).join('; ')}.`); }
+  // comparação de dimensões: aponta vencedor claro por CPA
+  const cmp=(arr,rot)=>{
+    const val=arr.filter(a=>a.cpa!=null && a.front>=3);
+    if(val.length<2) return;
+    val.sort((a,b)=>a.cpa-b.cpa);
+    const best=val[0], worst=val[val.length-1];
+    if(worst.cpa >= best.cpa*1.4){
+      actions.push(`Em <b>${rot}</b>: <span class="winner">${esc(best.key)}</span> (CPA ${fmtMoney0(best.cpa)}, ROAS ${fmtRoas(best.roas)}) rende muito melhor que <span class="loser">${esc(worst.key)}</span> (CPA ${fmtMoney0(worst.cpa)}, ROAS ${fmtRoas(worst.roas)}). Migrar verba para ${esc(best.key)}.`);
+    }
+  };
+  cmp(byConta,'conta');
+  cmp(byLance,'estratégia de lance');
+  cmp(byOferta,'oferta/criativo');
+  if(frag.length){ const g=frag[0]; actions.push(`<b>Desfragmentar:</b> há grupos com muitas campanhas quase idênticas competindo entre si (ex: "${esc(g.key)}" com ${g.n} campanhas, ${fmtMoney0(g.spend)}). CBO rende mais com menos campanhas e mais orçamento por campanha.`); }
+
+  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, frag, actions, off};
+}
+
+// ── Render ──────────────────────────────────────────────────────────────────
+function render(){
+  const root=$('root');
+  if(!S.connected){ root.innerHTML=renderConnect(); return; }
+  const A=analyze();
+  root.innerHTML = renderControls(A) + (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : renderDashboard(A));
+}
+
+function renderConnect(){
+  return `<div class="card">
+    <h2>Conectar</h2>
+    <div class="info-box" style="margin-bottom:12px">Os tokens são compartilhados com o monitor e a automação. ${S.tokens.length?`Encontrei <b>${S.tokens.length}</b> token(s).`:'Nenhum token encontrado ainda — conecte no monitor primeiro.'}</div>
+    ${S.tokens.map(t=>`<div class="token-item"><span class="lbl">${esc(t.label||'token')}</span><span class="id">${esc(String(t.token).slice(0,18))}…</span></div>`).join('')}
+    <button id="btn-connect" class="btn btn-purple" style="margin-top:10px" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
+  </div>`;
+}
+
+const PERIODS=[['today','Hoje'],['yesterday','Ontem'],['last_3d','3 dias'],['last_7d','7 dias'],['last_14d','14 dias'],['last_30d','30 dias']];
+function renderControls(A){
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div class="connected"><span class="dot"></span> Conectado · ${S.accounts.length} conta(s) ${S.lastRefresh?`· <span class="mini">atualizado ${S.lastRefresh.toLocaleTimeString('pt-BR')}</span>`:''}</div>
+      <div class="row">
+        <button class="btn btn-gray" onclick="refreshData()" ${S.refreshing?'disabled':''}>${S.refreshing?'<span class="loading"></span> ':''}Atualizar</button>
+        <button class="btn btn-gray" onclick="disconnect()">Desconectar</button>
+      </div>
+    </div>
+    <hr>
+    <div class="row" style="margin-bottom:12px">
+      <label style="margin:0 6px 0 0">Período:</label>
+      ${PERIODS.map(([k,l])=>`<button class="chip ${S.period===k?'active':''}" onclick="setPeriod('${k}')">${l}</button>`).join('')}
+    </div>
+    <div class="row" style="gap:16px;align-items:flex-end">
+      <div><label>Filtro de nome</label><input style="width:180px" value="${esc(S.nameContains)}" onchange="setCfg('nameContains',this.value)" placeholder="ex: NATH"></div>
+      <div><label>CPA alvo (front)</label><input style="width:130px" value="${esc(S.cpaAlvo)}" onchange="setCfg('cpaAlvo',this.value)" placeholder="média: ${fmtMoney0(A.blendedCPA)}"></div>
+      <div><label>ROAS alvo</label><input style="width:90px" value="${esc(S.roasAlvo)}" onchange="setCfg('roasAlvo',this.value)"></div>
+      <div><label>Gasto mín. p/ julgar</label><input style="width:120px" value="${esc(S.minSpend)}" onchange="setCfg('minSpend',this.value)" placeholder="auto: ${fmtMoney0(A.minSpend)}"></div>
+    </div>
+    <div class="warn-box" style="margin-top:12px">⚠️ O ROAS é <b>parcial</b>: conta só front + order bump que carregam a UTM da campanha. Upsell (mentoria, Loja Pronta) entra sem UTM e não aparece aqui, então o retorno real é maior. Use <b>CPA front</b> e o <b>ROAS relativo entre campanhas</b> para decidir, não o valor absoluto.</div>
+  </div>`;
+}
+
+function renderDashboard(A){
+  if(!A.rows.length) return `<div class="card"><div class="empty">Nenhuma campanha ativa com gasto para "${esc(S.nameContains)}" no período.</div></div>`;
+  return renderKPIs(A)+renderGoodBad(A)+renderActions(A)+renderDimensions(A)+renderTable(A);
+}
+
+function renderKPIs(A){
+  const T=A.T; const roas=T.spend>0?T.receita/T.spend:null;
+  const geralFront=T.front+A.off.front, geralRec=T.receita+A.off.receita;
+  return `<div class="card">
+    <h2>Panorama · ${A.rows.length} campanhas ativas · ${A.days}d</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
+      <div class="kpi"><div class="k-l">Receita atribuída</div><div class="k-v">${fmtMoney0(T.receita)}</div><div class="k-s">ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
+      <div class="kpi"><div class="k-l">Vendas front</div><div class="k-v">${fmtNum(T.front)}</div><div class="k-s">${fmtNum(T.total)} totais</div></div>
+      <div class="kpi"><div class="k-l">CPA médio (front)</div><div class="k-v">${fmtMoney0(A.blendedCPA)}</div><div class="k-s">ticket ${fmtMoney0(T.front>0?T.receita/T.front:0)}</div></div>
+      <div class="kpi good"><div class="k-l">✅ Escalar</div><div class="k-v">${A.good.length}</div><div class="k-s">campanhas boas</div></div>
+      <div class="kpi danger"><div class="k-l">🔴 Verba em risco</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia</div></div>
+    </div>
+    <div class="mini" style="margin-top:10px">+ Outras fontes sem UTM meta no período: ${fmtNum(A.off.front)} front · ${fmtMoney0(A.off.receita)}. <b>Total geral</b>: ${fmtNum(geralFront)} front · ${fmtMoney0(geralRec)}.</div>
+  </div>`;
+}
+
+function itemCard(r){
+  return `<div class="item ${r._verdict}">
+    <div class="i-top"><div class="i-name">${esc(shortName(r.name))}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
+    <div class="i-reason">${esc(r._reason)}</div>
+    <div class="i-sub">${fmtMoney0(r.spend)} gasto · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
+  </div>`;
+}
+function renderGoodBad(A){
+  return `<div class="card"><div class="cols2">
+    <div class="lane"><h3>✅ O que está BOM <span class="pill">${A.good.length}</span></h3>
+      ${A.good.length?A.good.slice(0,12).map(itemCard).join(''):'<div class="empty">Nada acima da média ainda.</div>'}
+    </div>
+    <div class="lane"><h3>🔴 O que está RUIM <span class="pill">${A.bad.length}</span></h3>
+      ${A.bad.length?A.bad.slice(0,12).map(itemCard).join(''):'<div class="empty">Nenhuma drenando caixa. 👏</div>'}
+    </div>
+  </div>
+  ${A.watch.length?`<details><summary>🟡 Observar (${A.watch.length}) — perto da média, deixar rodar</summary><div style="margin-top:10px">${A.watch.slice(0,20).map(itemCard).join('')}</div></details>`:''}
+  </div>`;
+}
+
+function renderActions(A){
+  if(!A.actions.length) return '';
+  return `<div class="card"><h2>💡 Ações recomendadas</h2>${A.actions.map(a=>`<div class="act">${a}</div>`).join('')}
+  <div class="mini" style="margin-top:8px">Geradas automaticamente a partir dos dados do período. Nada é executado sem sua confirmação.</div></div>`;
+}
+
+function dimTable(title, arr, note){
+  if(!arr.length) return '';
+  // vencedor/pior por CPA entre os relevantes
+  const rel=arr.filter(a=>a.cpa!=null && a.front>=3).sort((a,b)=>a.cpa-b.cpa);
+  const best=rel[0]?.key, worst=rel.length>1?rel[rel.length-1].key:null;
+  return `<div style="margin-bottom:18px">
+    <h3>${title}${note?` <span class="mini">${note}</span>`:''}</h3>
+    <div class="tbl-wrap" style="max-height:none">
+    <table><thead><tr>
+      <th>Segmento</th><th class="num">Campanhas</th><th class="num">Gasto</th><th class="num">Front</th><th class="num">CPA</th><th class="num">Receita</th><th class="num">ROAS</th><th class="num">CTR</th>
+    </tr></thead><tbody>
+    ${arr.map(a=>`<tr>
+      <td>${esc(a.key)} ${a.key===best?'<span class="badge b-bom">melhor</span>':a.key===worst?'<span class="badge b-ruim">pior</span>':''}</td>
+      <td class="num">${a.n}</td>
+      <td class="num">${fmtMoney0(a.spend)}</td>
+      <td class="num">${fmtNum(a.front)}</td>
+      <td class="num">${a.cpa!=null?fmtMoney0(a.cpa):'—'}</td>
+      <td class="num">${fmtMoney0(a.receita)}</td>
+      <td class="num" style="color:${roasColor(a.roas)};font-weight:700">${fmtRoas(a.roas)}</td>
+      <td class="num">${fmtPct(a.ctr)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+function renderDimensions(A){
+  let fragHtml='';
+  if(A.frag.length){
+    fragHtml=`<h3>🧩 Fragmentação <span class="mini">grupos com 3+ campanhas quase idênticas competindo</span></h3>
+      <div class="tbl-wrap" style="max-height:none;margin-bottom:6px"><table><thead><tr><th>Grupo (conta · lance · oferta · estrutura)</th><th class="num">Campanhas</th><th class="num">Gasto</th></tr></thead><tbody>
+      ${A.frag.map(g=>`<tr><td>${esc(g.key)}</td><td class="num">${g.n}</td><td class="num">${fmtMoney0(g.spend)}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+  return `<div class="card"><h2>🔍 Leituras automáticas</h2>
+    ${dimTable('Por conta', A.byConta)}
+    ${dimTable('Por estratégia de lance', A.byLance)}
+    ${dimTable('Por oferta / criativo', A.byOferta, '(data do lote + VSL)')}
+    ${fragHtml}
+  </div>`;
+}
+
+function renderTable(A){
+  const rows=[...A.rows].sort((a,b)=>(b.spend||0)-(a.spend||0));
+  const badge=v=>`<span class="badge b-${v}">${v==='bom'?'escalar':v==='ruim'?'cortar':v==='observar'?'observar':'novo'}</span>`;
+  return `<div class="card"><h2>Todas as campanhas ativas <span class="mini">(${rows.length}, ordenado por gasto)</span></h2>
+    <div class="tbl-wrap"><table><thead><tr>
+      <th>Veredito</th><th>Campanha</th><th class="num">Gasto</th><th class="num">CTR</th><th class="num">Custo fin.</th><th class="num">Front</th><th class="num">Tot</th><th class="num">CPA</th><th class="num">Receita</th><th class="num">ROAS</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr>
+      <td>${badge(r._verdict)}</td>
+      <td>${esc(shortName(r.name))}<div class="mini" style="font-family:monospace">${esc(String(r.id))}</div></td>
+      <td class="num">${fmtMoney0(r.spend)}</td>
+      <td class="num">${fmtPct(r.ctr)}</td>
+      <td class="num">${r.cost_per_initiate_checkout?fmtMoney0(r.cost_per_initiate_checkout):'—'}</td>
+      <td class="num">${r._vendasFront||0}</td>
+      <td class="num">${r._vendasTotal||0}</td>
+      <td class="num">${r._cpa!=null?fmtMoney0(r._cpa):'—'}</td>
+      <td class="num">${fmtMoney0(r._receita)}</td>
+      <td class="num" style="color:${roasColor(r._roas)};font-weight:700">${fmtRoas(r._roas)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
+}
+
+// ── Ações de UI ─────────────────────────────────────────────────────────────
+function setPeriod(p){ S.period=p; saveState(); refreshData(); }
+function setCfg(k,v){ S[k]=v; saveState(); render(); }
+
+render();
+</script>
+</body>
+</html>
