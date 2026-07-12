@@ -132,9 +132,10 @@ S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22, tkm:100, cvt:6
 S._rev = null;
 S._comp = null;        // cache do comparativo 1D/2D/3D/5D
 S._compLoading = false;
+S._exec = {};          // marca campanhas já executadas nesta sessão (não persiste)
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -726,47 +727,110 @@ async function fetchComparativo(){
   }catch(e){ alert('Erro no comparativo: '+e.message); }
   S._compLoading=false; render();
 }
-// Critério de corte/escala baseado no ROAS em janelas móveis (cascata hoje → 3D → 5D)
+// Critério de corte/escala baseado SÓ no ROAS por janela (árvore definida com o Arthur)
+// Escala olha só HOJE; corte/redução usa a cascata hoje → 3D → 5D.
 function acaoSugerida(c, B, cpaAlvo){
   const roas=(s,r)=> s>0 ? r/s : null;
   const r1=roas(c.s1,c.r1), r3=roas(c.s3,c.r3), r5=roas(c.s5,c.r5);
-  const isCBO=/\bcbo\b/i.test(c.name);
-  // corte rápido: sem nenhuma venda e já queimou 1,5x o CPA alvo (janela 5D)
-  if((c.r5||0)<=0 && c.s5 >= 1.5*cpaAlvo) return {a:'CORTAR', cls:'ruim', why:'gastou '+fmtMoney0(c.s5)+' em 5D sem nenhuma venda'};
-  // gasto baixo para decidir
-  if(c.s3 < cpaAlvo*0.6 && c.s5 < cpaAlvo) return {a:'—', cls:'novo', why:'gasto baixo para decidir'};
-  // escala: ROAS se mantém no lucro hoje E no 3D
-  if(r1!=null && r3!=null && r1>=B && r3>=B) return {a:isCBO?'ESCALAR +30%':'ESCALAR (ABO)', cls:'bom', why:'ROAS ≥ '+fmtRoas(B)+' hoje ('+fmtRoas(r1)+') e 3D ('+fmtRoas(r3)+')'};
-  // cascata de corte: hoje está negativo
-  if(r1!=null && r1<B){
-    if(r3!=null && r3<B*0.7) return {a:'CORTAR', cls:'ruim', why:'3D confirma prejuízo ('+fmtRoas(r3)+' < '+fmtRoas(B*0.7)+')'};
-    if(r3!=null && r3>=B)    return {a:'MANTER', cls:'observar', why:'dia fraco; 3D no lucro ('+fmtRoas(r3)+')'};
-    // inconclusivo no 3D → desempata no 5D
-    if(r5!=null && r5<B*0.7) return {a:'CORTAR', cls:'ruim', why:'inconclusivo no 3D; 5D confirma prejuízo ('+fmtRoas(r5)+')'};
-    if(r5!=null && r5>=B)    return {a:'MANTER', cls:'observar', why:'inconclusivo no 3D; 5D no lucro ('+fmtRoas(r5)+')'};
-    return {a:'OBSERVAR', cls:'observar', why:'no limite, sem sinal claro em 3D/5D'};
+  // ESCALA: olha só hoje. ROAS de hoje ≥ breakeven → +30%. Exige gasto mínimo hoje (evita ruído).
+  if(r1!=null && r1>=B){
+    if(c.s1 >= 0.5*cpaAlvo) return {a:'ESCALAR', cls:'bom', pct:1.3, why:'ROAS hoje '+fmtRoas(r1)+' ≥ '+fmtRoas(B)+' (escala olha só hoje)'};
+    return {a:'AGUARDA', cls:'novo', why:'positiva hoje ('+fmtRoas(r1)+') mas gasto de hoje ainda baixo ('+fmtMoney0(c.s1)+')'};
   }
-  return {a:'MANTER', cls:'observar', why:'ROAS perto do breakeven'};
+  // hoje negativa (ou sem gasto hoje)
+  if(r3==null) return {a:'AGUARDA', cls:'novo', why:'sem dado no 3D para decidir'};
+  if(r3>=B) return {a:'REDUZIR', cls:'observar', pct:0.7, why:'negativa hoje ('+fmtRoas(r1)+'), 3D no lucro ('+fmtRoas(r3)+') → reduzir 30%'};
+  // hoje neg + 3D neg
+  if(r5==null) return {a:'AGUARDA', cls:'novo', why:'sem dado no 5D para decidir'};
+  if(r5>=B) return {a:'REDUZIR', cls:'observar', pct:0.7, why:'negativa hoje e 3D, mas 5D no lucro ('+fmtRoas(r5)+') → reduzir 30%'};
+  return {a:'DESATIVAR', cls:'ruim', why:'negativa em hoje, 3D e 5D → desativar'};
 }
 function renderComparativoCard(A){
   if(S._compLoading) return `<div class="card"><div class="empty"><span class="loading"></span> Carregando comparativo 1D/2D/3D/5D…</div></div>`;
-  if(!S._comp) return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D</h2>
-    <p class="sub" style="margin-bottom:10px">Gasto, faturamento e lucro de cada campanha em janelas móveis (hoje, 2, 3 e 5 dias) para comparar tendência e decidir. Puxa 5 dias diários do Meta + receita por janela do Supabase.</p>
+  if(!S._comp) return `<div class="card"><h2>📊 Comparativo temporal + Ações</h2>
+    <p class="sub" style="margin-bottom:10px">Gasto, faturamento e lucro por janela (hoje, 2, 3 e 5 dias), com a ação sugerida (escalar / reduzir / desativar) e botão para executar direto na conta. Puxa 5 dias diários do Meta + receita por janela do Supabase.</p>
     <button class="btn btn-purple" onclick="fetchComparativo()">Carregar comparativo</button></div>`;
   let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name) && c.s5>0).sort((a,b)=>b.s5-a.s5);
   const B=parseFloat(A.roasAlvo)||1, cpaAlvo=A.cpaAlvo||9999;
+  const byId={}; (S.data||[]).forEach(r=>byId[r.id]=r);
   const cell=(g,r)=>{ const l=r-g, col=l>0?'#137333':l<0?'#c5221f':'#888', bg=l>0?'#eafaef':l<0?'#fdeeee':'transparent';
     return `<td class="num">${fmtMoney0(g)}</td><td class="num">${fmtMoney0(r)}</td><td class="num" style="color:${col};background:${bg};font-weight:700">${fmtMoney0(l)}</td>`; };
-  return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D
+  const acaoCell=(c,act)=>{
+    const done=S._exec&&S._exec[c.id];
+    if(done) return `<td><span class="badge b-bom">✓ ${done==='DESATIVAR'?'pausada':done==='ESCALAR'?'escalada':'reduzida'}</span></td>`;
+    const d=byId[c.id]||{}, daily=+(d.daily_budget||0);
+    let extra='', btn='';
+    if(act.a==='ESCALAR'||act.a==='REDUZIR'){
+      if(daily>0){ const novo=Math.round(daily*act.pct);
+        extra=`<div class="mini">R$ ${(daily/100).toFixed(2)} → R$ ${(novo/100).toFixed(2)}</div>`;
+        btn=`<button class="btn btn-sm ${act.a==='ESCALAR'?'btn-purple':'btn-gray'}" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Executar</button>`;
+      } else extra=`<div class="mini">orçamento no conjunto (ABO)</div>`;
+    } else if(act.a==='DESATIVAR'){
+      btn=`<button class="btn btn-red btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Pausar</button>`;
+    }
+    return `<td><span class="badge b-${act.cls}" title="${esc(act.why)}">${act.a}</span>${extra}${btn?'<br>'+btn:''}</td>`;
+  };
+  const acts=rows.map(c=>({c, act:acaoSugerida(c,B,cpaAlvo)}));
+  const cnt=t=>acts.filter(x=>x.act.a===t && !(S._exec&&S._exec[x.c.id])).length;
+  const nE=cnt('ESCALAR'), nR=cnt('REDUZIR'), nD=cnt('DESATIVAR');
+  return `<div class="card"><h2>📊 Comparativo temporal + Ações
       <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="fetchComparativo()">↻ Atualizar</button></h2>
+    <div class="row" style="margin-bottom:10px;gap:8px;align-items:center">
+      <span class="mini" style="font-weight:700">⚡ Executar em lote:</span>
+      <button class="btn btn-purple btn-sm" onclick="execLote('ESCALAR')" ${nE?'':'disabled'}>🟢 Escalar +30% (${nE})</button>
+      <button class="btn btn-gray btn-sm" onclick="execLote('REDUZIR')" ${nR?'':'disabled'}>🟡 Reduzir −30% (${nR})</button>
+      <button class="btn btn-red btn-sm" onclick="execLote('DESATIVAR')" ${nD?'':'disabled'}>🔴 Desativar (${nD})</button>
+    </div>
     <div class="tbl-wrap"><table><thead>
-      <tr><th rowspan="2">Campanha (${rows.length})</th><th rowspan="2">Ação sugerida</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">1D (hoje)</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">2D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">3D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">5D</th></tr>
+      <tr><th rowspan="2">Campanha (${rows.length})</th><th rowspan="2">Ação · executar</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">1D (hoje)</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">2D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">3D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">5D</th></tr>
       <tr>${['1D','2D','3D','5D'].map(()=>'<th class="num" style="border-left:2px solid #e6e0f5">Gasto</th><th class="num">Fat</th><th class="num">Lucro</th>').join('')}</tr>
     </thead><tbody>
-    ${rows.map(c=>{ const act=acaoSugerida(c,B,cpaAlvo); return `<tr><td style="max-width:320px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td><td><span class="badge b-${act.cls}" title="${esc(act.why)}">${act.a}</span></td>${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`; }).join('')}
+    ${acts.map(({c,act})=>`<tr><td style="max-width:300px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td>${acaoCell(c,act)}${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`).join('')}
     </tbody></table></div>
-    <div class="mini" style="margin-top:8px"><b>Critério (breakeven ROAS ${fmtRoas(B)}):</b> 🟢 ESCALAR = CBO com ROAS ≥ ${fmtRoas(B)} hoje e no 3D (subir +30% a cada 2h enquanto mantém). 🔴 CORTAR = sem venda tendo gasto 1,5× o CPA alvo, ou ROAS < ${fmtRoas(B*0.7)} confirmado no 3D (desempate no 5D). 🟡 MANTER/OBSERVAR = dia fraco mas 3D/5D no lucro, ou perto do breakeven. Passe o mouse na etiqueta para ver o porquê. Faturamento = receita real por UTM (front + bump + upsell + downsell).</div>
+    <div class="mini" style="margin-top:8px"><b>Regras (breakeven ROAS ${fmtRoas(B)}):</b> 🟢 <b>ESCALAR +30%</b> = ROAS de HOJE ≥ ${fmtRoas(B)} (escala olha só hoje). 🟡 <b>REDUZIR −30%</b> = negativa hoje mas positiva no 3D; ou negativa hoje e 3D, positiva no 5D. 🔴 <b>DESATIVAR</b> = negativa em hoje, 3D e 5D. Cada botão pede confirmação antes de aplicar na conta. ⚠️ <b>Hoje é dia parcial</b> e a venda demora a cair, então o ROAS de hoje fica baixo durante o dia: rode as reduções/desativações com o dia mais fechado para não penalizar campanha boa.</div>
   </div>`;
+}
+// ── Execução na conta (Graph API) — só dispara no clique do usuário ──────────
+async function apiPost(id, body, tok){
+  const p=new URLSearchParams(body);
+  const res=await fetch(`${GQL}/${id}?${p.toString()}&access_token=${encodeURIComponent(tok)}`, {method:'POST'});
+  const j=await res.json();
+  if(j.error) throw new Error('('+j.error.code+') '+j.error.message);
+  return j;
+}
+function acaoBody(id){
+  const c=S._comp&&S._comp[id]; const d=(S.data||[]).find(r=>r.id===id);
+  if(!c||!d) return null;
+  const A=analyze(); const act=acaoSugerida({id,...c}, parseFloat(A.roasAlvo)||1, A.cpaAlvo||80);
+  const daily=+(d.daily_budget||0), tok=getTokenById(d._tokenId);
+  if(act.a==='DESATIVAR') return {act, body:{status:'PAUSED'}, resumo:'PAUSAR a campanha', tok, name:d.name};
+  if((act.a==='ESCALAR'||act.a==='REDUZIR') && daily>0){ const novo=Math.round(daily*act.pct);
+    return {act, body:{daily_budget:String(novo)}, resumo:(act.a==='ESCALAR'?'AUMENTAR':'REDUZIR')+' orçamento de R$ '+(daily/100).toFixed(2)+' para R$ '+(novo/100).toFixed(2), tok, name:d.name}; }
+  return null;
+}
+async function execAcao(id){
+  const info=acaoBody(id);
+  if(!info){ alert('Sem ação executável (campanha ABO com orçamento no conjunto, ou dado insuficiente).'); return; }
+  if(!info.tok){ alert('Token da conta não encontrado.'); return; }
+  if(!confirm('Confirmar: '+info.resumo+'?\n\n'+info.name)) return;
+  try{ await apiPost(id, info.body, info.tok); S._exec=S._exec||{}; S._exec[id]=info.act.a; render(); }
+  catch(e){ alert('Erro ao executar: '+e.message); }
+}
+async function execLote(tipo){
+  const B=parseFloat(S.roasAlvo)||1; const A=analyze(); const cpaAlvo=A.cpaAlvo||80;
+  const ids=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name)&&c.s5>0)
+    .filter(c=>acaoSugerida(c,B,cpaAlvo).a===tipo && !(S._exec&&S._exec[c.id])).map(c=>c.id);
+  if(!ids.length){ alert('Nada para executar.'); return; }
+  const rot=tipo==='ESCALAR'?'ESCALAR +30%':tipo==='REDUZIR'?'REDUZIR −30%':'DESATIVAR';
+  if(!confirm('Confirmar '+rot+' em '+ids.length+' campanha(s)? Isso aplica direto na conta.')) return;
+  let ok=0, fail=0; const erros=[];
+  for(const id of ids){
+    const info=acaoBody(id); if(!info){ fail++; continue; }
+    try{ await apiPost(id, info.body, info.tok); S._exec=S._exec||{}; S._exec[id]=info.act.a; ok++; }
+    catch(e){ fail++; erros.push(id+': '+e.message); }
+  }
+  alert('Lote '+rot+': '+ok+' aplicada(s), '+fail+' falha(s).'+(erros.length?'\n\n'+erros.slice(0,6).join('\n'):''));
+  render();
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
