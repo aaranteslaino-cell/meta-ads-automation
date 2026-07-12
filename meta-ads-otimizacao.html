@@ -110,6 +110,8 @@ if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
 if(S.cpaAlvo == null) S.cpaAlvo = '';       // vazio = usa CPA médio da carteira
 if(S.roasAlvo == null || S.roasAlvo === '') S.roasAlvo = 1.0;
 if(S.minSpend == null) S.minSpend = '';     // vazio = default por período
+// Custo alvo por métrica (referência nov/2025–jan/2026, métricas de pixel do Meta). Editáveis e persistidos.
+S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22}, S.alvos||{});
 S._rev = null;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
@@ -139,6 +141,16 @@ const fmtPct = v => (parseFloat(v)||0).toFixed(2)+'%';
 const fmtRoas = r => (r==null) ? '—' : (parseFloat(r)||0).toFixed(2)+'x';
 const roasColor = r => (r==null) ? '#888' : (r>=1.5?'#137333':r>=1?'#2e7d32':r>=0.7?'#b08900':'#d32f2f');
 function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
+// Métricas de eficiência acima (ou CTR abaixo) do custo alvo
+function alvoBreaches(r){
+  const a=S.alvos, out=[];
+  if((r.cpm||0)>a.cpm) out.push('CPM '+fmtMoney0(r.cpm));
+  if((r.cpc||0)>a.cpc) out.push('CPC '+fmtMoney(r.cpc));
+  if((r.impressions||0)>0 && (r.ctr||0)<a.ctr) out.push('CTR '+fmtPct(r.ctr));
+  if((r.cost_per_landing_page_view||0)>a.cpl) out.push('c/PV '+fmtMoney(r.cost_per_landing_page_view));
+  if((r.cost_per_initiate_checkout||0)>a.cic) out.push('c/checkout '+fmtMoney(r.cost_per_initiate_checkout));
+  return out;
+}
 
 // ── API ─────────────────────────────────────────────────────────────────────
 async function api(path, params={}, token=null){
@@ -367,7 +379,9 @@ function analyze(){
       v='ruim'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — bem abaixo da média';
     } else { v='observar'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — perto da média'; }
     r._verdict=v; r._reason=reason;
+    r._breaches=alvoBreaches(r);
   });
+  const foraAlvo=rows.filter(r=>r._breaches.length).length;
 
   const good=rows.filter(r=>r._verdict==='bom').sort((a,b)=>(b._roas||0)-(a._roas||0));
   const bad =rows.filter(r=>r._verdict==='ruim').sort((a,b)=>(b.spend||0)-(a.spend||0));
@@ -408,7 +422,7 @@ function analyze(){
   cmp(byOferta,'oferta/criativo');
   if(frag.length){ const g=frag[0]; actions.push(`<b>Desfragmentar:</b> há grupos com muitas campanhas quase idênticas competindo entre si (ex: "${esc(g.key)}" com ${g.n} campanhas, ${fmtMoney0(g.spend)}). CBO rende mais com menos campanhas e mais orçamento por campanha.`); }
 
-  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, frag, actions, off};
+  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, frag, actions, off, foraAlvo};
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -455,7 +469,7 @@ function renderControls(A){
 
 function renderDashboard(A){
   if(!A.rows.length) return `<div class="card"><div class="empty">Nenhuma campanha ativa com gasto para "${esc(S.nameContains)}" no período.</div></div>`;
-  return renderKPIs(A)+renderGoodBad(A)+renderActions(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderActions(A)+renderDimensions(A)+renderTable(A);
 }
 
 function renderKPIs(A){
@@ -474,6 +488,38 @@ function renderKPIs(A){
     <div class="mini" style="margin-top:10px">+ Outras fontes sem UTM meta no período: ${fmtNum(A.off.front)} front · ${fmtMoney0(A.off.receita)}. <b>Total geral</b>: ${fmtNum(geralFront)} front · ${fmtMoney0(geralRec)}.</div>
   </div>`;
 }
+
+function renderAlvos(A){
+  const T=A.T;
+  const cur={cpm:T.imp?T.spend/T.imp*1000:0, cpc:T.clicks?T.spend/T.clicks:0, ctr:T.imp?T.clicks/T.imp*100:0, cpl:T.lpv?T.spend/T.lpv:0, cic:T.ic?T.spend/T.ic:0};
+  const defs=[
+    {k:'cpm', l:'CPM', dir:'low', money:true},
+    {k:'cpc', l:'CPC', dir:'low', money:true},
+    {k:'ctr', l:'CTR', dir:'high', pct:true},
+    {k:'cpl', l:'Custo por page view', dir:'low', money:true},
+    {k:'cic', l:'Custo por checkout iniciado', dir:'low', money:true}
+  ];
+  const fmtv=(d,v)=> d.pct?fmtPct(v):(d.money?fmtMoney(v):v);
+  return `<div class="card"><h2>🎯 Custo alvo por métrica <span class="mini">referência nov/2025–jan/2026 (pixel Meta) · alvos editáveis, ficam salvos</span></h2>
+    <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Métrica</th><th class="num">Alvo</th><th class="num">Atual (${A.days}d)</th><th class="num">Δ vs alvo</th><th>Situação</th></tr></thead><tbody>
+    ${defs.map(d=>{
+      const alvo=S.alvos[d.k], v=cur[d.k];
+      const bad = d.dir==='low' ? (v>alvo) : (v<alvo);
+      const delta = alvo>0 ? (v/alvo-1)*100 : 0;
+      const sign=delta>=0?'+':'';
+      return `<tr>
+        <td>${d.l} <span class="mini">(${d.dir==='low'?'≤ melhor':'≥ melhor'})</span></td>
+        <td class="num"><input style="width:88px;text-align:right;padding:4px 8px" value="${esc(alvo)}" onchange="setAlvo('${d.k}',this.value)"></td>
+        <td class="num" style="font-weight:800">${fmtv(d,v)}</td>
+        <td class="num" style="color:${bad?'#c5221f':'#137333'};font-weight:700">${sign}${delta.toFixed(0)}%</td>
+        <td>${bad?'<span class="badge b-ruim">fora do alvo</span>':'<span class="badge b-bom">dentro</span>'}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:8px">🚩 <b>${A.foraAlvo}</b> de ${A.rows.length} campanhas ativas estão acima de pelo menos um custo alvo (coluna "Fora do alvo" na tabela). CPA e ROAS não entram aqui de propósito: o alvo deles vem do pixel do Meta, que hoje subnotifica. Estas 5 métricas de eficiência são maçã com maçã.</div>
+  </div>`;
+}
+function setAlvo(k,v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)) S.alvos[k]=n; saveState(); render(); }
 
 function itemCard(r){
   return `<div class="item ${r._verdict}">
@@ -546,10 +592,11 @@ function renderTable(A){
   const badge=v=>`<span class="badge b-${v}">${v==='bom'?'escalar':v==='ruim'?'cortar':v==='observar'?'observar':'novo'}</span>`;
   return `<div class="card"><h2>Todas as campanhas ativas <span class="mini">(${rows.length}, ordenado por gasto)</span></h2>
     <div class="tbl-wrap"><table><thead><tr>
-      <th>Veredito</th><th>Campanha</th><th class="num">Gasto</th><th class="num">CTR</th><th class="num">Custo fin.</th><th class="num">Front</th><th class="num">Tot</th><th class="num">CPA</th><th class="num">Receita</th><th class="num">ROAS</th>
+      <th>Veredito</th><th>Fora do alvo</th><th>Campanha</th><th class="num">Gasto</th><th class="num">CTR</th><th class="num">Custo fin.</th><th class="num">Front</th><th class="num">Tot</th><th class="num">CPA</th><th class="num">Receita</th><th class="num">ROAS</th>
     </tr></thead><tbody>
     ${rows.map(r=>`<tr>
       <td>${badge(r._verdict)}</td>
+      <td>${(r._breaches&&r._breaches.length)?`<span class="badge b-ruim" title="${esc(r._breaches.join(' · '))}">🚩 ${r._breaches.length}</span>`:'<span class="mini">ok</span>'}</td>
       <td>${esc(shortName(r.name))}<div class="mini" style="font-family:monospace">${esc(String(r.id))}</div></td>
       <td class="num">${fmtMoney0(r.spend)}</td>
       <td class="num">${fmtPct(r.ctr)}</td>
