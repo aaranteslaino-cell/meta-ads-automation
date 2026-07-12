@@ -95,6 +95,14 @@ const GQL = 'https://graph.facebook.com/v21.0';
 const SB_URL_DEFAULT = 'https://mnrnnmfaupvmjfgpzkou.supabase.co';
 const SB_KEY_DEFAULT = 'sb_publishable_KraV-pqYINerxc0nCgdHaA_xHj7ew87';
 
+// Funis do negócio — o match no nome da campanha ignora acento (TOMÉ = TOME)
+const FUNNELS = [
+  {key:'NATH',   label:'Nathalia', match:'NATH',   emoji:'👩'},
+  {key:'TOME',   label:'Tomé',     match:'TOME',   emoji:'👨'},
+  {key:'COELHO', label:'Coelho',   match:'COELHO', emoji:'🐰'},
+  {key:'ALL',    label:'Todos',    match:'',       emoji:'🌐'}
+];
+
 // ── Estado ──────────────────────────────────────────────────────────────────
 let S = loadState() || {};
 S.tokens = Array.isArray(S.tokens) ? S.tokens : [];
@@ -104,7 +112,13 @@ S.data = [];
 S.refreshing = false;
 S.lastRefresh = null;
 if(!S.period) S.period = 'last_7d';
-if(typeof S.nameContains !== 'string') S.nameContains = 'NATH';
+if(typeof S.nameContains !== 'string') S.nameContains = '';
+// Funil selecionado (seletor no topo). Migra o filtro antigo (nameContains='NATH') para funil.
+if(!S.funnel){
+  const nc0=(S.nameContains||'').trim().toUpperCase().replace('É','E');
+  S.funnel = (nc0==='TOME')?'TOME' : (nc0==='COELHO')?'COELHO' : 'NATH';
+  if(['NATH','TOME','COELHO'].includes(nc0)) S.nameContains='';
+}
 if(typeof S.sbUrl !== 'string' || !S.sbUrl) S.sbUrl = SB_URL_DEFAULT;
 if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
 if(S.cpaAlvo == null) S.cpaAlvo = '';       // vazio = usa CPA médio da carteira
@@ -143,6 +157,17 @@ const fmtPct = v => (parseFloat(v)||0).toFixed(2)+'%';
 const fmtRoas = r => (r==null) ? '—' : (parseFloat(r)||0).toFixed(2)+'x';
 const roasColor = r => (r==null) ? '#888' : (r>=1.5?'#137333':r>=1?'#2e7d32':r>=0.7?'#b08900':'#d32f2f');
 function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
+// Funil: normaliza (sem acento, minúsculo) e casa nome da campanha com o funil + refino opcional
+function norm(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
+function currentFunnel(){ return FUNNELS.find(f=>f.key===S.funnel) || FUNNELS[0]; }
+function matchFunnel(name){
+  const f=currentFunnel(), n=norm(name);
+  if(f.match && !n.includes(norm(f.match))) return false;
+  const refine=norm(S.nameContains).trim();
+  if(refine && !n.includes(refine)) return false;
+  return true;
+}
+function setFunnel(k){ S.funnel=k; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
   const a=S.alvos, out=[];
@@ -346,13 +371,12 @@ function shortName(n){
 // ── Motor de análise ────────────────────────────────────────────────────────
 function analyze(){
   const days=periodDays(S.period);
-  const nc=(S.nameContains||'').trim().toLowerCase();
-  // universo: BRL, ativa, com gasto, batendo o filtro de nome
+  // universo: BRL, ativa, com gasto, batendo o funil selecionado (+ refino opcional)
   let rows=(S.data||[]).filter(r=>{
     if((r._currency||'BRL')!=='BRL') return false;
     if((r.effective_status||'')!=='ACTIVE') return false;
     if((r.spend||0)<=0) return false;
-    if(nc && !String(r.name||'').toLowerCase().includes(nc)) return false;
+    if(!matchFunnel(r.name)) return false;
     return true;
   });
   // totais
@@ -456,12 +480,16 @@ function renderControls(A){
       </div>
     </div>
     <hr>
+    <div class="row" style="margin-bottom:12px;padding:8px 10px;background:#faf9ff;border-radius:10px">
+      <label style="margin:0 8px 0 0;color:#7b2ff7">Funil:</label>
+      ${FUNNELS.map(f=>`<button class="chip ${S.funnel===f.key?'active':''}" onclick="setFunnel('${f.key}')">${f.emoji} ${f.label}</button>`).join('')}
+    </div>
     <div class="row" style="margin-bottom:12px">
       <label style="margin:0 6px 0 0">Período:</label>
       ${PERIODS.map(([k,l])=>`<button class="chip ${S.period===k?'active':''}" onclick="setPeriod('${k}')">${l}</button>`).join('')}
     </div>
     <div class="row" style="gap:16px;align-items:flex-end">
-      <div><label>Filtro de nome</label><input style="width:180px" value="${esc(S.nameContains)}" onchange="setCfg('nameContains',this.value)" placeholder="ex: NATH"></div>
+      <div><label>Refinar (opcional)</label><input style="width:160px" value="${esc(S.nameContains)}" onchange="setCfg('nameContains',this.value)" placeholder="ex: CBO, 07.07"></div>
       <div><label>CPA alvo (front)</label><input style="width:130px" value="${esc(S.cpaAlvo)}" onchange="setCfg('cpaAlvo',this.value)" placeholder="média: ${fmtMoney0(A.blendedCPA)}"></div>
       <div><label>ROAS alvo</label><input style="width:90px" value="${esc(S.roasAlvo)}" onchange="setCfg('roasAlvo',this.value)"></div>
       <div><label>Gasto mín. p/ julgar</label><input style="width:120px" value="${esc(S.minSpend)}" onchange="setCfg('minSpend',this.value)" placeholder="auto: ${fmtMoney0(A.minSpend)}"></div>
@@ -471,7 +499,13 @@ function renderControls(A){
 }
 
 function renderDashboard(A){
-  if(!A.rows.length) return `<div class="card"><div class="empty">Nenhuma campanha ativa com gasto para "${esc(S.nameContains)}" no período.</div></div>`;
+  if(!A.rows.length){
+    const f=currentFunnel();
+    const msg = f.key==='COELHO'
+      ? `🐰 O funil <b>Coelho</b> ainda não tem campanhas ativas. Assim que você subir campanhas com <b>"COELHO"</b> no nome, elas aparecem aqui automaticamente.`
+      : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
+    return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
+  }
   return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderActions(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
 }
 
@@ -479,7 +513,7 @@ function renderKPIs(A){
   const T=A.T; const roas=T.spend>0?T.receita/T.spend:null;
   const geralFront=T.front+A.off.front, geralRec=T.receita+A.off.receita;
   return `<div class="card">
-    <h2>Panorama · ${A.rows.length} campanhas ativas · ${A.days}d</h2>
+    <h2>Panorama · ${currentFunnel().emoji} Funil ${esc(currentFunnel().label)} · ${A.rows.length} campanhas ativas · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
       <div class="kpi"><div class="k-l">Receita atribuída</div><div class="k-v">${fmtMoney0(T.receita)}</div><div class="k-s">ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
@@ -699,8 +733,7 @@ function renderComparativoCard(A){
   if(!S._comp) return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D</h2>
     <p class="sub" style="margin-bottom:10px">Gasto, faturamento e lucro de cada campanha em janelas móveis (hoje, 2, 3 e 5 dias) para comparar tendência e decidir. Puxa 5 dias diários do Meta + receita por janela do Supabase.</p>
     <button class="btn btn-purple" onclick="fetchComparativo()">Carregar comparativo</button></div>`;
-  const nc=(S.nameContains||'').trim().toLowerCase();
-  let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>(!nc||String(c.name).toLowerCase().includes(nc)) && c.s5>0).sort((a,b)=>b.s5-a.s5);
+  let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name) && c.s5>0).sort((a,b)=>b.s5-a.s5);
   const cell=(g,r)=>{ const l=r-g, col=l>0?'#137333':l<0?'#c5221f':'#888', bg=l>0?'#eafaef':l<0?'#fdeeee':'transparent';
     return `<td class="num">${fmtMoney0(g)}</td><td class="num">${fmtMoney0(r)}</td><td class="num" style="color:${col};background:${bg};font-weight:700">${fmtMoney0(l)}</td>`; };
   return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D
