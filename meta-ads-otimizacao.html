@@ -572,7 +572,7 @@ function itemCard(r){
   return `<div class="item ${r._verdict}">
     <div class="i-top"><div class="i-name">${esc(r.name)}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
     <div class="i-reason">${esc(r._reason)}</div>
-    <div class="i-sub">${fmtMoney0(r.spend)} gasto · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
+    <div class="i-sub">${fmtMoney0(r.spend)} gasto · <b>${fmtMoney0(r._receita)} receita</b> · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · TKM ${r._ticket!=null?fmtMoney0(r._ticket):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
   </div>`;
 }
 function renderGoodBad(A){
