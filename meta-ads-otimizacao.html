@@ -572,7 +572,6 @@ function setAlvo(k,v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN
 function itemCard(r){
   return `<div class="item ${r._verdict}">
     <div class="i-top"><div class="i-name">${esc(r.name)}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
-    <div class="mini" style="margin-top:2px">${esc(shortName(r.name))}</div>
     <div class="i-reason">${esc(r._reason)}</div>
     <div class="i-sub">${fmtMoney0(r.spend)} gasto · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
   </div>`;
@@ -672,7 +671,7 @@ function renderTable(A){
     ${rows.map(r=>`<tr>
       <td>${badge(r._verdict)}</td>
       <td>${(r._breaches&&r._breaches.length)?`<span class="badge b-ruim" title="${esc(r._breaches.join(' · '))}">🚩 ${r._breaches.length}</span>`:'<span class="mini">ok</span>'}</td>
-      <td>${esc(r.name)}<div class="mini" style="font-family:monospace">${esc(shortName(r.name))} · ${esc(String(r.id))}</div></td>
+      <td>${esc(r.name)}<div class="mini" style="font-family:monospace">${esc(String(r.id))}</div></td>
       <td class="num">${fmtMoney0(r.spend)}</td>
       <td class="num">${fmtPct(r.ctr)}</td>
       <td class="num">${r.cost_per_initiate_checkout?fmtMoney0(r.cost_per_initiate_checkout):'—'}</td>
