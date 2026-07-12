@@ -391,19 +391,15 @@ function analyze(){
   const defMin = ({1:60,3:150,7:250,14:450,30:800})[days] || 250;
   const minSpend = (parseFloat(S.minSpend)>=0 && S.minSpend!=='') ? parseFloat(S.minSpend) : defMin;
 
-  // classifica
+  // classifica — critério baseado SÓ no ROAS vs ROAS alvo (breakeven)
   rows.forEach(r=>{
-    const spend=r.spend||0, front=r._vendasFront||0, roas=r._roas, cpa=r._cpa;
+    const spend=r.spend||0, roas=r._roas;
     let v,reason;
     if(spend<minSpend){ v='novo'; reason='gasto abaixo do mínimo para julgar ('+fmtMoney0(spend)+')'; }
-    else if(front===0){
-      if(spend>=cpaAlvo){ v='ruim'; reason=fmtMoney0(spend)+' gastos sem NENHUMA venda front'; }
-      else { v='observar'; reason='ainda sem venda, gasto ainda baixo'; }
-    } else if(cpa<=cpaAlvo*0.8 || (roas!=null && roas>=roasAlvo*1.4)){
-      v='bom'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — bem acima da média';
-    } else if(cpa>=cpaAlvo*1.3 || (roas!=null && roas<roasAlvo*0.55)){
-      v='ruim'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — bem abaixo da média';
-    } else { v='observar'; reason='CPA '+fmtMoney0(cpa)+' e ROAS '+fmtRoas(roas)+' — perto da média'; }
+    else if(roas==null){ v='novo'; reason='sem dado de receita'; }
+    else if(roas>=roasAlvo){ v='bom'; reason='ROAS '+fmtRoas(roas)+' ≥ alvo '+fmtRoas(roasAlvo)+' — no lucro'; }
+    else if(roas>=roasAlvo*0.85){ v='observar'; reason='ROAS '+fmtRoas(roas)+' — no limite do breakeven (alvo '+fmtRoas(roasAlvo)+')'; }
+    else { v='ruim'; reason='ROAS '+fmtRoas(roas)+' < alvo '+fmtRoas(roasAlvo)+' — no prejuízo'; }
     r._verdict=v; r._reason=reason;
     r._breaches=alvoBreaches(r);
   });
@@ -436,12 +432,12 @@ function analyze(){
   if(good.length){ actions.push(`<b>Escalar as ${good.length} melhores</b> (subir orçamento 20% a 30% aos poucos): ${good.slice(0,4).map(r=>esc(shortName(r.name))).join('; ')}.`); }
   // comparação de dimensões: aponta vencedor claro por CPA
   const cmp=(arr,rot)=>{
-    const val=arr.filter(a=>a.cpa!=null && a.front>=3);
+    const val=arr.filter(a=>a.roas!=null && a.front>=3);
     if(val.length<2) return;
-    val.sort((a,b)=>a.cpa-b.cpa);
+    val.sort((a,b)=>b.roas-a.roas);
     const best=val[0], worst=val[val.length-1];
-    if(worst.cpa >= best.cpa*1.4){
-      actions.push(`Em <b>${rot}</b>: <span class="winner">${esc(best.key)}</span> (CPA ${fmtMoney0(best.cpa)}, ROAS ${fmtRoas(best.roas)}) rende muito melhor que <span class="loser">${esc(worst.key)}</span> (CPA ${fmtMoney0(worst.cpa)}, ROAS ${fmtRoas(worst.roas)}). Migrar verba para ${esc(best.key)}.`);
+    if(best.roas >= worst.roas*1.5 && worst.roas < roasAlvo){
+      actions.push(`Em <b>${rot}</b>: <span class="winner">${esc(best.key)}</span> (ROAS ${fmtRoas(best.roas)}) dá muito mais lucro que <span class="loser">${esc(worst.key)}</span> (ROAS ${fmtRoas(worst.roas)}). Migrar verba para ${esc(best.key)}.`);
     }
   };
   cmp(byConta,'conta');
