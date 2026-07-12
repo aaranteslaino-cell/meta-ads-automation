@@ -393,12 +393,13 @@ function analyze(){
   // agregações
   const aggBy=(keyFn)=>{
     const m={};
-    rows.forEach(r=>{ const k=keyFn(r); if(k==null) return; if(!m[k]) m[k]={key:k,spend:0,receita:0,front:0,total:0,imp:0,clicks:0,n:0}; const a=m[k]; a.spend+=r.spend||0; a.receita+=r._receita||0; a.front+=r._vendasFront||0; a.total+=r._vendasTotal||0; a.imp+=r.impressions||0; a.clicks+=r.clicks||0; a.n++; });
-    return Object.values(m).map(a=>({...a, roas:a.spend>0?a.receita/a.spend:null, cpa:a.front>0?a.spend/a.front:null, ctr:a.imp>0?a.clicks/a.imp*100:0})).sort((x,y)=>y.spend-x.spend);
+    rows.forEach(r=>{ const k=keyFn(r); if(k==null) return; if(!m[k]) m[k]={key:k,spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,n:0}; const a=m[k]; a.spend+=r.spend||0; a.receita+=r._receita||0; a.front+=r._vendasFront||0; a.total+=r._vendasTotal||0; a.imp+=r.impressions||0; a.clicks+=r.clicks||0; a.ic+=r.initiate_checkout||0; a.n++; });
+    return Object.values(m).map(a=>({...a, roas:a.spend>0?a.receita/a.spend:null, cpa:a.front>0?a.spend/a.front:null, ctr:a.imp>0?a.clicks/a.imp*100:0, cpm:a.imp>0?a.spend/a.imp*1000:0, cpc:a.clicks>0?a.spend/a.clicks:0, cic:a.ic>0?a.spend/a.ic:0, ticket:a.front>0?a.receita/a.front:0})).sort((x,y)=>y.spend-x.spend);
   };
   const byConta=aggBy(tagCA);
   const byLance=aggBy(tagLance);
   const byOferta=aggBy(tagOferta);
+  const byAccount=aggBy(r=>r._accountName||'(sem conta)');
 
   // fragmentação: grupos (conta+lance+oferta+estrutura) com >2 campanhas
   const fragMap={};
@@ -424,7 +425,7 @@ function analyze(){
   cmp(byOferta,'oferta/criativo');
   if(frag.length){ const g=frag[0]; actions.push(`<b>Desfragmentar:</b> há grupos com muitas campanhas quase idênticas competindo entre si (ex: "${esc(g.key)}" com ${g.n} campanhas, ${fmtMoney0(g.spend)}). CBO rende mais com menos campanhas e mais orçamento por campanha.`); }
 
-  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, frag, actions, off, foraAlvo};
+  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, foraAlvo};
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -465,13 +466,13 @@ function renderControls(A){
       <div><label>ROAS alvo</label><input style="width:90px" value="${esc(S.roasAlvo)}" onchange="setCfg('roasAlvo',this.value)"></div>
       <div><label>Gasto mín. p/ julgar</label><input style="width:120px" value="${esc(S.minSpend)}" onchange="setCfg('minSpend',this.value)" placeholder="auto: ${fmtMoney0(A.minSpend)}"></div>
     </div>
-    <div class="warn-box" style="margin-top:12px">⚠️ O ROAS é <b>parcial</b>: conta só front + order bump que carregam a UTM da campanha. Upsell (mentoria, Loja Pronta) entra sem UTM e não aparece aqui, então o retorno real é maior. Use <b>CPA front</b> e o <b>ROAS relativo entre campanhas</b> para decidir, não o valor absoluto.</div>
+    <div class="info-box" style="margin-top:12px">💰 O faturamento cruza a receita real do Supabase pela UTM e <b>inclui front, order bump, upsell e downsell</b> (≈97% dos upsells vêm com a UTM da campanha). O que vem sem UTM do meta (direct/orgânico) aparece em <b>Outras fontes</b>. Continua sendo atribuição por UTM, então cruze também com o <b>ROAS relativo entre campanhas</b>.</div>
   </div>`;
 }
 
 function renderDashboard(A){
   if(!A.rows.length) return `<div class="card"><div class="empty">Nenhuma campanha ativa com gasto para "${esc(S.nameContains)}" no período.</div></div>`;
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderActions(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderActions(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
 }
 
 function renderKPIs(A){
@@ -521,7 +522,7 @@ function renderAlvos(A){
       ${alvoRow('Custo por page view','','low', S.alvos.cpl, eff.cpl,'money',"setAlvo('cpl',this.value)")}
       ${alvoRow('Custo por checkout iniciado','','low', S.alvos.cic, eff.cic,'money',"setAlvo('cic',this.value)")}
     </tbody></table></div>
-    <h3 style="margin:2px 0 8px">Conversão e receita <span class="mini" style="text-transform:none">base Supabase · receita real (front + order bump, sem upsell) · ajuste ao seu breakeven</span></h3>
+    <h3 style="margin:2px 0 8px">Conversão e receita <span class="mini" style="text-transform:none">base Supabase · receita real (front + order bump + upsell + downsell, por UTM) · ajuste ao seu breakeven</span></h3>
     <div class="tbl-wrap" style="max-height:none"><table><thead>${head}</thead><tbody>
       ${alvoRow('CPA (por comprador front)','padrão = média da carteira','low', cpaShown, cpaAtual,'money',"setCfg('cpaAlvo',this.value)")}
       ${alvoRow('Ticket médio (front)','','high', S.alvos.tkm, tkm,'money',"setAlvo('tkm',this.value)")}
@@ -529,7 +530,7 @@ function renderAlvos(A){
       ${alvoRow('Custo por venda total','','low', S.alvos.cvt, cvt,'money',"setAlvo('cvt',this.value)")}
       ${alvoRow('Produtos por comprador','bump attach','high', S.alvos.ppc, ppc,'num',"setAlvo('ppc',this.value)")}
     </tbody></table></div>
-    <div class="mini" style="margin-top:8px">🚩 <b>${A.foraAlvo}</b> de ${A.rows.length} campanhas acima de pelo menos um alvo de <b>eficiência</b> (coluna "Fora do alvo" na tabela). O bloco de eficiência é comparável ao histórico do Meta. O de conversão usa a receita real do Supabase (sem upsell), então o ROAS e o ticket reais são maiores do que aparecem.</div>
+    <div class="mini" style="margin-top:8px">🚩 <b>${A.foraAlvo}</b> de ${A.rows.length} campanhas acima de pelo menos um alvo de <b>eficiência</b> (coluna "Fora do alvo" na tabela). O bloco de eficiência é comparável ao histórico do Meta. O de conversão usa a receita real do Supabase (front + bump + upsell + downsell por UTM); só vendas sem UTM do meta ficam de fora (aparecem em Outras fontes).</div>
   </div>`;
 }
 function setAlvo(k,v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)) S.alvos[k]=n; saveState(); render(); }
@@ -555,6 +556,32 @@ function renderGoodBad(A){
   </div>`;
 }
 
+function renderContas(A){
+  const arr=A.byAccount||[];
+  if(!arr.length) return '';
+  const rel=arr.filter(a=>a.roas!=null && a.front>=3).sort((x,y)=>y.roas-x.roas);
+  const best=rel[0]?.key, worst=rel.length>1?rel[rel.length-1].key:null;
+  return `<div class="card"><h2>🏦 Comparativo entre contas <span class="mini">agregado pela conta de anúncio real · ordenado por gasto</span></h2>
+    <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
+      <th>Conta</th><th class="num">Camp.</th><th class="num">Gasto</th><th class="num">CTR</th><th class="num">CPM</th><th class="num">Custo/checkout</th><th class="num">CPA front</th><th class="num">Ticket</th><th class="num">Receita</th><th class="num">ROAS</th><th>Veredito</th>
+    </tr></thead><tbody>
+    ${arr.map(a=>`<tr>
+      <td>${esc(a.key)}</td>
+      <td class="num">${a.n}</td>
+      <td class="num">${fmtMoney0(a.spend)}</td>
+      <td class="num">${fmtPct(a.ctr)}</td>
+      <td class="num">${fmtMoney0(a.cpm)}</td>
+      <td class="num">${a.cic?fmtMoney0(a.cic):'—'}</td>
+      <td class="num">${a.cpa!=null?fmtMoney0(a.cpa):'—'}</td>
+      <td class="num">${a.front?fmtMoney0(a.ticket):'—'}</td>
+      <td class="num">${fmtMoney0(a.receita)}</td>
+      <td class="num" style="color:${roasColor(a.roas)};font-weight:700">${fmtRoas(a.roas)}</td>
+      <td>${a.key===best?'<span class="badge b-bom">melhor</span>':a.key===worst?'<span class="badge b-ruim">pior</span>':'<span class="badge b-observar">média</span>'}</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:8px">Melhor/pior por ROAS entre contas com ≥3 vendas front. Faturamento inclui front + order bump + upsell + downsell (atribuídos pela UTM). Use para decidir onde concentrar ou tirar verba.</div>
+  </div>`;
+}
 function renderActions(A){
   if(!A.actions.length) return '';
   return `<div class="card"><h2>💡 Ações recomendadas</h2>${A.actions.map(a=>`<div class="act">${a}</div>`).join('')}
@@ -684,7 +711,7 @@ function renderComparativoCard(A){
     </thead><tbody>
     ${rows.map(c=>`<tr><td style="max-width:340px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td>${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`).join('')}
     </tbody></table></div>
-    <div class="mini" style="margin-top:8px">Janelas móveis incluindo hoje (2D = ontem + hoje, etc). Lucro = faturamento − gasto. ⚠️ Faturamento é a receita atribuída via UTM (front + order bump); upsell/mentoria não entram, então o lucro real é maior. Serve para comparar a tendência entre janelas.</div>
+    <div class="mini" style="margin-top:8px">Janelas móveis incluindo hoje (2D = ontem + hoje, etc). Lucro = faturamento − gasto. Faturamento é a receita real atribuída pela UTM e inclui front + order bump + upsell + downsell. Vendas sem UTM do meta não entram aqui (aparecem em Outras fontes). Serve para comparar a tendência entre janelas.</div>
   </div>`;
 }
 
