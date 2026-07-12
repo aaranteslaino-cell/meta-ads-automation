@@ -726,23 +726,46 @@ async function fetchComparativo(){
   }catch(e){ alert('Erro no comparativo: '+e.message); }
   S._compLoading=false; render();
 }
+// Critério de corte/escala baseado no ROAS em janelas móveis (cascata hoje → 3D → 5D)
+function acaoSugerida(c, B, cpaAlvo){
+  const roas=(s,r)=> s>0 ? r/s : null;
+  const r1=roas(c.s1,c.r1), r3=roas(c.s3,c.r3), r5=roas(c.s5,c.r5);
+  const isCBO=/\bcbo\b/i.test(c.name);
+  // corte rápido: sem nenhuma venda e já queimou 1,5x o CPA alvo (janela 5D)
+  if((c.r5||0)<=0 && c.s5 >= 1.5*cpaAlvo) return {a:'CORTAR', cls:'ruim', why:'gastou '+fmtMoney0(c.s5)+' em 5D sem nenhuma venda'};
+  // gasto baixo para decidir
+  if(c.s3 < cpaAlvo*0.6 && c.s5 < cpaAlvo) return {a:'—', cls:'novo', why:'gasto baixo para decidir'};
+  // escala: ROAS se mantém no lucro hoje E no 3D
+  if(r1!=null && r3!=null && r1>=B && r3>=B) return {a:isCBO?'ESCALAR +30%':'ESCALAR (ABO)', cls:'bom', why:'ROAS ≥ '+fmtRoas(B)+' hoje ('+fmtRoas(r1)+') e 3D ('+fmtRoas(r3)+')'};
+  // cascata de corte: hoje está negativo
+  if(r1!=null && r1<B){
+    if(r3!=null && r3<B*0.7) return {a:'CORTAR', cls:'ruim', why:'3D confirma prejuízo ('+fmtRoas(r3)+' < '+fmtRoas(B*0.7)+')'};
+    if(r3!=null && r3>=B)    return {a:'MANTER', cls:'observar', why:'dia fraco; 3D no lucro ('+fmtRoas(r3)+')'};
+    // inconclusivo no 3D → desempata no 5D
+    if(r5!=null && r5<B*0.7) return {a:'CORTAR', cls:'ruim', why:'inconclusivo no 3D; 5D confirma prejuízo ('+fmtRoas(r5)+')'};
+    if(r5!=null && r5>=B)    return {a:'MANTER', cls:'observar', why:'inconclusivo no 3D; 5D no lucro ('+fmtRoas(r5)+')'};
+    return {a:'OBSERVAR', cls:'observar', why:'no limite, sem sinal claro em 3D/5D'};
+  }
+  return {a:'MANTER', cls:'observar', why:'ROAS perto do breakeven'};
+}
 function renderComparativoCard(A){
   if(S._compLoading) return `<div class="card"><div class="empty"><span class="loading"></span> Carregando comparativo 1D/2D/3D/5D…</div></div>`;
   if(!S._comp) return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D</h2>
     <p class="sub" style="margin-bottom:10px">Gasto, faturamento e lucro de cada campanha em janelas móveis (hoje, 2, 3 e 5 dias) para comparar tendência e decidir. Puxa 5 dias diários do Meta + receita por janela do Supabase.</p>
     <button class="btn btn-purple" onclick="fetchComparativo()">Carregar comparativo</button></div>`;
   let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name) && c.s5>0).sort((a,b)=>b.s5-a.s5);
+  const B=parseFloat(A.roasAlvo)||1, cpaAlvo=A.cpaAlvo||9999;
   const cell=(g,r)=>{ const l=r-g, col=l>0?'#137333':l<0?'#c5221f':'#888', bg=l>0?'#eafaef':l<0?'#fdeeee':'transparent';
     return `<td class="num">${fmtMoney0(g)}</td><td class="num">${fmtMoney0(r)}</td><td class="num" style="color:${col};background:${bg};font-weight:700">${fmtMoney0(l)}</td>`; };
   return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D
       <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="fetchComparativo()">↻ Atualizar</button></h2>
     <div class="tbl-wrap"><table><thead>
-      <tr><th rowspan="2">Campanha (${rows.length})</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">1D (hoje)</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">2D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">3D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">5D</th></tr>
+      <tr><th rowspan="2">Campanha (${rows.length})</th><th rowspan="2">Ação sugerida</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">1D (hoje)</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">2D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">3D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">5D</th></tr>
       <tr>${['1D','2D','3D','5D'].map(()=>'<th class="num" style="border-left:2px solid #e6e0f5">Gasto</th><th class="num">Fat</th><th class="num">Lucro</th>').join('')}</tr>
     </thead><tbody>
-    ${rows.map(c=>`<tr><td style="max-width:340px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td>${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`).join('')}
+    ${rows.map(c=>{ const act=acaoSugerida(c,B,cpaAlvo); return `<tr><td style="max-width:320px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td><td><span class="badge b-${act.cls}" title="${esc(act.why)}">${act.a}</span></td>${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`; }).join('')}
     </tbody></table></div>
-    <div class="mini" style="margin-top:8px">Janelas móveis incluindo hoje (2D = ontem + hoje, etc). Lucro = faturamento − gasto. Faturamento é a receita real atribuída pela UTM e inclui front + order bump + upsell + downsell. Vendas sem UTM do meta não entram aqui (aparecem em Outras fontes). Serve para comparar a tendência entre janelas.</div>
+    <div class="mini" style="margin-top:8px"><b>Critério (breakeven ROAS ${fmtRoas(B)}):</b> 🟢 ESCALAR = CBO com ROAS ≥ ${fmtRoas(B)} hoje e no 3D (subir +30% a cada 2h enquanto mantém). 🔴 CORTAR = sem venda tendo gasto 1,5× o CPA alvo, ou ROAS < ${fmtRoas(B*0.7)} confirmado no 3D (desempate no 5D). 🟡 MANTER/OBSERVAR = dia fraco mas 3D/5D no lucro, ou perto do breakeven. Passe o mouse na etiqueta para ver o porquê. Faturamento = receita real por UTM (front + bump + upsell + downsell).</div>
   </div>`;
 }
 
