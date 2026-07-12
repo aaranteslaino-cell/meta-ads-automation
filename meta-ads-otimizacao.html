@@ -113,6 +113,8 @@ if(S.minSpend == null) S.minSpend = '';     // vazio = default por período
 // Custo alvo por métrica (referência nov/2025–jan/2026, métricas de pixel do Meta). Editáveis e persistidos.
 S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22}, S.alvos||{});
 S._rev = null;
+S._comp = null;        // cache do comparativo 1D/2D/3D/5D
+S._compLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
 function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, refreshing:false})); }catch(e){} }
@@ -469,7 +471,7 @@ function renderControls(A){
 
 function renderDashboard(A){
   if(!A.rows.length) return `<div class="card"><div class="empty">Nenhuma campanha ativa com gasto para "${esc(S.nameContains)}" no período.</div></div>`;
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderActions(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderActions(A)+renderDimensions(A)+renderTable(A);
 }
 
 function renderKPIs(A){
@@ -523,7 +525,8 @@ function setAlvo(k,v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN
 
 function itemCard(r){
   return `<div class="item ${r._verdict}">
-    <div class="i-top"><div class="i-name">${esc(shortName(r.name))}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
+    <div class="i-top"><div class="i-name">${esc(r.name)}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
+    <div class="mini" style="margin-top:2px">${esc(shortName(r.name))}</div>
     <div class="i-reason">${esc(r._reason)}</div>
     <div class="i-sub">${fmtMoney0(r.spend)} gasto · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
   </div>`;
@@ -597,7 +600,7 @@ function renderTable(A){
     ${rows.map(r=>`<tr>
       <td>${badge(r._verdict)}</td>
       <td>${(r._breaches&&r._breaches.length)?`<span class="badge b-ruim" title="${esc(r._breaches.join(' · '))}">🚩 ${r._breaches.length}</span>`:'<span class="mini">ok</span>'}</td>
-      <td>${esc(shortName(r.name))}<div class="mini" style="font-family:monospace">${esc(String(r.id))}</div></td>
+      <td>${esc(r.name)}<div class="mini" style="font-family:monospace">${esc(shortName(r.name))} · ${esc(String(r.id))}</div></td>
       <td class="num">${fmtMoney0(r.spend)}</td>
       <td class="num">${fmtPct(r.ctr)}</td>
       <td class="num">${r.cost_per_initiate_checkout?fmtMoney0(r.cost_per_initiate_checkout):'—'}</td>
@@ -608,6 +611,69 @@ function renderTable(A){
       <td class="num" style="color:${roasColor(r._roas)};font-weight:700">${fmtRoas(r._roas)}</td>
     </tr>`).join('')}
     </tbody></table></div>
+  </div>`;
+}
+
+// ── Comparativo temporal 1D / 2D / 3D / 5D ──────────────────────────────────
+async function fetchComparativo(){
+  S._compLoading=true; render();
+  try{
+    const today=brToday();
+    const daysAgo = d => Math.round((new Date(today+'T00:00:00Z') - new Date(d+'T00:00:00Z'))/864e5);
+    const accs=(S.accounts||[]).filter(a=>a.currency==='BRL');
+    const since=addDaysStr(today,-4), until=today;
+    const camp={};
+    // gasto diário (últimos 5 dias) por campanha
+    for(const a of accs){
+      const tok=getTokenById(a._tokenId); if(!tok) continue;
+      let url=`${GQL}/${a.id}/insights?level=campaign&limit=500&time_increment=1&time_range=${encodeURIComponent(JSON.stringify({since,until}))}&fields=campaign_id,campaign_name,spend&access_token=${encodeURIComponent(tok)}`;
+      let pages=0;
+      try{
+        while(url && pages<15){
+          pages++;
+          const j=await (await fetch(url)).json();
+          if(j.error) break;
+          for(const r of (j.data||[])){
+            const id=r.campaign_id; if(!id) continue;
+            const dA=daysAgo(r.date_start); if(dA<0||dA>4) continue;
+            if(!camp[id]) camp[id]={name:r.campaign_name||id, s1:0,s2:0,s3:0,s5:0, r1:0,r2:0,r3:0,r5:0};
+            const sp=parseFloat(r.spend)||0, c=camp[id];
+            if(dA<1)c.s1+=sp; if(dA<2)c.s2+=sp; if(dA<3)c.s3+=sp; if(dA<5)c.s5+=sp;
+          }
+          url=(j.paging&&j.paging.next)?j.paging.next:null;
+        }
+      }catch(e){}
+    }
+    // faturamento (Supabase) por janela móvel — 4 chamadas
+    const at=s=>`${s}T00:00:00-03:00`;
+    for(const [n,key] of [[1,'r1'],[2,'r2'],[3,'r3'],[5,'r5']]){
+      try{
+        const res=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_by_ad`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:at(addDaysStr(today,-(n-1))), p_until:at(addDaysStr(today,1))})});
+        if(res.ok){ for(const r of (await res.json())){ const id=r.campaign_id; if(!id||!camp[id]) continue; camp[id][key]+=parseFloat(r.receita_bruta)||0; } }
+      }catch(e){}
+    }
+    S._comp=camp;
+  }catch(e){ alert('Erro no comparativo: '+e.message); }
+  S._compLoading=false; render();
+}
+function renderComparativoCard(A){
+  if(S._compLoading) return `<div class="card"><div class="empty"><span class="loading"></span> Carregando comparativo 1D/2D/3D/5D…</div></div>`;
+  if(!S._comp) return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D</h2>
+    <p class="sub" style="margin-bottom:10px">Gasto, faturamento e lucro de cada campanha em janelas móveis (hoje, 2, 3 e 5 dias) para comparar tendência e decidir. Puxa 5 dias diários do Meta + receita por janela do Supabase.</p>
+    <button class="btn btn-purple" onclick="fetchComparativo()">Carregar comparativo</button></div>`;
+  const nc=(S.nameContains||'').trim().toLowerCase();
+  let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>(!nc||String(c.name).toLowerCase().includes(nc)) && c.s5>0).sort((a,b)=>b.s5-a.s5);
+  const cell=(g,r)=>{ const l=r-g, col=l>0?'#137333':l<0?'#c5221f':'#888', bg=l>0?'#eafaef':l<0?'#fdeeee':'transparent';
+    return `<td class="num">${fmtMoney0(g)}</td><td class="num">${fmtMoney0(r)}</td><td class="num" style="color:${col};background:${bg};font-weight:700">${fmtMoney0(l)}</td>`; };
+  return `<div class="card"><h2>📊 Comparativo temporal 1D / 2D / 3D / 5D
+      <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="fetchComparativo()">↻ Atualizar</button></h2>
+    <div class="tbl-wrap"><table><thead>
+      <tr><th rowspan="2">Campanha (${rows.length})</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">1D (hoje)</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">2D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">3D</th><th colspan="3" style="text-align:center;border-left:2px solid #e6e0f5">5D</th></tr>
+      <tr>${['1D','2D','3D','5D'].map(()=>'<th class="num" style="border-left:2px solid #e6e0f5">Gasto</th><th class="num">Fat</th><th class="num">Lucro</th>').join('')}</tr>
+    </thead><tbody>
+    ${rows.map(c=>`<tr><td style="max-width:340px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td>${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`).join('')}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:8px">Janelas móveis incluindo hoje (2D = ontem + hoje, etc). Lucro = faturamento − gasto. ⚠️ Faturamento é a receita atribuída via UTM (front + order bump); upsell/mentoria não entram, então o lucro real é maior. Serve para comparar a tendência entre janelas.</div>
   </div>`;
 }
 
