@@ -111,7 +111,7 @@ if(S.cpaAlvo == null) S.cpaAlvo = '';       // vazio = usa CPA médio da carteir
 if(S.roasAlvo == null || S.roasAlvo === '') S.roasAlvo = 1.0;
 if(S.minSpend == null) S.minSpend = '';     // vazio = default por período
 // Custo alvo por métrica (referência nov/2025–jan/2026, métricas de pixel do Meta). Editáveis e persistidos.
-S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22}, S.alvos||{});
+S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22, tkm:100, cvt:60, ppc:1.5}, S.alvos||{});
 S._rev = null;
 S._comp = null;        // cache do comparativo 1D/2D/3D/5D
 S._compLoading = false;
@@ -491,34 +491,45 @@ function renderKPIs(A){
   </div>`;
 }
 
+function alvoRow(l,hint,dir,alvo,atual,t,onchange){
+  const a=parseFloat(alvo)||0;
+  const bad = dir==='low' ? (atual>a) : (atual<a);
+  const delta = a>0 ? (atual/a-1)*100 : 0;
+  const sign=delta>=0?'+':'';
+  const fv = t==='pct'?fmtPct(atual) : t==='roas'?fmtRoas(atual) : t==='num'?(Math.round(atual*100)/100).toLocaleString('pt-BR') : fmtMoney(atual);
+  return `<tr>
+    <td>${l} <span class="mini">(${dir==='low'?'≤ melhor':'≥ melhor'}${hint?' · '+hint:''})</span></td>
+    <td class="num"><input style="width:88px;text-align:right;padding:4px 8px" value="${esc(alvo)}" onchange="${onchange}"></td>
+    <td class="num" style="font-weight:800">${fv}</td>
+    <td class="num" style="color:${bad?'#c5221f':'#137333'};font-weight:700">${sign}${delta.toFixed(0)}%</td>
+    <td>${bad?'<span class="badge b-ruim">fora do alvo</span>':'<span class="badge b-bom">dentro</span>'}</td>
+  </tr>`;
+}
 function renderAlvos(A){
   const T=A.T;
-  const cur={cpm:T.imp?T.spend/T.imp*1000:0, cpc:T.clicks?T.spend/T.clicks:0, ctr:T.imp?T.clicks/T.imp*100:0, cpl:T.lpv?T.spend/T.lpv:0, cic:T.ic?T.spend/T.ic:0};
-  const defs=[
-    {k:'cpm', l:'CPM', dir:'low', money:true},
-    {k:'cpc', l:'CPC', dir:'low', money:true},
-    {k:'ctr', l:'CTR', dir:'high', pct:true},
-    {k:'cpl', l:'Custo por page view', dir:'low', money:true},
-    {k:'cic', l:'Custo por checkout iniciado', dir:'low', money:true}
-  ];
-  const fmtv=(d,v)=> d.pct?fmtPct(v):(d.money?fmtMoney(v):v);
-  return `<div class="card"><h2>🎯 Custo alvo por métrica <span class="mini">referência nov/2025–jan/2026 (pixel Meta) · alvos editáveis, ficam salvos</span></h2>
-    <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Métrica</th><th class="num">Alvo</th><th class="num">Atual (${A.days}d)</th><th class="num">Δ vs alvo</th><th>Situação</th></tr></thead><tbody>
-    ${defs.map(d=>{
-      const alvo=S.alvos[d.k], v=cur[d.k];
-      const bad = d.dir==='low' ? (v>alvo) : (v<alvo);
-      const delta = alvo>0 ? (v/alvo-1)*100 : 0;
-      const sign=delta>=0?'+':'';
-      return `<tr>
-        <td>${d.l} <span class="mini">(${d.dir==='low'?'≤ melhor':'≥ melhor'})</span></td>
-        <td class="num"><input style="width:88px;text-align:right;padding:4px 8px" value="${esc(alvo)}" onchange="setAlvo('${d.k}',this.value)"></td>
-        <td class="num" style="font-weight:800">${fmtv(d,v)}</td>
-        <td class="num" style="color:${bad?'#c5221f':'#137333'};font-weight:700">${sign}${delta.toFixed(0)}%</td>
-        <td>${bad?'<span class="badge b-ruim">fora do alvo</span>':'<span class="badge b-bom">dentro</span>'}</td>
-      </tr>`;
-    }).join('')}
+  const cpaShown = (parseFloat(S.cpaAlvo)>0)?parseFloat(S.cpaAlvo):Math.round(A.blendedCPA);
+  const roasShown = parseFloat(A.roasAlvo)||1;
+  const eff={cpm:T.imp?T.spend/T.imp*1000:0, cpc:T.clicks?T.spend/T.clicks:0, ctr:T.imp?T.clicks/T.imp*100:0, cpl:T.lpv?T.spend/T.lpv:0, cic:T.ic?T.spend/T.ic:0};
+  const cpaAtual=A.blendedCPA, tkm=T.front?T.receita/T.front:0, roas=T.spend?T.receita/T.spend:0, cvt=T.total?T.spend/T.total:0, ppc=T.front?T.total/T.front:0;
+  const head='<tr><th>Métrica</th><th class="num">Alvo</th><th class="num">Atual ('+A.days+'d)</th><th class="num">Δ vs alvo</th><th>Situação</th></tr>';
+  return `<div class="card"><h2>🎯 Custo alvo por métrica <span class="mini">alvos editáveis, ficam salvos</span></h2>
+    <h3 style="margin:2px 0 8px">Eficiência <span class="mini" style="text-transform:none">base Meta · referência nov/2025–jan/2026 (pixel), maçã com maçã com o histórico</span></h3>
+    <div class="tbl-wrap" style="max-height:none;margin-bottom:14px"><table><thead>${head}</thead><tbody>
+      ${alvoRow('CPM','','low', S.alvos.cpm, eff.cpm,'money',"setAlvo('cpm',this.value)")}
+      ${alvoRow('CPC','','low', S.alvos.cpc, eff.cpc,'money',"setAlvo('cpc',this.value)")}
+      ${alvoRow('CTR','','high', S.alvos.ctr, eff.ctr,'pct',"setAlvo('ctr',this.value)")}
+      ${alvoRow('Custo por page view','','low', S.alvos.cpl, eff.cpl,'money',"setAlvo('cpl',this.value)")}
+      ${alvoRow('Custo por checkout iniciado','','low', S.alvos.cic, eff.cic,'money',"setAlvo('cic',this.value)")}
     </tbody></table></div>
-    <div class="mini" style="margin-top:8px">🚩 <b>${A.foraAlvo}</b> de ${A.rows.length} campanhas ativas estão acima de pelo menos um custo alvo (coluna "Fora do alvo" na tabela). CPA e ROAS não entram aqui de propósito: o alvo deles vem do pixel do Meta, que hoje subnotifica. Estas 5 métricas de eficiência são maçã com maçã.</div>
+    <h3 style="margin:2px 0 8px">Conversão e receita <span class="mini" style="text-transform:none">base Supabase · receita real (front + order bump, sem upsell) · ajuste ao seu breakeven</span></h3>
+    <div class="tbl-wrap" style="max-height:none"><table><thead>${head}</thead><tbody>
+      ${alvoRow('CPA (por comprador front)','padrão = média da carteira','low', cpaShown, cpaAtual,'money',"setCfg('cpaAlvo',this.value)")}
+      ${alvoRow('Ticket médio (front)','','high', S.alvos.tkm, tkm,'money',"setAlvo('tkm',this.value)")}
+      ${alvoRow('ROAS','','high', roasShown, roas,'roas',"setCfg('roasAlvo',this.value)")}
+      ${alvoRow('Custo por venda total','','low', S.alvos.cvt, cvt,'money',"setAlvo('cvt',this.value)")}
+      ${alvoRow('Produtos por comprador','bump attach','high', S.alvos.ppc, ppc,'num',"setAlvo('ppc',this.value)")}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:8px">🚩 <b>${A.foraAlvo}</b> de ${A.rows.length} campanhas acima de pelo menos um alvo de <b>eficiência</b> (coluna "Fora do alvo" na tabela). O bloco de eficiência é comparável ao histórico do Meta. O de conversão usa a receita real do Supabase (sem upsell), então o ROAS e o ticket reais são maiores do que aparecem.</div>
   </div>`;
 }
 function setAlvo(k,v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)) S.alvos[k]=n; saveState(); render(); }
