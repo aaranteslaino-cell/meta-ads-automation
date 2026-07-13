@@ -136,9 +136,11 @@ S._exec = {};          // marca campanhas já executadas nesta sessão (não per
 S._otim = null;        // log de otimizações (Supabase)
 S._intraday = null;    // curva do dia (gasto/receita por hora)
 S._intradayLoading = false;
+S._funis = null;       // funis de checkout + produtos (conversão)
+S._funisLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -174,7 +176,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S._intraday=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S._intraday=null; S._funis=null; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
   const a=S.alvos, out=[];
@@ -488,7 +490,7 @@ function renderControls(A){
     </div>
     <hr>
     <div class="row" style="margin-bottom:12px;padding:8px 10px;background:#faf9ff;border-radius:10px">
-      <label style="margin:0 8px 0 0;color:#7b2ff7">Funil:</label>
+      <label style="margin:0 8px 0 0;color:#7b2ff7">Organização:</label>
       ${FUNNELS.map(f=>`<button class="chip ${S.funnel===f.key?'active':''}" onclick="setFunnel('${f.key}')">${f.emoji} ${f.label}</button>`).join('')}
     </div>
     <div class="row" style="margin-bottom:12px">
@@ -513,7 +515,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
 }
 
 function renderKPIs(A){
@@ -523,7 +525,7 @@ function renderKPIs(A){
   const temFunnel = !!(A.funnelTotal&&A.funnelTotal.receita>0);
   const semUtm = Math.max(0, funnelReceita - T.receita);
   return `<div class="card">
-    <h2>Panorama · ${currentFunnel().emoji} Funil ${esc(currentFunnel().label)} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
+    <h2>Panorama · ${currentFunnel().emoji} ${esc(currentFunnel().label)} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
       <div class="kpi"><div class="k-l">Receita do funil${temFunnel?' (Assiny)':''}</div><div class="k-v">${fmtMoney0(funnelReceita)}</div><div class="k-s">Meta ${fmtMoney0(T.receita)} · ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
@@ -599,6 +601,58 @@ function renderGoodBad(A){
   </div>`;
 }
 
+// ── Funis de checkout + produtos (conversão / take rate) ────────────────────
+async function fetchFunis(){
+  if(S._funisLoading) return; S._funisLoading=true; render();
+  try{
+    const {since,until}=periodRange(S.period);
+    const res=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_products`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_org:currentFunnel().match||''})});
+    const rows=res.ok?await res.json():[];
+    const m={};
+    rows.forEach(r=>{ const f=r.funil_id; if(!m[f]) m[f]={id:f,produtos:[]}; m[f].produtos.push({nome:r.produto_nome,tipo:r.tipo_oferta,compradores:parseInt(r.compradores)||0,receita:parseFloat(r.receita)||0}); });
+    S._funis=Object.values(m);
+  }catch(e){ S._funis=[]; }
+  S._funisLoading=false; render();
+}
+function reloadFunis(){ S._funis=null; fetchFunis(); }
+function nomeFunil(prods){
+  const t=(prods||[]).map(p=>p.nome||'').join(' ');
+  if(/loja pronta/i.test(t)) return 'Front + Loja Pronta';
+  if(/mentoria|up#/i.test(t)) return 'Quiz + Mentoria/Upsell';
+  return 'Front + Order Bumps';
+}
+function renderFunis(A){
+  const head=`<h2>🗂️ Funis e produtos · conversão <span class="mini" style="text-transform:none">take rate = % dos compradores front que levaram cada item</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadFunis()">↻ Atualizar</button></h2>`;
+  if(S._funisLoading || S._funis==null){ if(!S._funisLoading && S.connected) setTimeout(()=>fetchFunis(),40); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Carregando funis e produtos…</div></div>`; }
+  if(!S._funis.length) return `<div class="card">${head}<div class="empty">Sem vendas no período para a organização ${esc(currentFunnel().label)}.</div></div>`;
+  const funis=S._funis.map(f=>{
+    const front=f.produtos.filter(p=>p.tipo==='ENTRY').reduce((s,p)=>s+p.compradores,0);
+    const receita=f.produtos.reduce((s,p)=>s+p.receita,0);
+    const rate=t=>{ const c=f.produtos.filter(p=>p.tipo===t).reduce((s,p)=>s+p.compradores,0); return front?c/front*100:0; };
+    return {...f, front, receita, ticket:front?receita/front:0, bump:rate('ORDERBUMP'), up:rate('UPSELL'), dw:rate('DOWNSELL'), nome:nomeFunil(f.produtos)};
+  }).filter(f=>f.front>0 || f.receita>0).sort((a,b)=>b.front-a.front);
+  const tBadge=t=>`<span class="badge b-${t==='ENTRY'?'bom':t==='UPSELL'?'observar':t==='DOWNSELL'?'ruim':'novo'}">${t}</span>`;
+  const body=funis.map(f=>{
+    const prods=[...f.produtos].sort((a,b)=>b.compradores-a.compradores);
+    return `<div style="border:1px solid #eee;border-radius:10px;padding:12px;margin-bottom:12px">
+      <div class="row" style="justify-content:space-between;align-items:baseline">
+        <div><b style="font-size:15px">${esc(f.nome)}</b> <span class="mini" style="font-family:monospace">${esc(String(f.id).slice(0,8))}</span></div>
+        <div class="mini">${f.front} front · receita ${fmtMoney0(f.receita)} · ticket ${fmtMoney0(f.ticket)}</div>
+      </div>
+      <div class="row" style="gap:16px;margin:8px 0">
+        <span class="mini">🛒 Order bump: <b style="color:#137333">${f.bump.toFixed(1)}%</b></span>
+        <span class="mini">⬆️ Upsell: <b style="color:#137333">${f.up.toFixed(1)}%</b></span>
+        <span class="mini">⬇️ Downsell: <b>${f.dw.toFixed(1)}%</b></span>
+      </div>
+      <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Produto</th><th>Tipo</th><th class="num">Compradores</th><th class="num">Conversão</th><th class="num">Receita</th></tr></thead><tbody>
+      ${prods.map(p=>`<tr><td>${esc(p.nome)}</td><td>${tBadge(p.tipo)}</td><td class="num">${p.compradores}</td><td class="num">${p.tipo==='ENTRY'?'base':(f.front?(p.compradores/f.front*100).toFixed(1)+'%':'—')}</td><td class="num">${fmtMoney0(p.receita)}</td></tr>`).join('')}
+      </tbody></table></div>
+    </div>`;
+  }).join('');
+  return `<div class="card">${head}${body}
+    <div class="mini" style="margin-top:4px">Conversão do produto = compradores do produto ÷ compradores do front do mesmo funil. As taxas de bump/upsell/downsell no topo são agregadas por tipo (igual ao painel da Assiny). Vendas reais do Supabase, por funil de checkout.</div>
+  </div>`;
+}
 function renderContas(A){
   const arr=A.byAccount||[];
   if(!arr.length) return '';
@@ -1016,7 +1070,7 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; saveState(); refreshData(); }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
 render();
