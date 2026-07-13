@@ -942,7 +942,7 @@ function svgAntesDepois(groups){
     <line x1="${padL}" y1="${yb}" x2="${W-8}" y2="${yb}" stroke="#d33" stroke-dasharray="4 3" stroke-width="1"/>
     <text x="${W-8}" y="${yb-4}" font-size="10" text-anchor="end" fill="#d33">breakeven 1,0x</text>
     ${bars}
-    <text x="${padL-4}" y="${H-4}" font-size="10" fill="#999">barra clara = ROAS 3D no momento da ação · barra colorida = ROAS 3D agora</text>
+    <text x="${padL-4}" y="${H-4}" font-size="10" fill="#999">barra clara = ROAS hoje no momento da ação · barra colorida = ROAS hoje agora</text>
   </svg>`;
 }
 // Curva do dia: gasto por hora (Meta, breakdown horário → BRT) + receita por hora (Supabase)
@@ -1043,9 +1043,9 @@ function renderAcompanhamento(A){
   if(ev==null){ logHtml=`<hr><div class="mini" style="color:#888">Carregando log…</div>`; }
   else if(!ev.length){ logHtml=`<hr><div class="mini" style="color:#888">Nenhuma otimização registrada ainda neste funil. Cada clique em Executar entra aqui com o antes/depois.</div>`; }
   else {
-    const rows=ev.map(e=>{ const c=(S._comp||{})[e.campaign_id]; const agora=(c&&c.s3>0)?+(c.r3/c.s3).toFixed(2):null; return {...e, agora}; });
-    const grp=t=>{ const g=rows.filter(r=>r.acao===t && r.roas3!=null); const ga=g.filter(r=>r.agora!=null);
-      return {n:g.length, antes:g.length?g.reduce((s,r)=>s+(+r.roas3||0),0)/g.length:0, agora:ga.length?ga.reduce((s,r)=>s+r.agora,0)/ga.length:0}; };
+    const rows=ev.map(e=>{ const c=(S._comp||{})[e.campaign_id]; const agora=(c&&c.s1>0)?+(c.r1/c.s1).toFixed(2):null; return {...e, agora}; });
+    const grp=t=>{ const g=rows.filter(r=>r.acao===t && r.roas1!=null); const ga=g.filter(r=>r.agora!=null);
+      return {n:g.length, antes:g.length?g.reduce((s,r)=>s+(+r.roas1||0),0)/g.length:0, agora:ga.length?ga.reduce((s,r)=>s+r.agora,0)/ga.length:0}; };
     const gEsc=grp('ESCALAR'), gRed=grp('REDUZIR'); const des=rows.filter(r=>r.acao==='DESATIVAR');
     const economia=des.reduce((s,r)=>s+(+r.orc_antes||0),0);
     const chart=(gEsc.n||gRed.n)? svgAntesDepois([{label:'Escaladas',n:gEsc.n,antes:gEsc.antes,agora:gEsc.agora,color:'#137333'},{label:'Reduzidas',n:gRed.n,antes:gRed.antes,agora:gRed.agora,color:'#b08900'}]) : '<div class="mini">Sem escalas/reduções ainda para o gráfico antes/depois.</div>';
@@ -1053,18 +1053,18 @@ function renderAcompanhamento(A){
     const badge=a=>`<span class="badge b-${a==='ESCALAR'?'bom':a==='DESATIVAR'?'ruim':'observar'}">${a}</span>`;
     const vd=r=>{ if(r.acao==='DESATIVAR') return '<span class="mini">pausada · economia R$ '+(+r.orc_antes||0).toFixed(0)+'/dia</span>';
       if(r.agora==null) return '<span class="mini">sem dado atual</span>';
-      const d=r.agora-(+r.roas3||0); return d>=-0.001?`<span class="verdict-good">▲ +${d.toFixed(2)}</span>`:`<span class="verdict-bad">▼ ${d.toFixed(2)}</span>`; };
+      const d=r.agora-(+r.roas1||0); return d>=-0.001?`<span class="verdict-good">▲ +${d.toFixed(2)}</span>`:`<span class="verdict-bad">▼ ${d.toFixed(2)}</span>`; };
     logHtml=`<hr><h3 style="margin:2px 0 10px">Otimizações registradas · antes vs depois</h3>
       <div class="row" style="gap:12px;margin-bottom:12px">
-        <div class="kpi" style="flex:1"><div class="k-l">Escaladas</div><div class="k-v">${gEsc.n}</div><div class="k-s">ROAS 3D ${gEsc.antes.toFixed(2)} → ${gEsc.agora.toFixed(2)}</div></div>
-        <div class="kpi" style="flex:1"><div class="k-l">Reduzidas</div><div class="k-v">${gRed.n}</div><div class="k-s">ROAS 3D ${gRed.antes.toFixed(2)} → ${gRed.agora.toFixed(2)}</div></div>
+        <div class="kpi" style="flex:1"><div class="k-l">Escaladas</div><div class="k-v">${gEsc.n}</div><div class="k-s">ROAS hoje ${gEsc.antes.toFixed(2)} → ${gEsc.agora.toFixed(2)}</div></div>
+        <div class="kpi" style="flex:1"><div class="k-l">Reduzidas</div><div class="k-v">${gRed.n}</div><div class="k-s">ROAS hoje ${gRed.antes.toFixed(2)} → ${gRed.agora.toFixed(2)}</div></div>
         <div class="kpi danger" style="flex:1"><div class="k-l">Desativadas</div><div class="k-v">${des.length}</div><div class="k-s">economia R$ ${economia.toFixed(0)}/dia</div></div>
       </div>
       <div style="margin-bottom:14px">${chart}</div>
-      <div class="tbl-wrap" style="max-height:340px"><table><thead><tr><th>Quando</th><th>Slot</th><th>Campanha</th><th>Ação</th><th class="num">Orç.</th><th class="num">ROAS 3D no ato</th><th class="num">ROAS 3D agora</th><th>Resultado</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td class="mini">${fmtH(r.created_at)}</td><td>${esc(r.slot||'')}</td><td>${esc(shortName(r.campaign_name))}</td><td>${badge(r.acao)}</td><td class="num">${r.acao==='DESATIVAR'?'R$ '+(+r.orc_antes||0).toFixed(0)+'→0':(r.orc_antes!=null?'R$ '+(+r.orc_antes).toFixed(0)+'→'+(+r.orc_depois).toFixed(0):'—')}</td><td class="num">${r.roas3!=null?(+r.roas3).toFixed(2)+'x':'—'}</td><td class="num">${r.agora!=null?r.agora.toFixed(2)+'x':'—'}</td><td>${vd(r)}</td></tr>`).join('')}
+      <div class="tbl-wrap" style="max-height:340px"><table><thead><tr><th>Quando</th><th>Slot</th><th>Campanha</th><th>Ação</th><th class="num">Orç.</th><th class="num">ROAS hoje no ato</th><th class="num">ROAS hoje agora</th><th>Resultado</th></tr></thead><tbody>
+      ${rows.map(r=>`<tr><td class="mini">${fmtH(r.created_at)}</td><td>${esc(r.slot||'')}</td><td>${esc(shortName(r.campaign_name))}</td><td>${badge(r.acao)}</td><td class="num">${r.acao==='DESATIVAR'?'R$ '+(+r.orc_antes||0).toFixed(0)+'→0':(r.orc_antes!=null?'R$ '+(+r.orc_antes).toFixed(0)+'→'+(+r.orc_depois).toFixed(0):'—')}</td><td class="num">${r.roas1!=null?(+r.roas1).toFixed(2)+'x':'—'}</td><td class="num">${r.agora!=null?r.agora.toFixed(2)+'x':'—'}</td><td>${vd(r)}</td></tr>`).join('')}
       </tbody></table></div>
-      <div class="mini" style="margin-top:8px">"ROAS 3D agora" vem do comparativo atual da campanha. Compare com o do momento da ação para ver ▲ melhorou / ▼ piorou. Registro automático a cada clique em Executar.</div>`;
+      <div class="mini" style="margin-top:8px">Mostra o <b>ROAS do dia</b> (não mais 3 dias) para medir o impacto da otimização dentro do próprio dia. "No ato" = ROAS do dia no clique; "agora" = ROAS do dia atual (do comparativo). ▲ melhorou / ▼ piorou. Como o dia é parcial, o ROAS de hoje sobe ao longo do dia conforme as vendas caem.</div>`;
   }
   return `<div class="card">${head}${slotBar}${intradayHtml}${logHtml}</div>`;
 }
