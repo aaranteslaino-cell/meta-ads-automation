@@ -332,8 +332,11 @@ async function fetchRevenue(){
     (rows||[]).forEach(r=>{ add(byCampaign, r.campaign_id, {front:parseInt(r.vendas_front)||0,total:parseInt(r.vendas_total)||0,receita:parseFloat(r.receita_bruta)||0}); });
     let offsite={front:0,total:0,receita:0};
     try{ const r2=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_offsite`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})}); if(r2.ok){ const o=(await r2.json())[0]||{}; offsite={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
-    return {byCampaign, offsite};
-  }catch(e){ console.warn('receita falhou',e.message); return {byCampaign:{}, offsite:{front:0,total:0,receita:0}, _error:e.message}; }
+    // Faturamento TOTAL do funil (por projeto na Assiny) — bate com o painel da Assiny
+    let funnelTotal={front:0,total:0,receita:0};
+    try{ const r3=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})}); if(r3.ok){ const o=(await r3.json())[0]||{}; funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
+    return {byCampaign, offsite, funnelTotal};
+  }catch(e){ console.warn('receita falhou',e.message); return {byCampaign:{}, offsite:{front:0,total:0,receita:0}, funnelTotal:{front:0,total:0,receita:0}, _error:e.message}; }
 }
 function attachRevenue(rows){
   const map=(S._rev&&S._rev.byCampaign)||{};
@@ -391,6 +394,7 @@ function analyze(){
   const pausadasGasto = rowsAll.filter(r=>(r.effective_status||'')!=='ACTIVE').reduce((s,r)=>s+(r.spend||0),0);
   const blendedCPA = T.front>0 ? T.spend/T.front : 0;
   const off=(S._rev&&S._rev.offsite)||{front:0,total:0,receita:0};
+  const funnelTotal=(S._rev&&S._rev.funnelTotal)||{front:0,total:0,receita:0};
 
   // config
   const cpaAlvo = (parseFloat(S.cpaAlvo)>0) ? parseFloat(S.cpaAlvo) : (blendedCPA||9999);
@@ -452,7 +456,7 @@ function analyze(){
   cmp(byOferta,'oferta/criativo');
   if(frag.length){ const g=frag[0]; actions.push(`<b>Desfragmentar:</b> há grupos com muitas campanhas quase idênticas competindo entre si (ex: "${esc(g.key)}" com ${g.n} campanhas, ${fmtMoney0(g.spend)}). CBO rende mais com menos campanhas e mais orçamento por campanha.`); }
 
-  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, foraAlvo, pausadasCount, pausadasGasto};
+  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, funnelTotal, foraAlvo, pausadasCount, pausadasGasto};
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -514,18 +518,21 @@ function renderDashboard(A){
 
 function renderKPIs(A){
   const T=A.T; const roas=T.spend>0?T.receita/T.spend:null;
-  const geralFront=T.front+A.off.front, geralRec=T.receita+A.off.receita;
+  const funnelReceita = (A.funnelTotal&&A.funnelTotal.receita>0) ? A.funnelTotal.receita : (T.receita+A.off.receita);
+  const funnelVendas = (A.funnelTotal&&A.funnelTotal.total>0) ? A.funnelTotal.total : (T.total+A.off.total);
+  const temFunnel = !!(A.funnelTotal&&A.funnelTotal.receita>0);
+  const semUtm = Math.max(0, funnelReceita - T.receita);
   return `<div class="card">
     <h2>Panorama · ${currentFunnel().emoji} Funil ${esc(currentFunnel().label)} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
-      <div class="kpi"><div class="k-l">Receita atribuída</div><div class="k-v">${fmtMoney0(T.receita)}</div><div class="k-s">ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
+      <div class="kpi"><div class="k-l">Receita do funil${temFunnel?' (Assiny)':''}</div><div class="k-v">${fmtMoney0(funnelReceita)}</div><div class="k-s">Meta ${fmtMoney0(T.receita)} · ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
       <div class="kpi"><div class="k-l">Vendas front</div><div class="k-v">${fmtNum(T.front)}</div><div class="k-s">${fmtNum(T.total)} totais</div></div>
       <div class="kpi"><div class="k-l">CPA médio (front)</div><div class="k-v">${fmtMoney0(A.blendedCPA)}</div><div class="k-s">ticket ${fmtMoney0(T.front>0?T.receita/T.front:0)}</div></div>
       <div class="kpi good"><div class="k-l">✅ Escalar</div><div class="k-v">${A.good.length}</div><div class="k-s">campanhas boas</div></div>
       <div class="kpi danger"><div class="k-l">🔴 Verba em risco</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia</div></div>
     </div>
-    <div class="mini" style="margin-top:10px">Totais incluem tudo que gastou no período${A.pausadasGasto>0?` (dentro do gasto, ${fmtMoney0(A.pausadasGasto)} são de campanhas pausadas/desativadas)`:''}. As listas de decisão abaixo mostram só as ${A.rows.length} ativas. + Outras fontes sem UTM meta: ${fmtNum(A.off.front)} front · ${fmtMoney0(A.off.receita)}. <b>Total geral</b>: ${fmtNum(geralFront)} front · ${fmtMoney0(geralRec)}.</div>
+    <div class="mini" style="margin-top:10px"><b>Receita do funil ${fmtMoney0(funnelReceita)}</b>${temFunnel?` (${fmtNum(funnelVendas)} vendas, bate com a Assiny em valor líquido, após taxas)`:''}. Dentro dela: ${fmtMoney0(T.receita)} atribuídos ao Meta por UTM (entram no ROAS) e ${fmtMoney0(semUtm)} sem UTM do Meta (direct/orgânico). Gasto inclui tudo que rodou no período${A.pausadasGasto>0?` (${fmtMoney0(A.pausadasGasto)} de pausadas/desativadas)`:''}; as listas de decisão mostram só as ${A.rows.length} ativas.</div>
   </div>`;
 }
 
