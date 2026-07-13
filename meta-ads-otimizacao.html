@@ -643,6 +643,7 @@ function prodRank(p){
     if(p.tipo==='UPSELL') return PROD_ORDER.indexOf('UP1');
     if(p.tipo==='DOWNSELL') return PROD_ORDER.indexOf('DW1');
   }
+  if(/mentoria\s*1x1/i.test(nome)) return PROD_ORDER.indexOf('UP3'); // 3º upsell da esteira, confirmado nos dois funis principais
   const m=nome.match(/\b(OB|UP|DW)\s*#?\s*(\d)/i);
   if(m){ const idx=PROD_ORDER.indexOf(m[1].toUpperCase()+m[2]); if(idx>=0) return idx; }
   const fallback={ORDERBUMP:1.5, UPSELL:4.5, DOWNSELL:5.5}; // produto sem número no nome: agrupa perto do tipo
