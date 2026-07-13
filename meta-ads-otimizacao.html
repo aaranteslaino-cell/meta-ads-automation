@@ -639,6 +639,7 @@ function prodRank(p){
   const nome=p.nome||'';
   // overrides para produtos sem número no nome mas com posição conhecida
   if(/c[oó]digo\s*de\s*r\$?\s*500/i.test(nome)) return PROD_ORDER.indexOf('OB3');
+  if(/call\s*com\s*s[oó]cio/i.test(nome)) return PROD_ORDER.indexOf('OB3'); // OB3 alternativo, já rodou nessa posição
   if(/loja pronta/i.test(nome)){
     if(p.tipo==='UPSELL') return PROD_ORDER.indexOf('UP1');
     if(p.tipo==='DOWNSELL') return PROD_ORDER.indexOf('DW1');
