@@ -174,7 +174,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S._intraday=null; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
   const a=S.alvos, out=[];
@@ -883,10 +883,12 @@ function svgAntesDepois(groups){
   </svg>`;
 }
 // Curva do dia: gasto por hora (Meta, breakdown horário → BRT) + receita por hora (Supabase)
+// Segue o período selecionado: 'today'=hoje; qualquer outro (yesterday/last_Nd)=último dia fechado (ontem)
+function intradayDate(){ const t=brToday(); return S.period==='today' ? t : addDaysStr(t,-1); }
 async function fetchIntraday(){
   if(S._intradayLoading) return; S._intradayLoading=true; render();
   try{
-    const today=brToday();
+    const today=intradayDate();
     const accs=(S.accounts||[]).filter(a=>a.currency==='BRL');
     const spendH=new Array(24).fill(0);
     const since=addDaysStr(today,-1);
@@ -926,12 +928,12 @@ async function fetchIntraday(){
   S._intradayLoading=false; render();
 }
 function reloadIntraday(){ S._intraday=null; fetchIntraday(); }
-function svgIntraday(sp, rv, events){
+function svgIntraday(sp, rv, events, fullDay){
   const W=880,H=250,padL=56,padR=14,padT=18,padB=42, plotW=W-padL-padR, plotH=H-padT-padB;
   const cs=[],cr=[]; let as=0,ar=0; for(let h=0;h<24;h++){ as+=sp[h]; ar+=rv[h]; cs.push(as); cr.push(ar); }
   const nowH=+new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).format(new Date());
   let lastData=0; for(let h=0;h<24;h++){ if(sp[h]>0||rv[h]>0) lastData=h; }
-  const lastH=Math.max(nowH,lastData,1);
+  const lastH=fullDay ? 23 : Math.max(nowH,lastData,1);
   const maxV=Math.max(1, cs[lastH], cr[lastH])*1.12;
   const x=h=> padL+(h/23)*plotW, y=v=> padT+plotH-(Math.max(0,v)/maxV)*plotH;
   const line=arr=>{ let d=''; for(let h=0;h<=lastH;h++){ d+=(h===0?'M':'L')+x(h).toFixed(1)+' '+y(arr[h]).toFixed(1); } return d; };
@@ -967,8 +969,9 @@ function renderAcompanhamento(A){
       .map(e=>({acao:e.acao, hour:+new Intl.DateTimeFormat('en-GB',{timeZone:'America/Sao_Paulo',hour:'2-digit',hour12:false}).format(new Date(e.created_at))}));
     const has=S._intraday.spendH.some(v=>v>0)||S._intraday.revH.some(v=>v>0);
     const dLabel=S._intraday.date.split('-').reverse().slice(0,2).join('/');
+    const fullDay=S._intraday.date!==brToday();
     intradayHtml = has
-      ? `<h3 style="margin:0 0 6px">Curva do dia (${dLabel}) <span class="mini" style="text-transform:none">gasto (cinza) vs receita (roxo) acumulados · ROAS anotado nos horários · linhas tracejadas = otimizações feitas</span></h3>${svgIntraday(S._intraday.spendH,S._intraday.revH,evT)}`
+      ? `<h3 style="margin:0 0 6px">Curva do dia (${dLabel}${fullDay?'':' · parcial, em andamento'}) <span class="mini" style="text-transform:none">gasto (cinza) vs receita (roxo) acumulados · ROAS anotado nos horários · linhas tracejadas = otimizações feitas</span></h3>${svgIntraday(S._intraday.spendH,S._intraday.revH,evT,fullDay)}`
       : `<div class="empty">Ainda sem gasto/receita hoje para o funil ${esc(currentFunnel().label)}.</div>`;
   }
   // ── Log das otimizações ──
@@ -1004,7 +1007,7 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; saveState(); refreshData(); }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
 render();
