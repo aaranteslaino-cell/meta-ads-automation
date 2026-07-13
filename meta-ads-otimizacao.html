@@ -377,17 +377,16 @@ function shortName(n){
 // ── Motor de análise ────────────────────────────────────────────────────────
 function analyze(){
   const days=periodDays(S.period);
-  // universo: BRL, ativa, com gasto, batendo o funil selecionado (+ refino opcional)
-  let rows=(S.data||[]).filter(r=>{
-    if((r._currency||'BRL')!=='BRL') return false;
-    if((r.effective_status||'')!=='ACTIVE') return false;
-    if((r.spend||0)<=0) return false;
-    if(!matchFunnel(r.name)) return false;
-    return true;
-  });
-  // totais
+  // universo do funil: BRL, com gasto no período, batendo o funil (+ refino). Inclui pausadas/desativadas.
+  const inFunil = r => (r._currency||'BRL')==='BRL' && (r.spend||0)>0 && matchFunnel(r.name);
+  const rowsAll = (S.data||[]).filter(inFunil);
+  // decisão (bom/ruim, escalar/cortar, botões): só o que está ATIVO agora
+  let rows = rowsAll.filter(r=>(r.effective_status||'')==='ACTIVE');
+  const pausadasCount = rowsAll.length - rows.length;
+  // TOTAIS do período: tudo que gastou (ativas + pausadas/desativadas) → análise correta do dia
   const T={spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,lpv:0};
-  rows.forEach(r=>{ T.spend+=r.spend||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
+  rowsAll.forEach(r=>{ T.spend+=r.spend||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
+  const pausadasGasto = rowsAll.filter(r=>(r.effective_status||'')!=='ACTIVE').reduce((s,r)=>s+(r.spend||0),0);
   const blendedCPA = T.front>0 ? T.spend/T.front : 0;
   const off=(S._rev&&S._rev.offsite)||{front:0,total:0,receita:0};
 
@@ -451,7 +450,7 @@ function analyze(){
   cmp(byOferta,'oferta/criativo');
   if(frag.length){ const g=frag[0]; actions.push(`<b>Desfragmentar:</b> há grupos com muitas campanhas quase idênticas competindo entre si (ex: "${esc(g.key)}" com ${g.n} campanhas, ${fmtMoney0(g.spend)}). CBO rende mais com menos campanhas e mais orçamento por campanha.`); }
 
-  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, foraAlvo};
+  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, foraAlvo, pausadasCount, pausadasGasto};
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -515,7 +514,7 @@ function renderKPIs(A){
   const T=A.T; const roas=T.spend>0?T.receita/T.spend:null;
   const geralFront=T.front+A.off.front, geralRec=T.receita+A.off.receita;
   return `<div class="card">
-    <h2>Panorama · ${currentFunnel().emoji} Funil ${esc(currentFunnel().label)} · ${A.rows.length} campanhas ativas · ${A.days}d</h2>
+    <h2>Panorama · ${currentFunnel().emoji} Funil ${esc(currentFunnel().label)} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
       <div class="kpi"><div class="k-l">Receita atribuída</div><div class="k-v">${fmtMoney0(T.receita)}</div><div class="k-s">ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
@@ -524,7 +523,7 @@ function renderKPIs(A){
       <div class="kpi good"><div class="k-l">✅ Escalar</div><div class="k-v">${A.good.length}</div><div class="k-s">campanhas boas</div></div>
       <div class="kpi danger"><div class="k-l">🔴 Verba em risco</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia</div></div>
     </div>
-    <div class="mini" style="margin-top:10px">+ Outras fontes sem UTM meta no período: ${fmtNum(A.off.front)} front · ${fmtMoney0(A.off.receita)}. <b>Total geral</b>: ${fmtNum(geralFront)} front · ${fmtMoney0(geralRec)}.</div>
+    <div class="mini" style="margin-top:10px">Totais incluem tudo que gastou no período${A.pausadasGasto>0?` (dentro do gasto, ${fmtMoney0(A.pausadasGasto)} são de campanhas pausadas/desativadas)`:''}. As listas de decisão abaixo mostram só as ${A.rows.length} ativas. + Outras fontes sem UTM meta: ${fmtNum(A.off.front)} front · ${fmtMoney0(A.off.receita)}. <b>Total geral</b>: ${fmtNum(geralFront)} front · ${fmtMoney0(geralRec)}.</div>
   </div>`;
 }
 
