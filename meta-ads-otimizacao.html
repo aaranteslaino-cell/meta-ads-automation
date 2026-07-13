@@ -609,7 +609,7 @@ async function fetchFunis(){
     const res=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_products`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_org:currentFunnel().match||''})});
     const rows=res.ok?await res.json():[];
     const m={};
-    rows.forEach(r=>{ const f=r.funil_id; if(!m[f]) m[f]={id:f,produtos:[]}; m[f].produtos.push({nome:r.produto_nome,tipo:r.tipo_oferta,compradores:parseInt(r.compradores)||0,receita:parseFloat(r.receita)||0}); });
+    rows.forEach(r=>{ const f=r.funil_id; if(!m[f]) m[f]={id:f,nome:r.funil_nome||'',produtos:[]}; m[f].produtos.push({nome:r.produto_nome,tipo:r.tipo_oferta,compradores:parseInt(r.compradores)||0,receita:parseFloat(r.receita)||0}); });
     S._funis=Object.values(m);
   }catch(e){ S._funis=[]; }
   S._funisLoading=false; render();
@@ -629,7 +629,7 @@ function renderFunis(A){
     const front=f.produtos.filter(p=>p.tipo==='ENTRY').reduce((s,p)=>s+p.compradores,0);
     const receita=f.produtos.reduce((s,p)=>s+p.receita,0);
     const rate=t=>{ const c=f.produtos.filter(p=>p.tipo===t).reduce((s,p)=>s+p.compradores,0); return front?c/front*100:0; };
-    return {...f, front, receita, ticket:front?receita/front:0, bump:rate('ORDERBUMP'), up:rate('UPSELL'), dw:rate('DOWNSELL'), nome:nomeFunil(f.produtos)};
+    return {...f, front, receita, ticket:front?receita/front:0, bump:rate('ORDERBUMP'), up:rate('UPSELL'), dw:rate('DOWNSELL'), nome:(f.nome||nomeFunil(f.produtos))};
   }).filter(f=>f.front>0 || f.receita>0).sort((a,b)=>b.front-a.front);
   const tBadge=t=>`<span class="badge b-${t==='ENTRY'?'bom':t==='UPSELL'?'observar':t==='DOWNSELL'?'ruim':'novo'}">${t}</span>`;
   const body=funis.map(f=>{
