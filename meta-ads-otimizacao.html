@@ -141,9 +141,13 @@ S._intraday = null;    // curva do dia (gasto/receita por hora)
 S._intradayLoading = false;
 S._funis = null;       // funis de checkout + produtos (conversão)
 S._funisLoading = false;
+S._topAds = null;      // melhores anúncios ativos
+S._topAdsLoading = false;
+S._topPub = null;      // melhores públicos ativos
+S._topPubLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -179,7 +183,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.selCampaign=''; S._intraday=null; S._funis=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
@@ -327,6 +331,92 @@ async function fetchAllCampaigns(){
   return (await Promise.all(promises)).flat();
 }
 
+// ── Melhores anúncios ativos ─────────────────────────────────────────────────
+async function fetchAdEntities(parentId, tokenId){
+  const tok=getTokenById(tokenId);
+  const params={fields:'id,name,status,effective_status,campaign_id,adset_id', limit:500,
+    filtering: JSON.stringify([{field:'effective_status',operator:'IN',value:['ACTIVE']}])};
+  const r=await api(`/${parentId}/ads`, params, tok);
+  return r.data||[];
+}
+async function fetchAdInsights(parentId, tokenId){
+  const tok=getTokenById(tokenId);
+  const params={level:'ad', fields:`${INSIGHT_FIELDS},ad_id,ad_name,adset_id,campaign_id,campaign_name`, limit:500};
+  if(S.period==='custom') params.time_range=brWindow('custom'); else params.date_preset=S.period;
+  const r=await api(`/${parentId}/insights`, params, tok);
+  return r.data||[];
+}
+async function fetchTopAds(){
+  if(S._topAdsLoading) return; S._topAdsLoading=true; render();
+  try{
+    const accs=(S.accounts||[]).filter(a=>a.currency==='BRL');
+    const results=await Promise.all(accs.map(async acc=>{
+      try{
+        const [ents, ins] = await Promise.all([fetchAdEntities(acc.id,acc._tokenId), fetchAdInsights(acc.id,acc._tokenId)]);
+        const byId={}; ents.forEach(e=>{ byId[e.id]={...e}; });
+        ins.forEach(r=>{
+          const o=byId[r.ad_id]; if(!o) return; // só ativos (já filtrados na entidade)
+          Object.assign(o,{
+            spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
+            ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0,
+            initiate_checkout:getActionValue(r.actions,'initiate_checkout')||getActionValue(r.actions,'offsite_conversion.fb_pixel_initiate_checkout'),
+            campaign_name:r.campaign_name, _accountName:acc.name, _currency:acc.currency
+          });
+        });
+        return Object.values(byId).filter(o=>(o.spend||0)>0);
+      }catch(e){ return []; }
+    }));
+    S._topAds=results.flat();
+  }catch(e){ S._topAds=[]; }
+  S._topAdsLoading=false; render();
+}
+function reloadTopAds(){ S._topAds=null; fetchTopAds(); }
+
+// ── Melhores públicos ativos ──────────────────────────────────────────────────
+async function fetchAdsetEntities(parentId, tokenId){
+  const tok=getTokenById(tokenId);
+  const params={fields:'id,name,status,effective_status,campaign_id,targeting{custom_audiences,flexible_spec,age_min,age_max,genders}', limit:500,
+    filtering: JSON.stringify([{field:'effective_status',operator:'IN',value:['ACTIVE']}])};
+  const r=await api(`/${parentId}/adsets`, params, tok);
+  return r.data||[];
+}
+async function fetchAdsetInsights(parentId, tokenId){
+  const tok=getTokenById(tokenId);
+  const params={level:'adset', fields:`${INSIGHT_FIELDS},adset_id,adset_name,campaign_id,campaign_name`, limit:500};
+  if(S.period==='custom') params.time_range=brWindow('custom'); else params.date_preset=S.period;
+  const r=await api(`/${parentId}/insights`, params, tok);
+  return r.data||[];
+}
+function publicoLabel(adset){
+  const t=adset.targeting||{};
+  const ca=(t.custom_audiences||[]).map(a=>a.name).filter(Boolean);
+  if(ca.length) return ca.slice(0,2).join(' + ')+(ca.length>2?` +${ca.length-2}`:'');
+  const interesses=(t.flexible_spec||[]).flatMap(f=>(f.interests||[]).map(i=>i.name)).filter(Boolean);
+  if(interesses.length) return 'Interesses: '+interesses.slice(0,2).join(', ')+(interesses.length>2?'…':'');
+  return 'Amplo / Advantage+ (sem público customizado)';
+}
+async function fetchTopAudiences(){
+  if(S._topPubLoading) return; S._topPubLoading=true; render();
+  try{
+    const accs=(S.accounts||[]).filter(a=>a.currency==='BRL');
+    const results=await Promise.all(accs.map(async acc=>{
+      try{
+        const [ents, ins] = await Promise.all([fetchAdsetEntities(acc.id,acc._tokenId), fetchAdsetInsights(acc.id,acc._tokenId)]);
+        const byId={}; ents.forEach(e=>{ byId[e.id]={...e, publico:publicoLabel(e)}; });
+        ins.forEach(r=>{
+          const o=byId[r.adset_id]; if(!o) return;
+          Object.assign(o,{ spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0, ctr:parseFloat(r.ctr)||0,
+            campaign_name:r.campaign_name, _accountName:acc.name, _currency:acc.currency });
+        });
+        return Object.values(byId).filter(o=>(o.spend||0)>0);
+      }catch(e){ return []; }
+    }));
+    S._topPub=results.flat();
+  }catch(e){ S._topPub=[]; }
+  S._topPubLoading=false; render();
+}
+function reloadTopAudiences(){ S._topPub=null; fetchTopAudiences(); }
+
 // ── Receita (Supabase) ──────────────────────────────────────────────────────
 function periodRange(period){
   const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
@@ -341,16 +431,19 @@ async function fetchRevenue(){
   try{
     const res=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_by_ad`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})});
     if(!res.ok) throw new Error('HTTP '+res.status);
-    const rows=await res.json(); const byCampaign={};
+    const rows=await res.json(); const byCampaign={}, byAdset={}, byAd={};
     const add=(m,k,v)=>{ if(!k) return; if(!m[k]) m[k]={front:0,total:0,receita:0}; m[k].front+=v.front; m[k].total+=v.total; m[k].receita+=v.receita; };
-    (rows||[]).forEach(r=>{ add(byCampaign, r.campaign_id, {front:parseInt(r.vendas_front)||0,total:parseInt(r.vendas_total)||0,receita:parseFloat(r.receita_bruta)||0}); });
+    (rows||[]).forEach(r=>{
+      const v={front:parseInt(r.vendas_front)||0,total:parseInt(r.vendas_total)||0,receita:parseFloat(r.receita_bruta)||0};
+      add(byCampaign, r.campaign_id, v); add(byAdset, r.adset_id, v); add(byAd, r.ad_id, v);
+    });
     let offsite={front:0,total:0,receita:0};
     try{ const r2=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_offsite`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})}); if(r2.ok){ const o=(await r2.json())[0]||{}; offsite={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
     // Faturamento TOTAL do funil (por projeto na Assiny) — bate com o painel da Assiny
     let funnelTotal={front:0,total:0,receita:0};
     try{ const r3=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})}); if(r3.ok){ const o=(await r3.json())[0]||{}; funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
-    return {byCampaign, offsite, funnelTotal};
-  }catch(e){ console.warn('receita falhou',e.message); return {byCampaign:{}, offsite:{front:0,total:0,receita:0}, funnelTotal:{front:0,total:0,receita:0}, _error:e.message}; }
+    return {byCampaign, byAdset, byAd, offsite, funnelTotal};
+  }catch(e){ console.warn('receita falhou',e.message); return {byCampaign:{}, byAdset:{}, byAd:{}, offsite:{front:0,total:0,receita:0}, funnelTotal:{front:0,total:0,receita:0}, _error:e.message}; }
 }
 function attachRevenue(rows){
   const map=(S._rev&&S._rev.byCampaign)||{};
@@ -532,7 +625,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
 }
 
 function renderKPIs(A){
@@ -739,16 +832,16 @@ function renderActions(A){
   <div class="mini" style="margin-top:8px">Geradas automaticamente a partir dos dados do período. Nada é executado sem sua confirmação.</div></div>`;
 }
 
-function dimTable(title, arr, note){
+function dimTable(title, arr, note, countLabel){
   if(!arr.length) return '';
   // vencedor/pior por CPA entre os relevantes
   const rel=arr.filter(a=>a.cpa!=null && a.front>=3).sort((a,b)=>a.cpa-b.cpa);
   const best=rel[0]?.key, worst=rel.length>1?rel[rel.length-1].key:null;
   return `<div style="margin-bottom:18px">
-    <h3>${title}${note?` <span class="mini">${note}</span>`:''}</h3>
+    ${title?`<h3>${title}${note?` <span class="mini">${note}</span>`:''}</h3>`:''}
     <div class="tbl-wrap" style="max-height:none">
     <table><thead><tr>
-      <th>Segmento</th><th class="num">Campanhas</th><th class="num">Gasto</th><th class="num">Front</th><th class="num">CPA</th><th class="num">Receita</th><th class="num">ROAS</th><th class="num">CTR</th>
+      <th>Segmento</th><th class="num">${countLabel||'Campanhas'}</th><th class="num">Gasto</th><th class="num">Front</th><th class="num">CPA</th><th class="num">Receita</th><th class="num">ROAS</th><th class="num">CTR</th>
     </tr></thead><tbody>
     ${arr.map(a=>`<tr>
       <td>${esc(a.key)} ${a.key===best?'<span class="badge b-bom">melhor</span>':a.key===worst?'<span class="badge b-ruim">pior</span>':''}</td>
@@ -800,6 +893,54 @@ function renderTable(A){
       <td class="num" style="color:${roasColor(r._roas)};font-weight:700">${fmtRoas(r._roas)}</td>
     </tr>`).join('')}
     </tbody></table></div>
+  </div>`;
+}
+
+// ── Panorama final: melhores anúncios e públicos ativos ──────────────────────
+function renderTopAdsAudiences(A){
+  const head=`<h2>🏆 Melhores anúncios e públicos ativos <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
+  // Anúncios
+  let adsHtml;
+  if(S._topAdsLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios ativos…</div>`; }
+  else if(S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="fetchTopAds()">Carregar melhores anúncios</button>`; }
+  else {
+    const byAd=(S._rev&&S._rev.byAd)||{};
+    const ads=S._topAds.filter(o=>matchFunnel(o.campaign_name)).map(o=>{
+      const hit=byAd[String(o.id)]; const receita=hit?hit.receita:0, front=hit?hit.front:0, total=hit?hit.total:0;
+      const roas=o.spend>0?receita/o.spend:null; const cpa=front>0?o.spend/front:null;
+      return {...o, receita, front, total, roas, cpa};
+    }).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
+    const top=ads.filter(a=>a.front>=1).slice(0,10);
+    adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
+        <div class="i-top"><div class="i-name">${esc(a.name)}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
+        <div class="i-sub">${esc(a._accountName)} · ${fmtMoney0(a.spend)} gasto · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)} · ${esc(String(a.id))}</div>
+      </div>`).join('')
+      : `<div class="empty">Nenhum anúncio ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
+  }
+  // Públicos
+  let pubHtml;
+  if(S._topPubLoading){ pubHtml=`<div class="empty"><span class="loading"></span> Carregando públicos ativos…</div>`; }
+  else if(S._topPub==null){ pubHtml=`<button class="btn btn-purple" onclick="fetchTopAudiences()">Carregar melhores públicos</button>`; }
+  else {
+    const byAdset=(S._rev&&S._rev.byAdset)||{};
+    const pubs=S._topPub.filter(o=>matchFunnel(o.campaign_name));
+    const m={};
+    pubs.forEach(o=>{
+      const hit=byAdset[String(o.id)]; const receita=hit?hit.receita:0, front=hit?hit.front:0;
+      const k=o.publico;
+      if(!m[k]) m[k]={key:k, n:0, spend:0, receita:0, front:0, imp:0, clicks:0};
+      const a=m[k]; a.n++; a.spend+=o.spend||0; a.receita+=receita; a.front+=front; a.imp+=o.impressions||0; a.clicks+=o.clicks||0;
+    });
+    const arr=Object.values(m).map(a=>({...a, roas:a.spend>0?a.receita/a.spend:null, cpa:a.front>0?a.spend/a.front:null, ctr:a.imp>0?a.clicks/a.imp*100:0})).sort((x,y)=>y.spend-x.spend);
+    pubHtml = arr.length ? dimTable('', arr, '', 'Conjuntos') : `<div class="empty">Nenhum público ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
+  }
+  return `<div class="card">${head}
+    <h3 style="margin:2px 0 8px">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com pelo menos 1 venda, ordenados por ROAS</span></h3>
+    ${adsHtml}
+    <hr style="margin:16px 0">
+    <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios ativo (público customizado, interesses ou amplo/Advantage+)</span></h3>
+    ${pubHtml}
+    <div class="mini" style="margin-top:8px">Carregado sob demanda (não entra no refresh automático, para não pesar). Receita cruzada pelo ID exato do anúncio/conjunto no Supabase. Contas fora do fuso de Brasília podem ter pequena diferença de janela aqui (não usa o reagrupamento horário do Panorama).</div>
   </div>`;
 }
 
@@ -1165,14 +1306,14 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; saveState(); refreshData(); }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
   if(!S.customSince) S.customSince=value;
   if(!S.customUntil) S.customUntil=value;
   if(S.customSince>S.customUntil){ const t=S.customSince; S.customSince=S.customUntil; S.customUntil=t; }
-  S.period='custom'; S._intraday=null; S._funis=null; saveState(); refreshData();
+  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; saveState(); refreshData();
 }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
