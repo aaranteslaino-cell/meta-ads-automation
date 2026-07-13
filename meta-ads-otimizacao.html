@@ -910,7 +910,8 @@ function renderTopAdsAudiences(A){
       const roas=o.spend>0?receita/o.spend:null; const cpa=front>0?o.spend/front:null;
       return {...o, receita, front, total, roas, cpa};
     }).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
-    const top=ads.filter(a=>a.front>=1).slice(0,10);
+    const minG=Math.max(20, (A.cpaAlvo||80)*0.3); // evita ROAS absurdo por gasto quase zero + 1 venda de ruído
+    const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
         <div class="i-sub">${esc(a._accountName)} · ${fmtMoney0(a.spend)} gasto · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)} · ${esc(String(a.id))}</div>
@@ -935,7 +936,7 @@ function renderTopAdsAudiences(A){
     pubHtml = arr.length ? dimTable('', arr, '', 'Conjuntos') : `<div class="empty">Nenhum público ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
   return `<div class="card">${head}
-    <h3 style="margin:2px 0 8px">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com pelo menos 1 venda, ordenados por ROAS</span></h3>
+    <h3 style="margin:2px 0 8px">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com pelo menos 1 venda e gasto mínimo (evita ROAS irreal por ruído), ordenados por ROAS</span></h3>
     ${adsHtml}
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios ativo (público customizado, interesses ou amplo/Advantage+)</span></h3>
