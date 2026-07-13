@@ -760,9 +760,10 @@ function renderComparativoCard(A){
   if(!S._comp) return `<div class="card"><h2>📊 Comparativo temporal + Ações</h2>
     <p class="sub" style="margin-bottom:10px">Gasto, faturamento e lucro por janela (hoje, 2, 3 e 5 dias), com a ação sugerida (escalar / reduzir / desativar) e botão para executar direto na conta. Puxa 5 dias diários do Meta + receita por janela do Supabase.</p>
     <button class="btn btn-purple" onclick="fetchComparativo()">Carregar comparativo</button></div>`;
-  let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name) && c.s5>0).sort((a,b)=>b.s5-a.s5);
-  const B=parseFloat(A.roasAlvo)||1, cpaAlvo=A.cpaAlvo||9999;
   const byId={}; (S.data||[]).forEach(r=>byId[r.id]=r);
+  // só campanhas ATIVAS agora (pausadas/desativadas já saíram, não sujam a análise)
+  let rows=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name) && c.s5>0 && ((byId[c.id]||{}).effective_status==='ACTIVE')).sort((a,b)=>b.s5-a.s5);
+  const B=parseFloat(A.roasAlvo)||1, cpaAlvo=A.cpaAlvo||9999;
   const cell=(g,r)=>{ const l=r-g, col=l>0?'#137333':l<0?'#c5221f':'#888', bg=l>0?'#eafaef':l<0?'#fdeeee':'transparent';
     return `<td class="num">${fmtMoney0(g)}</td><td class="num">${fmtMoney0(r)}</td><td class="num" style="color:${col};background:${bg};font-weight:700">${fmtMoney0(l)}</td>`; };
   const acaoCell=(c,act)=>{
@@ -828,7 +829,8 @@ async function execAcao(id){
 }
 async function execLote(tipo){
   const B=parseFloat(S.roasAlvo)||1; const A=analyze(); const cpaAlvo=A.cpaAlvo||80;
-  const ids=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name)&&c.s5>0)
+  const byId={}; (S.data||[]).forEach(r=>byId[r.id]=r);
+  const ids=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name)&&c.s5>0 && ((byId[c.id]||{}).effective_status==='ACTIVE'))
     .filter(c=>acaoSugerida(c,B,cpaAlvo).a===tipo && !(S._exec&&S._exec[c.id])).map(c=>c.id);
   if(!ids.length){ alert('Nada para executar.'); return; }
   const rot=tipo==='ESCALAR'?'ESCALAR +30%':tipo==='REDUZIR'?'REDUZIR −30%':'DESATIVAR';
