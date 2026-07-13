@@ -375,7 +375,7 @@ function reloadTopAds(){ S._topAds=null; fetchTopAds(); }
 // ── Melhores públicos ativos ──────────────────────────────────────────────────
 async function fetchAdsetEntities(parentId, tokenId){
   const tok=getTokenById(tokenId);
-  const params={fields:'id,name,status,effective_status,campaign_id,targeting{custom_audiences,flexible_spec,age_min,age_max,genders}', limit:500,
+  const params={fields:'id,name,status,effective_status,campaign_id,targeting{custom_audiences{name},flexible_spec,age_min,age_max,genders}', limit:500,
     filtering: JSON.stringify([{field:'effective_status',operator:'IN',value:['ACTIVE']}])};
   const r=await api(`/${parentId}/adsets`, params, tok);
   return r.data||[];
@@ -389,7 +389,7 @@ async function fetchAdsetInsights(parentId, tokenId){
 }
 function publicoLabel(adset){
   const t=adset.targeting||{};
-  const ca=(t.custom_audiences||[]).map(a=>a.name).filter(Boolean);
+  const ca=(t.custom_audiences||[]).map(a=>a.name||a.id).filter(Boolean);
   if(ca.length) return ca.slice(0,2).join(' + ')+(ca.length>2?` +${ca.length-2}`:'');
   const interesses=(t.flexible_spec||[]).flatMap(f=>(f.interests||[]).map(i=>i.name)).filter(Boolean);
   if(interesses.length) return 'Interesses: '+interesses.slice(0,2).join(', ')+(interesses.length>2?'…':'');
