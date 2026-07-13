@@ -636,7 +636,14 @@ function reloadFunis(){ S._funis=null; fetchFunis(); }
 const PROD_ORDER=['ENTRY','OB1','OB2','OB3','UP1','DW1','DW2','UP2','UP3'];
 function prodRank(p){
   if(p.tipo==='ENTRY') return 0;
-  const m=(p.nome||'').match(/\b(OB|UP|DW)\s*#?\s*(\d)/i);
+  const nome=p.nome||'';
+  // overrides para produtos sem número no nome mas com posição conhecida
+  if(/c[oó]digo\s*de\s*r\$?\s*500/i.test(nome)) return PROD_ORDER.indexOf('OB3');
+  if(/loja pronta/i.test(nome)){
+    if(p.tipo==='UPSELL') return PROD_ORDER.indexOf('UP1');
+    if(p.tipo==='DOWNSELL') return PROD_ORDER.indexOf('DW1');
+  }
+  const m=nome.match(/\b(OB|UP|DW)\s*#?\s*(\d)/i);
   if(m){ const idx=PROD_ORDER.indexOf(m[1].toUpperCase()+m[2]); if(idx>=0) return idx; }
   const fallback={ORDERBUMP:1.5, UPSELL:4.5, DOWNSELL:5.5}; // produto sem número no nome: agrupa perto do tipo
   return 50+(fallback[p.tipo]||9);
