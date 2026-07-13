@@ -117,6 +117,7 @@ S.lastRefresh = null;
 if(!S.period) S.period = 'last_7d';
 if(typeof S.customSince!=='string') S.customSince='';   // YYYY-MM-DD (BRT) quando período='custom'
 if(typeof S.customUntil!=='string') S.customUntil='';
+if(typeof S.selCampaign!=='string') S.selCampaign='';   // campanha selecionada p/ curva do dia individual
 if(typeof S.nameContains !== 'string') S.nameContains = '';
 // Funil selecionado (seletor no topo). Migra o filtro antigo (nameContains='NATH') para funil.
 if(!S.funnel){
@@ -178,7 +179,8 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S._intraday=null; S._funis=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.selCampaign=''; S._intraday=null; S._funis=null; saveState(); render(); }
+function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
   const a=S.alvos, out=[];
@@ -978,7 +980,7 @@ async function fetchIntraday(){
         'breakdowns=hourly_stats_aggregated_by_advertiser_time_zone',
         'time_increment=1',
         'time_range='+encodeURIComponent(JSON.stringify({since, until:today})),
-        'fields='+encodeURIComponent('spend,campaign_name'),
+        'fields='+encodeURIComponent('spend,campaign_name,campaign_id'),
         'access_token='+encodeURIComponent(tok)
       ].join('&');
       let pages=0;
@@ -986,6 +988,7 @@ async function fetchIntraday(){
         const j=await (await fetch(url)).json(); if(j.error) break;
         for(const r of (j.data||[])){
           if(!matchFunnel(r.campaign_name)) continue;
+          if(S.selCampaign && String(r.campaign_id)!==String(S.selCampaign)) continue;
           const hStr=r.hourly_stats_aggregated_by_advertiser_time_zone||'00';
           const hr=parseInt(hStr.slice(0,2),10)||0;
           const base=new Date(r.date_start+'T00:00:00Z'); base.setUTCHours(hr+shift);
@@ -998,7 +1001,7 @@ async function fetchIntraday(){
     const revH=new Array(24).fill(0);
     try{
       const at=s=>`${s}T00:00:00-03:00`;
-      const res=await fetch(`${S.sbUrl}/rest/v1/rpc/revenue_hourly`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:at(today), p_until:at(addDaysStr(today,1)), p_funil: currentFunnel().match||''})});
+      const res=await fetch(`${S.sbUrl}/rest/v1/rpc/revenue_hourly`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:at(today), p_until:at(addDaysStr(today,1)), p_funil: currentFunnel().match||'', p_campaign: S.selCampaign||null})});
       if(res.ok){ for(const row of await res.json()){ const h=+row.hora; if(h>=0&&h<24) revH[h]=parseFloat(row.receita)||0; } }
     }catch(e){}
     S._intraday={date:today, spendH, revH};
@@ -1035,7 +1038,13 @@ function svgIntraday(sp, rv, events, fullDay){
   </svg>`;
 }
 function renderAcompanhamento(A){
-  const slotBar=`<div class="row" style="gap:6px;margin-bottom:12px"><span class="mini" style="font-weight:700">Horários de análise:</span>${SLOTS_ANALISE.map(s=>`<span class="chip ${nearestSlot()===s?'active':''}" style="cursor:default">${s}</span>`).join('')}</div>`;
+  const slotBar=`<div class="row" style="gap:6px;margin-bottom:10px"><span class="mini" style="font-weight:700">Horários de análise:</span>${SLOTS_ANALISE.map(s=>`<span class="chip ${nearestSlot()===s?'active':''}" style="cursor:default">${s}</span>`).join('')}</div>`;
+  const activeCamps=(S.data||[]).filter(r=>(r._currency||'BRL')==='BRL' && (r.effective_status||'')==='ACTIVE' && (r.spend||0)>0 && matchFunnel(r.name)).sort((a,b)=>(b.spend||0)-(a.spend||0));
+  const selName=(activeCamps.find(c=>String(c.id)===S.selCampaign)||{}).name||'';
+  const campSel=`<div class="row" style="gap:8px;margin-bottom:12px"><span class="mini" style="font-weight:700">Campanha:</span><select onchange="setSelCampaign(this.value)" style="max-width:680px;flex:1;padding:6px 8px">
+    <option value="">Todas do funil (${activeCamps.length})</option>
+    ${activeCamps.map(c=>`<option value="${esc(String(c.id))}" ${S.selCampaign===String(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
+  </select>${S.selCampaign?`<button class="btn btn-gray btn-sm" onclick="setSelCampaign('')">limpar</button>`:''}</div>`;
   const head=`<h2>📈 Acompanhamento das otimizações <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadIntraday();reloadOtim()">↻ Atualizar</button></h2>`;
   // ── Gráfico do dia (sempre visível, auto-carregado) ──
   let intradayHtml='';
@@ -1048,9 +1057,10 @@ function renderAcompanhamento(A){
     const has=S._intraday.spendH.some(v=>v>0)||S._intraday.revH.some(v=>v>0);
     const dLabel=S._intraday.date.split('-').reverse().slice(0,2).join('/');
     const fullDay=S._intraday.date!==brToday();
+    const alvo = S.selCampaign ? esc(selName) : esc(currentFunnel().label);
     intradayHtml = has
-      ? `<h3 style="margin:0 0 6px">Curva do dia (${dLabel}${fullDay?'':' · parcial, em andamento'}) <span class="mini" style="text-transform:none">gasto (cinza) vs receita (roxo) acumulados · ROAS anotado nos horários · linhas tracejadas = otimizações feitas</span></h3>${svgIntraday(S._intraday.spendH,S._intraday.revH,evT,fullDay)}`
-      : `<div class="empty">Ainda sem gasto/receita hoje para o funil ${esc(currentFunnel().label)}.</div>`;
+      ? `<h3 style="margin:0 0 6px">Curva do dia (${dLabel}${fullDay?'':' · parcial, em andamento'}) · ${S.selCampaign?'📢 '+alvo:'funil '+alvo} <span class="mini" style="text-transform:none">gasto (cinza) vs receita (roxo) acumulados · ROAS anotado nos horários · linhas tracejadas = otimizações feitas</span></h3>${svgIntraday(S._intraday.spendH,S._intraday.revH,evT,fullDay)}`
+      : `<div class="empty">Ainda sem gasto/receita no período para ${S.selCampaign?'esta campanha':'o funil '+esc(currentFunnel().label)}.</div>`;
   }
   // ── Log das otimizações ──
   let logHtml='';
@@ -1077,11 +1087,11 @@ function renderAcompanhamento(A){
       </div>
       <div style="margin-bottom:14px">${chart}</div>
       <div class="tbl-wrap" style="max-height:340px"><table><thead><tr><th>Quando</th><th>Slot</th><th>Campanha</th><th>Ação</th><th class="num">Orç.</th><th class="num">ROAS hoje no ato</th><th class="num">ROAS hoje agora</th><th>Resultado</th></tr></thead><tbody>
-      ${rows.map(r=>`<tr><td class="mini">${fmtH(r.created_at)}</td><td>${esc(r.slot||'')}</td><td>${esc(shortName(r.campaign_name))}</td><td>${badge(r.acao)}</td><td class="num">${r.acao==='DESATIVAR'?'R$ '+(+r.orc_antes||0).toFixed(0)+'→0':(r.orc_antes!=null?'R$ '+(+r.orc_antes).toFixed(0)+'→'+(+r.orc_depois).toFixed(0):'—')}</td><td class="num">${r.roas1!=null?(+r.roas1).toFixed(2)+'x':'—'}</td><td class="num">${r.agora!=null?r.agora.toFixed(2)+'x':'—'}</td><td>${vd(r)}</td></tr>`).join('')}
+      ${rows.map(r=>`<tr><td class="mini">${fmtH(r.created_at)}</td><td>${esc(r.slot||'')}</td><td>${esc(r.campaign_name)}</td><td>${badge(r.acao)}</td><td class="num">${r.acao==='DESATIVAR'?'R$ '+(+r.orc_antes||0).toFixed(0)+'→0':(r.orc_antes!=null?'R$ '+(+r.orc_antes).toFixed(0)+'→'+(+r.orc_depois).toFixed(0):'—')}</td><td class="num">${r.roas1!=null?(+r.roas1).toFixed(2)+'x':'—'}</td><td class="num">${r.agora!=null?r.agora.toFixed(2)+'x':'—'}</td><td>${vd(r)}</td></tr>`).join('')}
       </tbody></table></div>
       <div class="mini" style="margin-top:8px">Mostra o <b>ROAS do dia</b> (não mais 3 dias) para medir o impacto da otimização dentro do próprio dia. "No ato" = ROAS do dia no clique; "agora" = ROAS do dia atual (do comparativo). ▲ melhorou / ▼ piorou. Como o dia é parcial, o ROAS de hoje sobe ao longo do dia conforme as vendas caem.</div>`;
   }
-  return `<div class="card">${head}${slotBar}${intradayHtml}${logHtml}</div>`;
+  return `<div class="card">${head}${slotBar}${campSel}${intradayHtml}${logHtml}</div>`;
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
