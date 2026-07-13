@@ -115,6 +115,8 @@ S.data = [];
 S.refreshing = false;
 S.lastRefresh = null;
 if(!S.period) S.period = 'last_7d';
+if(typeof S.customSince!=='string') S.customSince='';   // YYYY-MM-DD (BRT) quando período='custom'
+if(typeof S.customUntil!=='string') S.customUntil='';
 if(typeof S.nameContains !== 'string') S.nameContains = '';
 // Funil selecionado (seletor no topo). Migra o filtro antigo (nameContains='NATH') para funil.
 if(!S.funnel){
@@ -226,19 +228,26 @@ function getActionValue(actions, type){ if(!Array.isArray(actions)) return 0; co
 const BR_OFFSET = -3;
 const brToday = () => new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const addDaysStr = (s,days)=>{ const d=new Date(s+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); };
+function customRange(){ const u=S.customUntil||brToday(); const s=S.customSince||addDaysStr(u,-6); return (s<=u)?{since:s,until:u}:{since:u,until:s}; }
 function brWindow(period){
   const today=brToday();
+  if(period==='custom') return customRange();
   if(period==='today') return {since:today,until:today};
   if(period==='yesterday'){ const y=addDaysStr(today,-1); return {since:y,until:y}; }
   const n=period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7;
   return {since:addDaysStr(today,-n),until:addDaysStr(today,-1)};
 }
-function periodDays(period){ return period==='today'||period==='yesterday'?1:(period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7); }
+function periodDays(period){
+  if(period==='custom'){ const r=customRange(); return Math.max(1, Math.round((new Date(r.until+'T00:00:00Z')-new Date(r.since+'T00:00:00Z'))/864e5)+1); }
+  return period==='today'||period==='yesterday'?1:(period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7);
+}
 
 async function fetchInsights(parentId, level, tokenId, tzOffset){
   if(tzOffset!=null && Number(tzOffset)!==BR_OFFSET) return await fetchInsightsHourlyBRT(parentId, level, tokenId, Number(tzOffset));
   const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
-  const r = await api(`/${parentId}/insights`, {level, fields:`${INSIGHT_FIELDS},campaign_id,campaign_name`, date_preset:S.period, limit:500}, tok);
+  const params={level, fields:`${INSIGHT_FIELDS},campaign_id,campaign_name`, limit:500};
+  if(S.period==='custom') params.time_range=brWindow('custom'); else params.date_preset=S.period;
+  const r = await api(`/${parentId}/insights`, params, tok);
   return r.data||[];
 }
 async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
@@ -319,6 +328,7 @@ async function fetchAllCampaigns(){
 // ── Receita (Supabase) ──────────────────────────────────────────────────────
 function periodRange(period){
   const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
+  if(period==='custom'){ const r=customRange(); return {since:at(r.since), until:at(addDaysStr(r.until,1))}; }
   if(period==='today') return {since:at(today),until:at(addDaysStr(today,1))};
   if(period==='yesterday') return {since:at(addDaysStr(today,-1)),until:at(today)};
   const n=periodDays(period);
@@ -496,6 +506,11 @@ function renderControls(A){
     <div class="row" style="margin-bottom:12px">
       <label style="margin:0 6px 0 0">Período:</label>
       ${PERIODS.map(([k,l])=>`<button class="chip ${S.period===k?'active':''}" onclick="setPeriod('${k}')">${l}</button>`).join('')}
+      <span class="mini" style="margin-left:6px">ou datas:</span>
+      <input type="date" value="${esc(S.customSince)}" max="${brToday()}" onchange="setCustomDate('since',this.value)" style="width:140px;padding:6px 8px;${S.period==='custom'?'border-color:#7b2ff7':''}">
+      <span class="mini">até</span>
+      <input type="date" value="${esc(S.customUntil)}" max="${brToday()}" onchange="setCustomDate('until',this.value)" style="width:140px;padding:6px 8px;${S.period==='custom'?'border-color:#7b2ff7':''}">
+      ${S.period==='custom'?`<span class="chip active" style="cursor:default">📅 ${A.days} dia(s)</span>`:''}
     </div>
     <div class="row" style="gap:16px;align-items:flex-end">
       <div><label>Refinar (opcional)</label><input style="width:160px" value="${esc(S.nameContains)}" onchange="setCfg('nameContains',this.value)" placeholder="ex: CBO, 07.07"></div>
@@ -947,7 +962,7 @@ function svgAntesDepois(groups){
 }
 // Curva do dia: gasto por hora (Meta, breakdown horário → BRT) + receita por hora (Supabase)
 // Segue o período selecionado: 'today'=hoje; qualquer outro (yesterday/last_Nd)=último dia fechado (ontem)
-function intradayDate(){ const t=brToday(); return S.period==='today' ? t : addDaysStr(t,-1); }
+function intradayDate(){ const t=brToday(); if(S.period==='today') return t; if(S.period==='custom') return customRange().until; return addDaysStr(t,-1); }
 async function fetchIntraday(){
   if(S._intradayLoading) return; S._intradayLoading=true; render();
   try{
@@ -1071,6 +1086,14 @@ function renderAcompanhamento(A){
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
 function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; saveState(); refreshData(); }
+function setCustomDate(which, value){
+  if(!value) return;
+  if(which==='since') S.customSince=value; else S.customUntil=value;
+  if(!S.customSince) S.customSince=value;
+  if(!S.customUntil) S.customUntil=value;
+  if(S.customSince>S.customUntil){ const t=S.customSince; S.customSince=S.customUntil; S.customUntil=t; }
+  S.period='custom'; S._intraday=null; S._funis=null; saveState(); refreshData();
+}
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
 render();
