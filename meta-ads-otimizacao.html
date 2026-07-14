@@ -1018,13 +1018,22 @@ function renderComparativoCard(A){
     return `<td class="num">${fmtMoney0(g)}</td><td class="num">${fmtMoney0(r)}</td><td class="num" style="color:${col};background:${bg};font-weight:700">${fmtMoney0(l)}</td>`; };
   const acaoCell=(c,act)=>{
     const done=S._exec&&S._exec[c.id];
-    if(done) return `<td><span class="badge b-bom">✓ ${done==='DESATIVAR'?'pausada':done==='ESCALAR'?'escalada':'reduzida'}</span></td>`;
+    const last=lastActionFor(c.id);
+    const recente = last && hoursSince(last.created_at) < COOLDOWN_H;
+    let jaFeitoHtml='';
+    if(done || recente){
+      const acaoRef = done || last.acao;
+      const label = acaoRef==='DESATIVAR'?'pausada':acaoRef==='ESCALAR'?'escalada':'reduzida';
+      const quando = last ? `há ${fmtHoras(hoursSince(last.created_at))}` : 'agora';
+      const faltam = last ? Math.max(0, COOLDOWN_H-hoursSince(last.created_at)) : 0;
+      jaFeitoHtml = `<div class="mini" style="color:#137333;font-weight:700">✓ ${label} ${quando}</div>${faltam>0?`<div class="mini" style="color:#b08900">⏳ evite reagir de novo por ~${fmtHoras(faltam)} (reaprendizado do CBO)</div>`:''}`;
+    }
     const d=byId[c.id]||{}, daily=+(d.daily_budget||0);
     const badge=`<span class="badge b-${act.cls}" title="${esc(act.why)}">${act.a}</span>`;
-    if(!daily) return `<td>${badge}<div class="mini">orçamento no conjunto (ABO)</div></td>`;
+    if(!daily) return `<td>${jaFeitoHtml}${badge}<div class="mini">orçamento no conjunto (ABO)</div></td>`;
     if(act.a==='ESCALAR'){
       const selId='esc_'+c.id;
-      return `<td>${badge}
+      return `<td>${jaFeitoHtml}${badge}
         <div class="row" style="gap:4px;margin-top:4px;align-items:center;flex-wrap:nowrap">
           <select id="${selId}" style="padding:2px 3px;font-size:12px;width:auto">
             <option value="1.3">+30%</option><option value="1.5">+50%</option><option value="2">+100%</option>
@@ -1035,13 +1044,13 @@ function renderComparativoCard(A){
     }
     if(act.a==='REDUZIR'){
       const novo=Math.round(daily*act.pct);
-      return `<td>${badge}<div class="mini">R$ ${(daily/100).toFixed(2)} → R$ ${(novo/100).toFixed(2)}</div>
+      return `<td>${jaFeitoHtml}${badge}<div class="mini">R$ ${(daily/100).toFixed(2)} → R$ ${(novo/100).toFixed(2)}</div>
         <button class="btn btn-gray btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Executar</button>
       </td>`;
     }
     if(act.a==='DESATIVAR'){
       const selId='red_'+c.id;
-      return `<td>${badge}
+      return `<td>${jaFeitoHtml}${badge}
         <button class="btn btn-red btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Pausar</button>
         <div class="row" style="gap:4px;margin-top:4px;align-items:center;flex-wrap:nowrap">
           <select id="${selId}" style="padding:2px 3px;font-size:12px;width:auto">
@@ -1051,10 +1060,10 @@ function renderComparativoCard(A){
         </div>
       </td>`;
     }
-    return `<td>${badge}</td>`;
+    return `<td>${jaFeitoHtml}${badge}</td>`;
   };
   const acts=rows.map(c=>({c, act:acaoSugerida(c,B,cpaAlvo)}));
-  const cnt=t=>acts.filter(x=>x.act.a===t && !(S._exec&&S._exec[x.c.id])).length;
+  const cnt=t=>acts.filter(x=>x.act.a===t && !jaFeitoRecente(x.c.id)).length;
   const nE=cnt('ESCALAR'), nR=cnt('REDUZIR'), nD=cnt('DESATIVAR');
   return `<div class="card"><h2>📊 Comparativo temporal + Ações
       <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="fetchComparativo()">↻ Atualizar</button></h2>
@@ -1081,6 +1090,18 @@ async function apiPost(id, body, tok){
   if(j.error) throw new Error('('+j.error.code+') '+j.error.message);
   return j;
 }
+// Evita reagir na mesma campanha várias vezes seguidas no mesmo dia (causa reaprendizado do CBO — foi a causa
+// confirmada do CPM subir 16% depois de escalar a mesma campanha 4x em poucas horas)
+const COOLDOWN_H = 6;
+function lastActionFor(campaignId){
+  if(!S._otim || !S._otim.length) return null;
+  const evs=S._otim.filter(e=>String(e.campaign_id)===String(campaignId));
+  if(!evs.length) return null;
+  return evs.reduce((a,b)=> new Date(a.created_at) > new Date(b.created_at) ? a : b);
+}
+const hoursSince=iso=>(Date.now()-new Date(iso).getTime())/36e5;
+const fmtHoras=h=> h<1 ? Math.round(h*60)+'min' : Math.round(h)+'h';
+function jaFeitoRecente(id){ if(S._exec&&S._exec[id]) return true; const l=lastActionFor(id); return !!(l && hoursSince(l.created_at) < COOLDOWN_H); }
 function acaoBody(id){
   const c=S._comp&&S._comp[id]; const d=(S.data||[]).find(r=>r.id===id);
   if(!c||!d) return null;
@@ -1121,7 +1142,7 @@ async function execLote(tipo){
   const B=parseFloat(S.roasAlvo)||1; const A=analyze(); const cpaAlvo=A.cpaAlvo||80;
   const byId={}; (S.data||[]).forEach(r=>byId[r.id]=r);
   const ids=Object.entries(S._comp).map(([id,c])=>({id,...c})).filter(c=>matchFunnel(c.name)&&c.s5>0 && ((byId[c.id]||{}).effective_status==='ACTIVE'))
-    .filter(c=>acaoSugerida(c,B,cpaAlvo).a===tipo && !(S._exec&&S._exec[c.id])).map(c=>c.id);
+    .filter(c=>acaoSugerida(c,B,cpaAlvo).a===tipo && !jaFeitoRecente(c.id)).map(c=>c.id);
   if(!ids.length){ alert('Nada para executar.'); return; }
   const rot=tipo==='ESCALAR'?'ESCALAR +30%':tipo==='REDUZIR'?'REDUZIR −30%':'DESATIVAR';
   if(!confirm('Confirmar '+rot+' em '+ids.length+' campanha(s)? Isso aplica direto na conta.')) return;
