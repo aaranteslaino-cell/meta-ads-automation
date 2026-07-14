@@ -145,9 +145,15 @@ S._topAds = null;      // melhores anúncios ativos
 S._topAdsLoading = false;
 S._topPub = null;      // melhores públicos ativos
 S._topPubLoading = false;
+if(typeof S.backendKeyword!=='string' || !S.backendKeyword) S.backendKeyword='mentoria'; // palavra-chave do backend (organização Mentoria e Consultorias)
+S._crossover = null;      // compradores backend + origem no front (Supabase, sempre visível, independe da organização selecionada)
+S._crossoverRate = null;  // taxa de conversão geral front→backend (histórico completo)
+S._crossoverLoading = false;
+S._crossoverCAC = null;   // custo real (gasto Meta) por campanha de origem, carregado sob demanda
+S._crossoverCACLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverCAC:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -417,6 +423,49 @@ async function fetchTopAudiences(){
 }
 function reloadTopAudiences(){ S._topPub=null; fetchTopAudiences(); }
 
+// ── Cruzamento IniciAmazon (front) → Backend (Mentoria e Consultorias) ───────
+// Sempre visível, independe da organização selecionada no topo. Liga por e-mail do cliente,
+// sem janela de tempo (conta como conversão não importa quanto tempo depois).
+async function fetchCrossover(){
+  if(S._crossoverLoading) return; S._crossoverLoading=true; render();
+  try{
+    const kw=(S.backendKeyword||'mentoria').trim();
+    const {since,until}=periodRange(S.period);
+    const [r1,r2]=await Promise.all([
+      fetch(`${S.sbUrl}/rest/v1/rpc/backend_buyers_origin`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_backend_keyword:kw})}),
+      fetch(`${S.sbUrl}/rest/v1/rpc/backend_conversion_rate`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_backend_keyword:kw})})
+    ]);
+    S._crossover = r1.ok ? await r1.json() : [];
+    S._crossoverRate = r2.ok ? (await r2.json())[0] : null;
+  }catch(e){ S._crossover=[]; S._crossoverRate=null; }
+  S._crossoverLoading=false; render();
+}
+function reloadCrossover(){ S._crossover=null; S._crossoverRate=null; S._crossoverCAC=null; fetchCrossover(); }
+function setBackendKeyword(v){ S.backendKeyword=(v||'mentoria').trim(); saveState(); reloadCrossover(); }
+
+// CAC real: para cada campanha de origem dos convertidos, busca o gasto vitalício no Meta
+// (tenta cada token/BM até achar a conta dona da campanha)
+async function fetchCrossoverCAC(){
+  if(S._crossoverCACLoading || !S._crossover) return; S._crossoverCACLoading=true; render();
+  try{
+    const ids=[...new Set(S._crossover.map(r=>r.front_meta_campaign_id).filter(Boolean))];
+    const out={};
+    for(const id of ids){
+      let found=null;
+      for(const tk of (S.tokens||[])){
+        try{
+          const r=await api(`/${id}/insights`, {fields:'spend', date_preset:'maximum'}, tk.token);
+          const spend=parseFloat((r.data&&r.data[0]&&r.data[0].spend)||0);
+          found={spend}; break;
+        }catch(e){ /* tenta o próximo token */ }
+      }
+      out[id]=found?found.spend:null;
+    }
+    S._crossoverCAC=out;
+  }catch(e){ S._crossoverCAC={}; }
+  S._crossoverCACLoading=false; render();
+}
+
 // ── Receita (Supabase) ──────────────────────────────────────────────────────
 function periodRange(period){
   const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
@@ -625,7 +674,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderCrossover(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
 }
 
 function renderKPIs(A){
@@ -798,6 +847,74 @@ function renderFunis(A){
   }).join('');
   return `<div class="card">${head}${body}
     <div class="mini" style="margin-top:4px">Conversão do produto = compradores do produto ÷ compradores do front do mesmo funil. As taxas de bump/upsell/downsell no topo são agregadas por tipo (igual ao painel da Assiny). Vendas reais do Supabase, por funil de checkout.</div>
+  </div>`;
+}
+
+// ── Cruzamento IniciAmazon (front) → Backend (Mentoria e Consultorias) ───────
+// Card fixo: sempre visível, não depende da Organização selecionada no topo.
+function renderCrossover(A){
+  const head=`<h2>🔗 IniciAmazon → Backend <span class="mini" style="text-transform:none">cruza compradores do front com a organização de mentoria/consultoria pelo e-mail, sem janela de tempo</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadCrossover()">↻ Atualizar</button></h2>`;
+  const kwField=`<div class="row" style="gap:8px;margin:8px 0 12px;align-items:center">
+    <label style="margin:0">Palavra-chave da organização backend</label>
+    <input value="${esc(S.backendKeyword)}" onchange="setBackendKeyword(this.value)" style="width:200px" placeholder="mentoria">
+  </div>`;
+  if(S._crossoverLoading || S._crossover==null){
+    if(!S._crossoverLoading && S.connected) setTimeout(()=>fetchCrossover(),40);
+    return `<div class="card">${head}${kwField}<div class="empty"><span class="loading"></span> Cruzando compradores…</div></div>`;
+  }
+  const rate=S._crossoverRate||{total_front_buyers:0,total_backend_buyers:0,convertidos:0,taxa_conversao:0};
+  if(!rate.total_backend_buyers){
+    return `<div class="card">${head}${kwField}
+      <div class="empty" style="font-style:normal">Nenhuma venda encontrada ainda para a organização "<b>${esc(S.backendKeyword)}</b>". Assim que o webhook da Mentoria e Consultorias for criado e começar a vender, essa análise já aparece pronta aqui — sem precisar mexer em nada. Base atual: <b>${fmtNum(rate.total_front_buyers)}</b> compradores do front no histórico.</div>
+    </div>`;
+  }
+  const rows=S._crossover||[];
+  const comFront=rows.filter(r=>r.front_data);
+  const receitaBackend=rows.reduce((s,r)=>s+(+r.backend_valor||0),0);
+  const receitaFrontDosConvertidos=comFront.reduce((s,r)=>s+(+r.front_valor||0),0);
+  const ticketBackend=rows.length?receitaBackend/rows.length:0;
+  const ltvMedio=comFront.length?(receitaBackend+receitaFrontDosConvertidos)/comFront.length:0;
+  // agrega por campanha de origem
+  const byCamp={};
+  comFront.forEach(r=>{
+    const k=r.front_meta_campaign_id||r.front_campanha||'(sem UTM)';
+    if(!byCamp[k]) byCamp[k]={key:k, nome:r.front_campanha||k, n:0, receitaBackend:0, campId:r.front_meta_campaign_id};
+    byCamp[k].n++; byCamp[k].receitaBackend+=(+r.backend_valor||0);
+  });
+  const campArr=Object.values(byCamp).sort((a,b)=>b.receitaBackend-a.receitaBackend);
+  const cac=S._crossoverCAC;
+  const cacBtn = cac ? '' : `<button class="btn btn-purple btn-sm" onclick="fetchCrossoverCAC()" ${S._crossoverCACLoading?'disabled':''}>${S._crossoverCACLoading?'<span class="loading"></span> Carregando…':'💰 Carregar CAC real (gasto Meta)'}</button>`;
+  return `<div class="card">${head}${kwField}
+    <div class="kpis" style="margin-bottom:14px">
+      <div class="kpi good"><div class="k-l">Taxa de conversão front→backend</div><div class="k-v">${rate.taxa_conversao}%</div><div class="k-s">${fmtNum(rate.convertidos)} de ${fmtNum(rate.total_front_buyers)} (histórico completo)</div></div>
+      <div class="kpi"><div class="k-l">Compradores backend no período</div><div class="k-v">${fmtNum(rows.length)}</div><div class="k-s">${fmtNum(comFront.length)} com origem identificada no front</div></div>
+      <div class="kpi"><div class="k-l">Receita backend</div><div class="k-v">${fmtMoney0(receitaBackend)}</div><div class="k-s">ticket ${fmtMoney0(ticketBackend)}</div></div>
+      <div class="kpi"><div class="k-l">LTV médio (front+backend)</div><div class="k-v">${fmtMoney0(ltvMedio)}</div><div class="k-s">dos convertidos com origem</div></div>
+    </div>
+    <h3 style="margin:2px 0 8px">Origem (campanha que trouxe o comprador no front) <span class="mini" style="text-transform:none">ordenado por receita backend atribuída</span></h3>
+    <div style="margin-bottom:10px">${cacBtn}</div>
+    <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
+      <th>Campanha de origem</th><th class="num">Convertidos</th><th class="num">Receita backend</th>${cac?'<th class="num">Gasto Meta (vitalício)</th><th class="num">CAC por convertido</th>':''}
+    </tr></thead><tbody>
+    ${campArr.map(g=>{
+      const gasto = cac ? cac[g.campId] : null;
+      const cacVal = (gasto!=null && g.n) ? gasto/g.n : null;
+      return `<tr><td>${esc(shortName(g.nome))}<div class="mini" style="font-family:monospace">${esc(g.campId||'')}</div></td>
+        <td class="num">${g.n}</td><td class="num">${fmtMoney0(g.receitaBackend)}</td>
+        ${cac?`<td class="num">${gasto!=null?fmtMoney0(gasto):'—'}</td><td class="num" style="font-weight:700">${cacVal!=null?fmtMoney0(cacVal):'—'}</td>`:''}
+      </tr>`;
+    }).join('')}
+    </tbody></table></div>
+    <details style="margin-top:14px"><summary>Ver cada comprador convertido (${rows.length})</summary>
+      <div class="tbl-wrap" style="max-height:340px;margin-top:8px"><table><thead><tr>
+        <th>E-mail</th><th>Backend</th><th class="num">Valor</th><th>Origem (front)</th><th class="num">Dias até converter</th>
+      </tr></thead><tbody>
+      ${rows.map(r=>`<tr><td>${esc(r.cliente_email)}</td><td>${esc(r.backend_produto||'')}</td><td class="num">${fmtMoney0(r.backend_valor)}</td>
+        <td>${r.front_projeto?esc(r.front_projeto):'<span class="mini">sem compra front identificada</span>'}</td>
+        <td class="num">${r.dias_front_ate_backend!=null?Math.round(r.dias_front_ate_backend):'—'}</td></tr>`).join('')}
+      </tbody></table></div>
+    </details>
+    <div class="mini" style="margin-top:10px">Cruzamento por e-mail do cliente, sem limite de tempo (conta como conversão em qualquer momento). CAC = gasto vitalício da campanha ÷ nº de convertidos que vieram dela (aproximação; não isola só quem converteu, é o gasto total da campanha).</div>
   </div>`;
 }
 function renderContas(A){
@@ -1368,14 +1485,14 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverCAC=null; saveState(); refreshData(); }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
   if(!S.customSince) S.customSince=value;
   if(!S.customUntil) S.customUntil=value;
   if(S.customSince>S.customUntil){ const t=S.customSince; S.customSince=S.customUntil; S.customUntil=t; }
-  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; saveState(); refreshData();
+  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverCAC=null; saveState(); refreshData();
 }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
