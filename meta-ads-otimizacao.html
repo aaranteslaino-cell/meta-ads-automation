@@ -1020,16 +1020,38 @@ function renderComparativoCard(A){
     const done=S._exec&&S._exec[c.id];
     if(done) return `<td><span class="badge b-bom">✓ ${done==='DESATIVAR'?'pausada':done==='ESCALAR'?'escalada':'reduzida'}</span></td>`;
     const d=byId[c.id]||{}, daily=+(d.daily_budget||0);
-    let extra='', btn='';
-    if(act.a==='ESCALAR'||act.a==='REDUZIR'){
-      if(daily>0){ const novo=Math.round(daily*act.pct);
-        extra=`<div class="mini">R$ ${(daily/100).toFixed(2)} → R$ ${(novo/100).toFixed(2)}</div>`;
-        btn=`<button class="btn btn-sm ${act.a==='ESCALAR'?'btn-purple':'btn-gray'}" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Executar</button>`;
-      } else extra=`<div class="mini">orçamento no conjunto (ABO)</div>`;
-    } else if(act.a==='DESATIVAR'){
-      btn=`<button class="btn btn-red btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Pausar</button>`;
+    const badge=`<span class="badge b-${act.cls}" title="${esc(act.why)}">${act.a}</span>`;
+    if(!daily) return `<td>${badge}<div class="mini">orçamento no conjunto (ABO)</div></td>`;
+    if(act.a==='ESCALAR'){
+      const selId='esc_'+c.id;
+      return `<td>${badge}
+        <div class="row" style="gap:4px;margin-top:4px;align-items:center;flex-wrap:nowrap">
+          <select id="${selId}" style="padding:2px 3px;font-size:12px;width:auto">
+            <option value="1.3">+30%</option><option value="1.5">+50%</option><option value="2">+100%</option>
+          </select>
+          <button class="btn btn-purple btn-sm" style="padding:3px 9px" onclick="execCustom('${c.id}','ESCALAR',parseFloat(document.getElementById('${selId}').value))">Executar</button>
+        </div>
+      </td>`;
     }
-    return `<td><span class="badge b-${act.cls}" title="${esc(act.why)}">${act.a}</span>${extra}${btn?'<br>'+btn:''}</td>`;
+    if(act.a==='REDUZIR'){
+      const novo=Math.round(daily*act.pct);
+      return `<td>${badge}<div class="mini">R$ ${(daily/100).toFixed(2)} → R$ ${(novo/100).toFixed(2)}</div>
+        <button class="btn btn-gray btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Executar</button>
+      </td>`;
+    }
+    if(act.a==='DESATIVAR'){
+      const selId='red_'+c.id;
+      return `<td>${badge}
+        <button class="btn btn-red btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Pausar</button>
+        <div class="row" style="gap:4px;margin-top:4px;align-items:center;flex-wrap:nowrap">
+          <select id="${selId}" style="padding:2px 3px;font-size:12px;width:auto">
+            <option value="0.7">reduzir 30%</option><option value="0.5">reduzir 50%</option><option value="0.3">reduzir 70%</option>
+          </select>
+          <button class="btn btn-gray btn-sm" style="padding:3px 9px" title="Já rodou bem antes? Mantém no ar com orçamento menor em vez de pausar." onclick="execCustom('${c.id}','REDUZIR',parseFloat(document.getElementById('${selId}').value))">Manter reduzida</button>
+        </div>
+      </td>`;
+    }
+    return `<td>${badge}</td>`;
   };
   const acts=rows.map(c=>({c, act:acaoSugerida(c,B,cpaAlvo)}));
   const cnt=t=>acts.filter(x=>x.act.a===t && !(S._exec&&S._exec[x.c.id])).length;
@@ -1048,7 +1070,7 @@ function renderComparativoCard(A){
     </thead><tbody>
     ${acts.map(({c,act})=>`<tr><td style="max-width:300px">${esc(c.name)}<div class="mini" style="font-family:monospace">${esc(String(c.id))}</div></td>${acaoCell(c,act)}${cell(c.s1,c.r1)}${cell(c.s2,c.r2)}${cell(c.s3,c.r3)}${cell(c.s5,c.r5)}</tr>`).join('')}
     </tbody></table></div>
-    <div class="mini" style="margin-top:8px"><b>Regras (breakeven ROAS ${fmtRoas(B)}):</b> 🟢 <b>ESCALAR +30%</b> = ROAS de HOJE ≥ ${fmtRoas(B)} (escala olha só hoje). 🟡 <b>REDUZIR −30%</b> = negativa hoje mas positiva no 3D; ou negativa hoje e 3D, positiva no 5D. 🔴 <b>DESATIVAR</b> = negativa em hoje, 3D e 5D. Cada botão pede confirmação antes de aplicar na conta. ⚠️ <b>Hoje é dia parcial</b> e a venda demora a cair, então o ROAS de hoje fica baixo durante o dia: rode as reduções/desativações com o dia mais fechado para não penalizar campanha boa.</div>
+    <div class="mini" style="margin-top:8px"><b>Regras (breakeven ROAS ${fmtRoas(B)}):</b> 🟢 <b>ESCALAR</b> = ROAS de HOJE ≥ ${fmtRoas(B)} (escala olha só hoje) — escolha +30/+50/+100% no seletor antes de executar. 🟡 <b>REDUZIR −30%</b> = negativa hoje mas positiva no 3D; ou negativa hoje e 3D, positiva no 5D. 🔴 <b>DESATIVAR</b> = negativa em hoje, 3D e 5D — se o seu feeling disser que vale manter (já performou bem antes), use "Manter reduzida" com −30/−50/−70% em vez de pausar. Cada botão pede confirmação antes de aplicar na conta. ⚠️ <b>Hoje é dia parcial</b> e a venda demora a cair, então o ROAS de hoje fica baixo durante o dia: rode as reduções/desativações com o dia mais fechado para não penalizar campanha boa.</div>
   </div>`;
 }
 // ── Execução na conta (Graph API) — só dispara no clique do usuário ──────────
@@ -1076,6 +1098,24 @@ async function execAcao(id){
   if(!confirm('Confirmar: '+info.resumo+'?\n\n'+info.name)) return;
   try{ await apiPost(id, info.body, info.tok); S._exec=S._exec||{}; S._exec[id]=info.act.a; await logOtim(id, info.act.a, info.orcAntes, info.orcDepois); await refreshOtim(); render(); }
   catch(e){ alert('Erro ao executar: '+e.message); }
+}
+// Executa com percentual escolhido manualmente (seletor +30/+50/+100% no escalar, ou "manter reduzida" no lugar de pausar)
+async function execCustom(id, tipoLabel, pct){
+  const d=(S.data||[]).find(r=>r.id===id);
+  if(!d){ alert('Campanha não encontrada.'); return; }
+  const daily=+(d.daily_budget||0), tok=getTokenById(d._tokenId);
+  if(!daily){ alert('Campanha ABO (orçamento no conjunto), não dá para ajustar por aqui.'); return; }
+  if(!tok){ alert('Token da conta não encontrado.'); return; }
+  const novo=Math.round(daily*pct);
+  const pctTxt=(pct>=1?'+':'')+Math.round((pct-1)*100)+'%';
+  const resumo=(pct>1?'AUMENTAR':'REDUZIR')+' orçamento de R$ '+(daily/100).toFixed(2)+' para R$ '+(novo/100).toFixed(2)+' ('+pctTxt+')';
+  if(!confirm('Confirmar: '+resumo+'?\n\n'+d.name)) return;
+  try{
+    await apiPost(id, {daily_budget:String(novo)}, tok);
+    S._exec=S._exec||{}; S._exec[id]=tipoLabel;
+    await logOtim(id, tipoLabel, +(daily/100).toFixed(2), +(novo/100).toFixed(2));
+    await refreshOtim(); render();
+  }catch(e){ alert('Erro ao executar: '+e.message); }
 }
 async function execLote(tipo){
   const B=parseFloat(S.roasAlvo)||1; const A=analyze(); const cpaAlvo=A.cpaAlvo||80;
