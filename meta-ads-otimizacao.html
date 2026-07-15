@@ -153,9 +153,11 @@ S._crossoverTipos = null; // breakdown por tipo (Mentoria x Consultoria): taxa, 
 S._crossoverLoading = false;
 S._crossoverCAC = null;   // custo real (gasto Meta) por campanha de origem, carregado sob demanda
 S._crossoverCACLoading = false;
+S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compradores (funil Nathalia)
+S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -470,6 +472,17 @@ async function fetchCrossoverCAC(){
   S._crossoverCACLoading=false; render();
 }
 
+// ── Pesquisa de onboarding (quiz Nathalia) cruzada com compradores ───────────
+async function fetchPesquisa(){
+  if(S._pesquisaLoading) return; S._pesquisaLoading=true; render();
+  try{
+    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/pesquisa_panel`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:'{}'});
+    S._pesquisa = r.ok ? await r.json() : {};
+  }catch(e){ S._pesquisa={}; }
+  S._pesquisaLoading=false; render();
+}
+function reloadPesquisa(){ S._pesquisa=null; fetchPesquisa(); }
+
 // ── Receita (Supabase) ──────────────────────────────────────────────────────
 function periodRange(period){
   const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
@@ -679,7 +692,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderCrossover(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderCrossover(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
 }
 
 // ── Visão própria do Backend (Mentoria & Consultoria) — sem mídia paga ───────
@@ -999,6 +1012,45 @@ function renderCrossover(A){
       </tbody></table></div>
     </details>
     <div class="mini" style="margin-top:10px">Cruzamento por e-mail do cliente, sem limite de tempo (conta como conversão em qualquer momento). CAC = gasto vitalício da campanha ÷ nº de convertidos que vieram dela (aproximação; não isola só quem converteu, é o gasto total da campanha).</div>
+  </div>`;
+}
+const RENDA_LBL=['Sem renda','Menos de 1k','1k–3k','3k–5k','5k–10k','10k–20k','Acima de 20k'];
+const INVEST_LBL=['Sem caixa','Menos de 1k','1k–3k','3k–5k','5k–10k','10k–15k','Acima de 15k'];
+function renderPesquisa(A){
+  if(!['NATH','ALL'].includes(S.funnel)) return ''; // pesquisa é do funil Nathalia
+  const head=`<h2>🧭 Pesquisa de onboarding × IniciAmazon <span class="mini" style="text-transform:none">quiz do funil Nathalia cruzado com quem comprou · snapshot 01–13 jul</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadPesquisa()">↻ Atualizar</button></h2>`;
+  if(S._pesquisaLoading || S._pesquisa==null){ if(!S._pesquisaLoading && S.connected) setTimeout(()=>fetchPesquisa(),40); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Cruzando pesquisa…</div></div>`; }
+  const p=S._pesquisa; if(!p || !p.total) return `<div class="card">${head}<div class="empty">Sem respostas de pesquisa importadas.</div></div>`;
+  const taxaFront = p.total? (100*p.front/p.total):0;
+  const fx=p.por_faixa||[];
+  const opp = fx.filter(f=>f.faixa!=='sem faixa').reduce((s,f)=>s+f.respondentes,0);
+  const faixaCor={A:'#137333',B:'#0891b2',C:'#b26a00','sem faixa':'#8a8a8a'};
+  const bandRow=(arr,lbls)=>arr.map(b=>`<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num">${fmtNum(b.front)}</td><td class="num" style="font-weight:700">${b.taxa}%</td></tr>`).join('');
+  return `<div class="card">${head}
+    <div class="kpis" style="margin-bottom:14px">
+      <div class="kpi"><div class="k-l">Respondentes</div><div class="k-v">${fmtNum(p.total)}</div><div class="k-s">e-mails únicos</div></div>
+      <div class="kpi good"><div class="k-l">Viraram comprador front</div><div class="k-v">${taxaFront.toFixed(1)}%</div><div class="k-s">${fmtNum(p.front)} de ${fmtNum(p.total)}</div></div>
+      <div class="kpi"><div class="k-l">Oportunidades (A+B+C)</div><div class="k-v">${fmtNum(opp)}</div><div class="k-s">têm algum caixa p/ investir</div></div>
+      <div class="kpi"><div class="k-l">Foram pro backend</div><div class="k-v">${fmtNum(p.backend)}</div><div class="k-s">alto ticket</div></div>
+    </div>
+    <h3 style="margin:2px 0 8px">Conversão por faixa <span class="mini" style="text-transform:none">faixa = poder de investimento declarado no quiz</span></h3>
+    <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
+      <th>Faixa</th><th class="num">Respondentes</th><th class="num">% do total</th><th class="num">Compraram front</th><th class="num">Taxa front</th><th class="num">Backend</th>
+    </tr></thead><tbody>
+    ${fx.map(f=>`<tr><td><b style="color:${faixaCor[f.faixa]||'#333'}">${f.faixa==='sem faixa'?'Sem faixa':'Faixa '+f.faixa}</b></td>
+      <td class="num">${fmtNum(f.respondentes)}</td><td class="num">${(100*f.respondentes/p.total).toFixed(0)}%</td>
+      <td class="num">${fmtNum(f.front)}</td><td class="num" style="font-weight:700">${f.taxa}%</td><td class="num">${f.backend||0}</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="info-box" style="margin-top:10px">⚠️ A conversão para o front é <b>inversa à faixa</b>: quanto menos caixa a pessoa tem, mais ela compra o front de R$37. O front atrai o público sem caixa; o alto ticket (backend) precisa da Faixa A/B — os ${fmtNum(p.backend)} que foram pro backend eram Faixa A e B.</div>
+    <details style="margin-top:12px"><summary>Ver por renda e por investimento declarado</summary>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
+        <div style="flex:1;min-width:280px"><h3 style="margin:0 0 6px">Renda mensal da família</h3>
+          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Renda</th><th class="num">Resp.</th><th class="num">Front</th><th class="num">Taxa</th></tr></thead><tbody>${bandRow(p.por_renda||[],RENDA_LBL)}</tbody></table></div></div>
+        <div style="flex:1;min-width:280px"><h3 style="margin:0 0 6px">Disponível p/ investir no mês</h3>
+          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Investimento</th><th class="num">Resp.</th><th class="num">Front</th><th class="num">Taxa</th></tr></thead><tbody>${bandRow(p.por_invest||[],INVEST_LBL)}</tbody></table></div></div>
+      </div>
+    </details>
+    <div class="mini" style="margin-top:10px">Snapshot da pesquisa (quiz VSL 37, funil Nathalia) de 01–13 jul, 1.113 respostas. Cruzamento por e-mail com a base de compradores, sem janela de tempo. Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
   </div>`;
 }
 function renderContas(A){
