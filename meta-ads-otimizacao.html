@@ -863,6 +863,15 @@ function renderCrossover(A){
     return `<div class="card">${head}${kwField}<div class="empty"><span class="loading"></span> Cruzando compradores…</div></div>`;
   }
   const rate=S._crossoverRate||{total_front_buyers:0,total_backend_buyers:0,convertidos:0,taxa_conversao:0};
+  // taxa com precisão real (não arredonda a esconder o número): dígitos significativos p/ taxas pequenas
+  const fmtTaxa=(conv,tot)=>{
+    if(!tot) return '0%';
+    const p=100*conv/tot;
+    if(p===0) return '0%';
+    let s = p>=1 ? p.toFixed(2) : p.toPrecision(3); // ex.: 2/2098 -> "0.0953%"
+    s = s.replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); // tira zeros à direita
+    return s+'%';
+  };
   if(!rate.total_backend_buyers){
     return `<div class="card">${head}${kwField}
       <div class="empty" style="font-style:normal">Nenhuma venda encontrada ainda para a organização "<b>${esc(S.backendKeyword)}</b>". Assim que o webhook da Mentoria e Consultorias for criado e começar a vender, essa análise já aparece pronta aqui — sem precisar mexer em nada. Base atual: <b>${fmtNum(rate.total_front_buyers)}</b> compradores do front no histórico.</div>
@@ -902,7 +911,7 @@ function renderCrossover(A){
       ${linha('Receita líquida', fmtMoney0(t.receita_liquida))}
       ${linha('Vendas / compradores', fmtNum(t.vendas)+' / '+fmtNum(t.compradores))}
       ${linha('Ticket médio', fmtMoney0(t.ticket_medio))}
-      ${linha('Taxa front→backend', t.taxa_conversao+'% <span class="mini" style="font-weight:400">('+fmtNum(t.convertidos_hist)+' conv. no histórico)</span>')}
+      ${linha('Taxa front→backend', fmtTaxa(t.convertidos_hist,rate.total_front_buyers)+' <span class="mini" style="font-weight:400">('+fmtNum(t.convertidos_hist)+' conv. no histórico)</span>')}
       ${linha('Custo (CAC atribuído)', custoVal)}
     </div>`;
   };
@@ -911,7 +920,7 @@ function renderCrossover(A){
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">${[...tipos].sort((a,b)=>(ordem[a.tipo]??9)-(ordem[b.tipo]??9)).map(tipoBlock).join('')}</div>` : '';
   return `<div class="card">${head}${kwField}
     <div class="kpis" style="margin-bottom:14px">
-      <div class="kpi good"><div class="k-l">Taxa de conversão front→backend</div><div class="k-v">${rate.taxa_conversao}%</div><div class="k-s">${fmtNum(rate.convertidos)} de ${fmtNum(rate.total_front_buyers)} (histórico completo)</div></div>
+      <div class="kpi good"><div class="k-l">Taxa de conversão front→backend</div><div class="k-v">${fmtTaxa(rate.convertidos,rate.total_front_buyers)}</div><div class="k-s">${fmtNum(rate.convertidos)} de ${fmtNum(rate.total_front_buyers)} (histórico completo)</div></div>
       <div class="kpi"><div class="k-l">Compradores backend no período</div><div class="k-v">${fmtNum(rows.length)}</div><div class="k-s">${fmtNum(comFront.length)} com origem identificada no front</div></div>
       <div class="kpi"><div class="k-l">Receita backend</div><div class="k-v">${fmtMoney0(receitaBackend)}</div><div class="k-s">ticket ${fmtMoney0(ticketBackend)}</div></div>
       <div class="kpi"><div class="k-l">LTV médio (front+backend)</div><div class="k-v">${fmtMoney0(ltvMedio)}</div><div class="k-s">dos convertidos com origem</div></div>
