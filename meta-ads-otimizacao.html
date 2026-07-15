@@ -1033,38 +1033,51 @@ function renderPesquisa(A){
   const custoLiq=faturamento-investimento;
   const respP=p.respondentes_periodo||0;
   const cpl=respP>0?investimento/respP:null;
+  // compradores front no período (p/ CPA médio e extrapolação por faixa) e CPA backend
+  const frontPeriod=(A.funnelTotal&&A.funnelTotal.front)||T.front||0;
+  const cpaFlat=frontPeriod>0?investimento/frontPeriod:null; // CPA médio do comprador front
+  const backendPer=p.backend_periodo||0;
+  const cpaBackend=backendPer>0?investimento/backendPer:null; // gasto front ÷ compradores backend no período
+  // não responderam a pesquisa
+  const naoResp=Math.max(0,(p.compradores_front||0)-(p.compradores_responderam||0));
+  const taxaResp=p.compradores_front>0?100*(p.compradores_responderam||0)/p.compradores_front:0;
+  // custo estimado por comprador de um segmento = CPA médio ÷ participação do segmento (extrapola a amostra p/ todos os compradores)
+  const custoSeg=(share)=> (cpaFlat!=null && share>0) ? cpaFlat/share : null;
   const finBlock=`<h3 style="margin:2px 0 8px">Resultado do funil no período selecionado <span class="mini" style="text-transform:none">faturamento e gasto do Meta do funil ${esc(currentFunnel().label)} no período escolhido no topo</span></h3>
     <div class="kpis" style="margin-bottom:16px">
       <div class="kpi"><div class="k-l">Faturamento (front)</div><div class="k-v">${fmtMoney0(faturamento)}</div><div class="k-s">receita do funil no período</div></div>
       <div class="kpi"><div class="k-l">Investimento (Meta)</div><div class="k-v">${fmtMoney0(investimento)}</div><div class="k-s">gasto em mídia no período</div></div>
       <div class="kpi ${custoLiq>=0?'good':'danger'}"><div class="k-l">Custo líquido</div><div class="k-v" style="color:${custoLiq>=0?'#137333':'#c5221f'}">${fmtMoney0(custoLiq)}</div><div class="k-s">faturamento − investimento</div></div>
       <div class="kpi"><div class="k-l">CPL (preencheu pesquisa)</div><div class="k-v">${cpl!=null?fmtMoney0(cpl):'—'}</div><div class="k-s">${fmtNum(respP)} responderam no período</div></div>
+      <div class="kpi"><div class="k-l">CPA backend</div><div class="k-v">${cpaBackend!=null?fmtMoney0(cpaBackend):'—'}</div><div class="k-s">gasto front ÷ ${fmtNum(backendPer)} compradores backend</div></div>
     </div>`;
-  // tabela de faixa/renda/investimento com % (linha destacando totais)
+  // tabela de renda/investimento com % + custo estimado por comprador do segmento
   const totalBand=(arr)=>arr.reduce((s,b)=>s+b.respondentes,0);
   const bandTable=(titulo,arr,lbls)=>{
     const tot=totalBand(arr)||1;
-    const linhas=[...arr].sort((a,b)=>b.respondentes-a.respondentes).map(b=>`<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num" style="font-weight:700">${(100*b.respondentes/tot).toFixed(1)}%</td><td class="num">${b.backend||0}</td></tr>`).join('');
-    return `<div style="flex:1;min-width:300px"><h3 style="margin:0 0 6px">${titulo}</h3>
-      <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Faixa</th><th class="num">Compradores</th><th class="num">%</th><th class="num">Backend</th></tr></thead>
-      <tbody>${linhas}<tr style="border-top:2px solid #ddd"><td><b>Total</b></td><td class="num"><b>${fmtNum(totalBand(arr))}</b></td><td class="num"><b>100%</b></td><td class="num"><b>${arr.reduce((s,b)=>s+(b.backend||0),0)}</b></td></tr></tbody></table></div></div>`;
+    const linhas=[...arr].sort((a,b)=>b.respondentes-a.respondentes).map(b=>{const c=custoSeg(b.respondentes/tot);return `<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num" style="font-weight:700">${(100*b.respondentes/tot).toFixed(1)}%</td><td class="num">${c!=null?fmtMoney0(c):'—'}</td><td class="num">${b.backend||0}</td></tr>`;}).join('');
+    return `<div style="flex:1;min-width:320px"><h3 style="margin:0 0 6px">${titulo}</h3>
+      <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Faixa</th><th class="num">Compr.</th><th class="num">%</th><th class="num">Custo/compr.</th><th class="num">Backend</th></tr></thead>
+      <tbody>${linhas}<tr style="border-top:2px solid #ddd"><td><b>Total</b></td><td class="num"><b>${fmtNum(totalBand(arr))}</b></td><td class="num"><b>100%</b></td><td class="num"><b>${cpaFlat!=null?fmtMoney0(cpaFlat):'—'}</b></td><td class="num"><b>${arr.reduce((s,b)=>s+(b.backend||0),0)}</b></td></tr></tbody></table></div></div>`;
   };
   return `<div class="card">${head}
     ${finBlock}
     <div class="kpis" style="margin-bottom:14px">
-      <div class="kpi"><div class="k-l">Compradores pesquisados</div><div class="k-v">${fmtNum(p.total)}</div><div class="k-s">responderam o onboarding</div></div>
-      <div class="kpi danger"><div class="k-l">Sem caixa p/ investir</div><div class="k-v">${p.total?(100*semCaixa/p.total).toFixed(0):0}%</div><div class="k-s">${fmtNum(semCaixa)} compradores</div></div>
+      <div class="kpi"><div class="k-l">Compradores (front)</div><div class="k-v">${fmtNum(p.compradores_front||0)}</div><div class="k-s">${fmtNum(p.compradores_responderam||0)} responderam · ${taxaResp.toFixed(0)}%</div></div>
+      <div class="kpi danger"><div class="k-l">Não responderam</div><div class="k-v">${fmtNum(naoResp)}</div><div class="k-s">${(100-taxaResp).toFixed(0)}% dos compradores</div></div>
+      <div class="kpi danger"><div class="k-l">Sem caixa p/ investir</div><div class="k-v">${p.total?(100*semCaixa/p.total).toFixed(0):0}%</div><div class="k-s">${fmtNum(semCaixa)} dos que responderam</div></div>
       <div class="kpi good"><div class="k-l">Oportunidades (A+B+C)</div><div class="k-v">${fmtNum(opp)}</div><div class="k-s">${p.total?(100*opp/p.total).toFixed(0):0}% têm algum caixa</div></div>
       <div class="kpi"><div class="k-l">Foram pro backend</div><div class="k-v">${fmtNum(p.backend)}</div><div class="k-s">alto ticket (mentoria/consult.)</div></div>
     </div>
-    <h3 style="margin:2px 0 8px">Faixas (poder de investimento) <span class="mini" style="text-transform:none">backend = quantos foram pro alto ticket</span></h3>
+    <h3 style="margin:2px 0 8px">Faixas (poder de investimento) <span class="mini" style="text-transform:none">custo = CPA médio ÷ participação da faixa (extrapolado p/ todos os compradores)</span></h3>
     <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
-      <th>Faixa</th><th class="num">Compradores</th><th class="num">% do total</th><th class="num">Foram pro backend</th><th class="num">Taxa backend</th>
+      <th>Faixa</th><th class="num">Compradores</th><th class="num">% do total</th><th class="num">Custo/compr.</th><th class="num">Foram pro backend</th><th class="num">Taxa backend</th>
     </tr></thead><tbody>
-    ${fx.map(f=>`<tr><td><b style="color:${faixaCor[f.faixa]||'#333'}">${f.faixa==='sem faixa'?'Sem faixa':'Faixa '+f.faixa}</b></td>
+    ${fx.map(f=>{const c=custoSeg(f.respondentes/p.total);return `<tr><td><b style="color:${faixaCor[f.faixa]||'#333'}">${f.faixa==='sem faixa'?'Sem faixa':'Faixa '+f.faixa}</b></td>
       <td class="num">${fmtNum(f.respondentes)}</td><td class="num">${(100*f.respondentes/p.total).toFixed(0)}%</td>
-      <td class="num">${f.backend||0}</td><td class="num" style="font-weight:700">${f.respondentes?(100*(f.backend||0)/f.respondentes).toFixed(1):'0'}%</td></tr>`).join('')}
-    <tr style="border-top:2px solid #ddd"><td><b>Total</b></td><td class="num"><b>${fmtNum(p.total)}</b></td><td class="num"><b>100%</b></td><td class="num"><b>${fmtNum(p.backend)}</b></td><td class="num"></td></tr>
+      <td class="num" style="font-weight:700">${c!=null?fmtMoney0(c):'—'}</td>
+      <td class="num">${f.backend||0}</td><td class="num">${f.respondentes?(100*(f.backend||0)/f.respondentes).toFixed(1):'0'}%</td></tr>`;}).join('')}
+    <tr style="border-top:2px solid #ddd"><td><b>Total</b></td><td class="num"><b>${fmtNum(p.total)}</b></td><td class="num"><b>100%</b></td><td class="num"><b>${cpaFlat!=null?fmtMoney0(cpaFlat):'—'}</b></td><td class="num"><b>${fmtNum(p.backend)}</b></td><td class="num"></td></tr>
     </tbody></table></div>
     <div class="info-box" style="margin-top:10px">⚠️ <b>${p.total?(100*semCaixa/p.total).toFixed(0):0}% dos compradores do IniciAmazon declaram não ter caixa para investir</b>. O front de R$37 está trazendo majoritariamente público sem caixa. O backend (alto ticket) só veio de Faixa A e B — nenhum comprador "sem faixa" foi pro backend. Para escalar o backend, o gargalo é a <b>qualidade do lead que o front atrai</b>, não a oferta.</div>
     <h3 style="margin:16px 0 8px">Detalhamento por renda e investimento declarados</h3>
@@ -1072,7 +1085,7 @@ function renderPesquisa(A){
       ${bandTable('Renda mensal da família', p.por_renda||[], RENDA_LBL)}
       ${bandTable('Disponível p/ investir no mês', p.por_invest||[], INVEST_LBL)}
     </div>
-    <div class="mini" style="margin-top:12px">Perfil = snapshot completo do quiz de onboarding (${fmtNum(p.total)} compradores únicos, 1.113 respostas), preenchido ~56h <b>após</b> a compra. O bloco financeiro do topo respeita o <b>período selecionado</b> (por isso pode divergir do perfil, que é o total). ${fmtNum(p.linkados)} de ${fmtNum(p.total)} ligados a uma compra por e-mail (resto usou e-mail diferente no checkout, então o backend é piso). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
+    <div class="mini" style="margin-top:12px"><b>Taxa de resposta:</b> só ${taxaResp.toFixed(0)}% dos ${fmtNum(p.compradores_front||0)} compradores responderam, então o perfil é uma amostra. <b>Custo/compr. da faixa</b> = CPA médio do front (investimento ÷ compradores no período) ÷ participação da faixa — estima quanto custa cada comprador daquele tipo assumindo que quem respondeu representa todos. <b>CPA backend</b> = investimento front ÷ compradores backend no período. Bloco financeiro e custos respeitam o <b>período do topo</b>; o perfil (faixas/renda/investimento) é o snapshot completo (${fmtNum(p.total)} respondentes). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
   </div>`;
 }
 function renderContas(A){
