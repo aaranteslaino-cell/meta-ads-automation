@@ -476,7 +476,8 @@ async function fetchCrossoverCAC(){
 async function fetchPesquisa(){
   if(S._pesquisaLoading) return; S._pesquisaLoading=true; render();
   try{
-    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/pesquisa_panel`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:'{}'});
+    const {since,until}=periodRange(S.period);
+    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/pesquisa_panel`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})});
     S._pesquisa = r.ok ? await r.json() : {};
   }catch(e){ S._pesquisa={}; }
   S._pesquisaLoading=false; render();
@@ -692,7 +693,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderCrossover(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
 }
 
 // ── Visão própria do Backend (Mentoria & Consultoria) — sem mídia paga ───────
@@ -1025,32 +1026,53 @@ function renderPesquisa(A){
   const semCaixa = (fx.find(f=>f.faixa==='sem faixa')||{}).respondentes||0;
   const opp = fx.filter(f=>f.faixa!=='sem faixa').reduce((s,f)=>s+f.respondentes,0);
   const faixaCor={A:'#137333',B:'#0891b2',C:'#b26a00','sem faixa':'#8a8a8a'};
-  const bandRow=(arr,lbls)=>arr.map(b=>`<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num">${(100*b.respondentes/p.total).toFixed(0)}%</td><td class="num">${b.backend||0}</td></tr>`).join('');
+  // ── resultado financeiro do funil no período selecionado (do print) ──
+  const T=A.T||{};
+  const faturamento=(A.funnelTotal&&A.funnelTotal.receita>0)?A.funnelTotal.receita:((T.receita||0)+((A.off&&A.off.receita)||0));
+  const investimento=T.spend||0;
+  const custoLiq=faturamento-investimento;
+  const respP=p.respondentes_periodo||0;
+  const cpl=respP>0?investimento/respP:null;
+  const finBlock=`<h3 style="margin:2px 0 8px">Resultado do funil no período selecionado <span class="mini" style="text-transform:none">faturamento e gasto do Meta do funil ${esc(currentFunnel().label)} no período escolhido no topo</span></h3>
+    <div class="kpis" style="margin-bottom:16px">
+      <div class="kpi"><div class="k-l">Faturamento (front)</div><div class="k-v">${fmtMoney0(faturamento)}</div><div class="k-s">receita do funil no período</div></div>
+      <div class="kpi"><div class="k-l">Investimento (Meta)</div><div class="k-v">${fmtMoney0(investimento)}</div><div class="k-s">gasto em mídia no período</div></div>
+      <div class="kpi ${custoLiq>=0?'good':'danger'}"><div class="k-l">Custo líquido</div><div class="k-v" style="color:${custoLiq>=0?'#137333':'#c5221f'}">${fmtMoney0(custoLiq)}</div><div class="k-s">faturamento − investimento</div></div>
+      <div class="kpi"><div class="k-l">CPL (preencheu pesquisa)</div><div class="k-v">${cpl!=null?fmtMoney0(cpl):'—'}</div><div class="k-s">${fmtNum(respP)} responderam no período</div></div>
+    </div>`;
+  // tabela de faixa/renda/investimento com % (linha destacando totais)
+  const totalBand=(arr)=>arr.reduce((s,b)=>s+b.respondentes,0);
+  const bandTable=(titulo,arr,lbls)=>{
+    const tot=totalBand(arr)||1;
+    const linhas=[...arr].sort((a,b)=>b.respondentes-a.respondentes).map(b=>`<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num" style="font-weight:700">${(100*b.respondentes/tot).toFixed(1)}%</td><td class="num">${b.backend||0}</td></tr>`).join('');
+    return `<div style="flex:1;min-width:300px"><h3 style="margin:0 0 6px">${titulo}</h3>
+      <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Faixa</th><th class="num">Compradores</th><th class="num">%</th><th class="num">Backend</th></tr></thead>
+      <tbody>${linhas}<tr style="border-top:2px solid #ddd"><td><b>Total</b></td><td class="num"><b>${fmtNum(totalBand(arr))}</b></td><td class="num"><b>100%</b></td><td class="num"><b>${arr.reduce((s,b)=>s+(b.backend||0),0)}</b></td></tr></tbody></table></div></div>`;
+  };
   return `<div class="card">${head}
+    ${finBlock}
     <div class="kpis" style="margin-bottom:14px">
       <div class="kpi"><div class="k-l">Compradores pesquisados</div><div class="k-v">${fmtNum(p.total)}</div><div class="k-s">responderam o onboarding</div></div>
       <div class="kpi danger"><div class="k-l">Sem caixa p/ investir</div><div class="k-v">${p.total?(100*semCaixa/p.total).toFixed(0):0}%</div><div class="k-s">${fmtNum(semCaixa)} compradores</div></div>
       <div class="kpi good"><div class="k-l">Oportunidades (A+B+C)</div><div class="k-v">${fmtNum(opp)}</div><div class="k-s">${p.total?(100*opp/p.total).toFixed(0):0}% têm algum caixa</div></div>
       <div class="kpi"><div class="k-l">Foram pro backend</div><div class="k-v">${fmtNum(p.backend)}</div><div class="k-s">alto ticket (mentoria/consult.)</div></div>
     </div>
-    <h3 style="margin:2px 0 8px">Perfil por faixa <span class="mini" style="text-transform:none">faixa = poder de investimento declarado · backend = quantos foram pro alto ticket</span></h3>
+    <h3 style="margin:2px 0 8px">Faixas (poder de investimento) <span class="mini" style="text-transform:none">backend = quantos foram pro alto ticket</span></h3>
     <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
       <th>Faixa</th><th class="num">Compradores</th><th class="num">% do total</th><th class="num">Foram pro backend</th><th class="num">Taxa backend</th>
     </tr></thead><tbody>
     ${fx.map(f=>`<tr><td><b style="color:${faixaCor[f.faixa]||'#333'}">${f.faixa==='sem faixa'?'Sem faixa':'Faixa '+f.faixa}</b></td>
       <td class="num">${fmtNum(f.respondentes)}</td><td class="num">${(100*f.respondentes/p.total).toFixed(0)}%</td>
       <td class="num">${f.backend||0}</td><td class="num" style="font-weight:700">${f.respondentes?(100*(f.backend||0)/f.respondentes).toFixed(1):'0'}%</td></tr>`).join('')}
+    <tr style="border-top:2px solid #ddd"><td><b>Total</b></td><td class="num"><b>${fmtNum(p.total)}</b></td><td class="num"><b>100%</b></td><td class="num"><b>${fmtNum(p.backend)}</b></td><td class="num"></td></tr>
     </tbody></table></div>
     <div class="info-box" style="margin-top:10px">⚠️ <b>${p.total?(100*semCaixa/p.total).toFixed(0):0}% dos compradores do IniciAmazon declaram não ter caixa para investir</b>. O front de R$37 está trazendo majoritariamente público sem caixa. O backend (alto ticket) só veio de Faixa A e B — nenhum comprador "sem faixa" foi pro backend. Para escalar o backend, o gargalo é a <b>qualidade do lead que o front atrai</b>, não a oferta.</div>
-    <details style="margin-top:12px"><summary>Ver por renda e por investimento declarado</summary>
-      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
-        <div style="flex:1;min-width:280px"><h3 style="margin:0 0 6px">Renda mensal da família</h3>
-          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Renda</th><th class="num">Compr.</th><th class="num">%</th><th class="num">Backend</th></tr></thead><tbody>${bandRow(p.por_renda||[],RENDA_LBL)}</tbody></table></div></div>
-        <div style="flex:1;min-width:280px"><h3 style="margin:0 0 6px">Disponível p/ investir no mês</h3>
-          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Investimento</th><th class="num">Compr.</th><th class="num">%</th><th class="num">Backend</th></tr></thead><tbody>${bandRow(p.por_invest||[],INVEST_LBL)}</tbody></table></div></div>
-      </div>
-    </details>
-    <div class="mini" style="margin-top:10px">Snapshot do quiz de onboarding (funil Nathalia), preenchido em média ~56h <b>após</b> a compra do IniciAmazon. 1.113 respostas, ${fmtNum(p.total)} compradores únicos. ${fmtNum(p.linkados)} puderam ser ligados a um registro de compra por e-mail (o restante usou e-mail diferente no checkout, então o nº do backend é um piso). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
+    <h3 style="margin:16px 0 8px">Detalhamento por renda e investimento declarados</h3>
+    <div style="display:flex;gap:16px;flex-wrap:wrap">
+      ${bandTable('Renda mensal da família', p.por_renda||[], RENDA_LBL)}
+      ${bandTable('Disponível p/ investir no mês', p.por_invest||[], INVEST_LBL)}
+    </div>
+    <div class="mini" style="margin-top:12px">Perfil = snapshot completo do quiz de onboarding (${fmtNum(p.total)} compradores únicos, 1.113 respostas), preenchido ~56h <b>após</b> a compra. O bloco financeiro do topo respeita o <b>período selecionado</b> (por isso pode divergir do perfil, que é o total). ${fmtNum(p.linkados)} de ${fmtNum(p.total)} ligados a uma compra por e-mail (resto usou e-mail diferente no checkout, então o backend é piso). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
   </div>`;
 }
 function renderContas(A){
@@ -1621,14 +1643,14 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); refreshData(); }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
   if(!S.customSince) S.customSince=value;
   if(!S.customUntil) S.customUntil=value;
   if(S.customSince>S.customUntil){ const t=S.customSince; S.customSince=S.customUntil; S.customUntil=t; }
-  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; saveState(); refreshData();
+  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); refreshData();
 }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
