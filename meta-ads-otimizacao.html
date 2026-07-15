@@ -1018,39 +1018,39 @@ const RENDA_LBL=['Sem renda','Menos de 1k','1k–3k','3k–5k','5k–10k','10k�
 const INVEST_LBL=['Sem caixa','Menos de 1k','1k–3k','3k–5k','5k–10k','10k–15k','Acima de 15k'];
 function renderPesquisa(A){
   if(!['NATH','ALL'].includes(S.funnel)) return ''; // pesquisa é do funil Nathalia
-  const head=`<h2>🧭 Pesquisa de onboarding × IniciAmazon <span class="mini" style="text-transform:none">quiz do funil Nathalia cruzado com quem comprou · snapshot 01–13 jul</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadPesquisa()">↻ Atualizar</button></h2>`;
-  if(S._pesquisaLoading || S._pesquisa==null){ if(!S._pesquisaLoading && S.connected) setTimeout(()=>fetchPesquisa(),40); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Cruzando pesquisa…</div></div>`; }
+  const head=`<h2>🧭 Perfil dos compradores · pesquisa de onboarding <span class="mini" style="text-transform:none">quiz preenchido após comprar o IniciAmazon (funil Nathalia) · snapshot 01–13 jul</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadPesquisa()">↻ Atualizar</button></h2>`;
+  if(S._pesquisaLoading || S._pesquisa==null){ if(!S._pesquisaLoading && S.connected) setTimeout(()=>fetchPesquisa(),40); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Carregando perfil…</div></div>`; }
   const p=S._pesquisa; if(!p || !p.total) return `<div class="card">${head}<div class="empty">Sem respostas de pesquisa importadas.</div></div>`;
-  const taxaFront = p.total? (100*p.front/p.total):0;
   const fx=p.por_faixa||[];
+  const semCaixa = (fx.find(f=>f.faixa==='sem faixa')||{}).respondentes||0;
   const opp = fx.filter(f=>f.faixa!=='sem faixa').reduce((s,f)=>s+f.respondentes,0);
   const faixaCor={A:'#137333',B:'#0891b2',C:'#b26a00','sem faixa':'#8a8a8a'};
-  const bandRow=(arr,lbls)=>arr.map(b=>`<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num">${fmtNum(b.front)}</td><td class="num" style="font-weight:700">${b.taxa}%</td></tr>`).join('');
+  const bandRow=(arr,lbls)=>arr.map(b=>`<tr><td>${lbls[b.cod]||b.cod}</td><td class="num">${fmtNum(b.respondentes)}</td><td class="num">${(100*b.respondentes/p.total).toFixed(0)}%</td><td class="num">${b.backend||0}</td></tr>`).join('');
   return `<div class="card">${head}
     <div class="kpis" style="margin-bottom:14px">
-      <div class="kpi"><div class="k-l">Respondentes</div><div class="k-v">${fmtNum(p.total)}</div><div class="k-s">e-mails únicos</div></div>
-      <div class="kpi good"><div class="k-l">Viraram comprador front</div><div class="k-v">${taxaFront.toFixed(1)}%</div><div class="k-s">${fmtNum(p.front)} de ${fmtNum(p.total)}</div></div>
-      <div class="kpi"><div class="k-l">Oportunidades (A+B+C)</div><div class="k-v">${fmtNum(opp)}</div><div class="k-s">têm algum caixa p/ investir</div></div>
-      <div class="kpi"><div class="k-l">Foram pro backend</div><div class="k-v">${fmtNum(p.backend)}</div><div class="k-s">alto ticket</div></div>
+      <div class="kpi"><div class="k-l">Compradores pesquisados</div><div class="k-v">${fmtNum(p.total)}</div><div class="k-s">responderam o onboarding</div></div>
+      <div class="kpi danger"><div class="k-l">Sem caixa p/ investir</div><div class="k-v">${p.total?(100*semCaixa/p.total).toFixed(0):0}%</div><div class="k-s">${fmtNum(semCaixa)} compradores</div></div>
+      <div class="kpi good"><div class="k-l">Oportunidades (A+B+C)</div><div class="k-v">${fmtNum(opp)}</div><div class="k-s">${p.total?(100*opp/p.total).toFixed(0):0}% têm algum caixa</div></div>
+      <div class="kpi"><div class="k-l">Foram pro backend</div><div class="k-v">${fmtNum(p.backend)}</div><div class="k-s">alto ticket (mentoria/consult.)</div></div>
     </div>
-    <h3 style="margin:2px 0 8px">Conversão por faixa <span class="mini" style="text-transform:none">faixa = poder de investimento declarado no quiz</span></h3>
+    <h3 style="margin:2px 0 8px">Perfil por faixa <span class="mini" style="text-transform:none">faixa = poder de investimento declarado · backend = quantos foram pro alto ticket</span></h3>
     <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
-      <th>Faixa</th><th class="num">Respondentes</th><th class="num">% do total</th><th class="num">Compraram front</th><th class="num">Taxa front</th><th class="num">Backend</th>
+      <th>Faixa</th><th class="num">Compradores</th><th class="num">% do total</th><th class="num">Foram pro backend</th><th class="num">Taxa backend</th>
     </tr></thead><tbody>
     ${fx.map(f=>`<tr><td><b style="color:${faixaCor[f.faixa]||'#333'}">${f.faixa==='sem faixa'?'Sem faixa':'Faixa '+f.faixa}</b></td>
       <td class="num">${fmtNum(f.respondentes)}</td><td class="num">${(100*f.respondentes/p.total).toFixed(0)}%</td>
-      <td class="num">${fmtNum(f.front)}</td><td class="num" style="font-weight:700">${f.taxa}%</td><td class="num">${f.backend||0}</td></tr>`).join('')}
+      <td class="num">${f.backend||0}</td><td class="num" style="font-weight:700">${f.respondentes?(100*(f.backend||0)/f.respondentes).toFixed(1):'0'}%</td></tr>`).join('')}
     </tbody></table></div>
-    <div class="info-box" style="margin-top:10px">⚠️ A conversão para o front é <b>inversa à faixa</b>: quanto menos caixa a pessoa tem, mais ela compra o front de R$37. O front atrai o público sem caixa; o alto ticket (backend) precisa da Faixa A/B — os ${fmtNum(p.backend)} que foram pro backend eram Faixa A e B.</div>
+    <div class="info-box" style="margin-top:10px">⚠️ <b>${p.total?(100*semCaixa/p.total).toFixed(0):0}% dos compradores do IniciAmazon declaram não ter caixa para investir</b>. O front de R$37 está trazendo majoritariamente público sem caixa. O backend (alto ticket) só veio de Faixa A e B — nenhum comprador "sem faixa" foi pro backend. Para escalar o backend, o gargalo é a <b>qualidade do lead que o front atrai</b>, não a oferta.</div>
     <details style="margin-top:12px"><summary>Ver por renda e por investimento declarado</summary>
       <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:10px">
         <div style="flex:1;min-width:280px"><h3 style="margin:0 0 6px">Renda mensal da família</h3>
-          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Renda</th><th class="num">Resp.</th><th class="num">Front</th><th class="num">Taxa</th></tr></thead><tbody>${bandRow(p.por_renda||[],RENDA_LBL)}</tbody></table></div></div>
+          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Renda</th><th class="num">Compr.</th><th class="num">%</th><th class="num">Backend</th></tr></thead><tbody>${bandRow(p.por_renda||[],RENDA_LBL)}</tbody></table></div></div>
         <div style="flex:1;min-width:280px"><h3 style="margin:0 0 6px">Disponível p/ investir no mês</h3>
-          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Investimento</th><th class="num">Resp.</th><th class="num">Front</th><th class="num">Taxa</th></tr></thead><tbody>${bandRow(p.por_invest||[],INVEST_LBL)}</tbody></table></div></div>
+          <div class="tbl-wrap" style="max-height:none"><table><thead><tr><th>Investimento</th><th class="num">Compr.</th><th class="num">%</th><th class="num">Backend</th></tr></thead><tbody>${bandRow(p.por_invest||[],INVEST_LBL)}</tbody></table></div></div>
       </div>
     </details>
-    <div class="mini" style="margin-top:10px">Snapshot da pesquisa (quiz VSL 37, funil Nathalia) de 01–13 jul, 1.113 respostas. Cruzamento por e-mail com a base de compradores, sem janela de tempo. Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
+    <div class="mini" style="margin-top:10px">Snapshot do quiz de onboarding (funil Nathalia), preenchido em média ~56h <b>após</b> a compra do IniciAmazon. 1.113 respostas, ${fmtNum(p.total)} compradores únicos. ${fmtNum(p.linkados)} puderam ser ligados a um registro de compra por e-mail (o restante usou e-mail diferente no checkout, então o nº do backend é um piso). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
   </div>`;
 }
 function renderContas(A){
