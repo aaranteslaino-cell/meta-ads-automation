@@ -1037,7 +1037,8 @@ function renderPesquisa(A){
   const frontPeriod=(A.funnelTotal&&A.funnelTotal.front)||T.front||0;
   const cpaFlat=frontPeriod>0?investimento/frontPeriod:null; // CPA médio do comprador front
   const backendPer=p.backend_periodo||0;
-  const cpaBackend=backendPer>0?investimento/backendPer:null; // gasto front ÷ compradores backend no período
+  const backendFront=p.backend_periodo_do_front||0; // backend que realmente veio do front (IniciAmazon)
+  const cpaBackend=backendFront>0?investimento/backendFront:null; // gasto front ÷ backend que veio do front
   // não responderam a pesquisa
   const naoResp=Math.max(0,(p.compradores_front||0)-(p.compradores_responderam||0));
   const taxaResp=p.compradores_front>0?100*(p.compradores_responderam||0)/p.compradores_front:0;
@@ -1049,7 +1050,7 @@ function renderPesquisa(A){
       <div class="kpi"><div class="k-l">Investimento (Meta)</div><div class="k-v">${fmtMoney0(investimento)}</div><div class="k-s">gasto em mídia no período</div></div>
       <div class="kpi ${custoLiq>=0?'good':'danger'}"><div class="k-l">Custo líquido</div><div class="k-v" style="color:${custoLiq>=0?'#137333':'#c5221f'}">${fmtMoney0(custoLiq)}</div><div class="k-s">faturamento − investimento</div></div>
       <div class="kpi"><div class="k-l">CPL (preencheu pesquisa)</div><div class="k-v">${cpl!=null?fmtMoney0(cpl):'—'}</div><div class="k-s">${fmtNum(respP)} responderam no período</div></div>
-      <div class="kpi"><div class="k-l">CPA backend</div><div class="k-v">${cpaBackend!=null?fmtMoney0(cpaBackend):'—'}</div><div class="k-s">gasto front ÷ ${fmtNum(backendPer)} compradores backend</div></div>
+      <div class="kpi"><div class="k-l">CPA backend (via front)</div><div class="k-v">${cpaBackend!=null?fmtMoney0(cpaBackend):'—'}</div><div class="k-s">gasto front ÷ ${fmtNum(backendFront)} que vieram do front (de ${fmtNum(backendPer)} no total)</div></div>
     </div>`;
   // tabela de renda/investimento com % + custo estimado por comprador do segmento
   const totalBand=(arr)=>arr.reduce((s,b)=>s+b.respondentes,0);
@@ -1085,7 +1086,7 @@ function renderPesquisa(A){
       ${bandTable('Renda mensal da família', p.por_renda||[], RENDA_LBL)}
       ${bandTable('Disponível p/ investir no mês', p.por_invest||[], INVEST_LBL)}
     </div>
-    <div class="mini" style="margin-top:12px"><b>Taxa de resposta:</b> só ${taxaResp.toFixed(0)}% dos ${fmtNum(p.compradores_front||0)} compradores responderam, então o perfil é uma amostra. <b>Custo/compr. da faixa</b> = CPA médio do front (investimento ÷ compradores no período) ÷ participação da faixa — estima quanto custa cada comprador daquele tipo assumindo que quem respondeu representa todos. <b>CPA backend</b> = investimento front ÷ compradores backend no período. Bloco financeiro e custos respeitam o <b>período do topo</b>; o perfil (faixas/renda/investimento) é o snapshot completo (${fmtNum(p.total)} respondentes). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
+    <div class="mini" style="margin-top:12px"><b>Taxa de resposta:</b> só ${taxaResp.toFixed(0)}% dos ${fmtNum(p.compradores_front||0)} compradores responderam, então o perfil é uma amostra. <b>Custo/compr. da faixa</b> = CPA médio do front (investimento ÷ compradores no período) ÷ participação da faixa — estima quanto custa cada comprador daquele tipo assumindo que quem respondeu representa todos. <b>CPA backend (via front)</b> = investimento front ÷ compradores backend <b>que vieram do front</b> (cruzados por e-mail); ignora quem entrou no backend por fora (WhatsApp/indicação). É um piso, pois a ligação por e-mail pode não pegar todos. Bloco financeiro e custos respeitam o <b>período do topo</b>; o perfil (faixas/renda/investimento) é o snapshot completo (${fmtNum(p.total)} respondentes). Faixa A = investe ≥ R$3k; B = R$1–3k; C = &lt; R$1k mas renda ≥ R$3k.</div>
   </div>`;
 }
 function renderContas(A){
