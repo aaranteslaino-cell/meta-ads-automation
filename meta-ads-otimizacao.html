@@ -100,10 +100,11 @@ const SB_KEY_DEFAULT = 'sb_publishable_KraV-pqYINerxc0nCgdHaA_xHj7ew87';
 
 // Funis do negócio — o match no nome da campanha ignora acento (TOMÉ = TOME)
 const FUNNELS = [
-  {key:'NATH',   label:'Nathalia', match:'NATH',   emoji:'👩'},
-  {key:'TOME',   label:'Tomé',     match:'TOME',   emoji:'👨'},
-  {key:'COELHO', label:'Coelho',   match:'COELHO', emoji:'🐰'},
-  {key:'ALL',    label:'Todos',    match:'',       emoji:'🌐'}
+  {key:'NATH',    label:'Nathalia', match:'NATH',     emoji:'👩'},
+  {key:'TOME',    label:'Tomé',     match:'TOME',     emoji:'👨'},
+  {key:'COELHO',  label:'Coelho',   match:'COELHO',   emoji:'🐰'},
+  {key:'BACKEND', label:'Backend',  match:'mentoria', emoji:'💼', backend:true}, // Consultorias & Mentorias (sem mídia paga)
+  {key:'ALL',     label:'Todos',    match:'',         emoji:'🌐'}
 ];
 
 // ── Estado ──────────────────────────────────────────────────────────────────
@@ -659,17 +660,18 @@ function renderControls(A){
       <input type="date" value="${esc(S.customUntil)}" max="${brToday()}" onchange="setCustomDate('until',this.value)" style="width:140px;padding:6px 8px;${S.period==='custom'?'border-color:#7b2ff7':''}">
       ${S.period==='custom'?`<span class="chip active" style="cursor:default">📅 ${A.days} dia(s)</span>`:''}
     </div>
-    <div class="row" style="gap:16px;align-items:flex-end">
+    ${currentFunnel().backend ? '' : `<div class="row" style="gap:16px;align-items:flex-end">
       <div><label>Refinar (opcional)</label><input style="width:160px" value="${esc(S.nameContains)}" onchange="setCfg('nameContains',this.value)" placeholder="ex: CBO, 07.07"></div>
       <div><label>CPA alvo (front)</label><input style="width:130px" value="${esc(S.cpaAlvo)}" onchange="setCfg('cpaAlvo',this.value)" placeholder="média: ${fmtMoney0(A.blendedCPA)}"></div>
       <div><label>ROAS alvo</label><input style="width:90px" value="${esc(S.roasAlvo)}" onchange="setCfg('roasAlvo',this.value)"></div>
       <div><label>Gasto mín. p/ julgar</label><input style="width:120px" value="${esc(S.minSpend)}" onchange="setCfg('minSpend',this.value)" placeholder="auto: ${fmtMoney0(A.minSpend)}"></div>
     </div>
-    <div class="info-box" style="margin-top:12px">💰 O faturamento cruza a receita real do Supabase pela UTM e <b>inclui front, order bump, upsell e downsell</b> (≈97% dos upsells vêm com a UTM da campanha). O que vem sem UTM do meta (direct/orgânico) aparece em <b>Outras fontes</b>. Continua sendo atribuição por UTM, então cruze também com o <b>ROAS relativo entre campanhas</b>.</div>
+    <div class="info-box" style="margin-top:12px">💰 O faturamento cruza a receita real do Supabase pela UTM e <b>inclui front, order bump, upsell e downsell</b> (≈97% dos upsells vêm com a UTM da campanha). O que vem sem UTM do meta (direct/orgânico) aparece em <b>Outras fontes</b>. Continua sendo atribuição por UTM, então cruze também com o <b>ROAS relativo entre campanhas</b>.</div>`}
   </div>`;
 }
 
 function renderDashboard(A){
+  if(currentFunnel().backend) return renderBackendView(A); // backend não tem mídia: visão própria
   if(!A.rows.length){
     const f=currentFunnel();
     const msg = f.key==='COELHO'
@@ -678,6 +680,53 @@ function renderDashboard(A){
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
   return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderCrossover(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
+}
+
+// ── Visão própria do Backend (Mentoria & Consultoria) — sem mídia paga ───────
+function renderBackendView(A){
+  const tipos=S._crossoverTipos||[];
+  const totBruta=tipos.reduce((s,t)=>s+(+t.receita_bruta||0),0);
+  const totLiq=tipos.reduce((s,t)=>s+(+t.receita_liquida||0),0);
+  const totVendas=tipos.reduce((s,t)=>s+(+t.vendas||0),0);
+  const totComp=tipos.reduce((s,t)=>s+(+t.compradores||0),0);
+  const fr=A.funnelTotal||{};
+  const receita = totBruta>0?totBruta:(parseFloat(fr.receita)||0);
+  const vendas  = totVendas>0?totVendas:(parseInt(fr.total)||0);
+  const ticket  = vendas?receita/vendas:0;
+  const carregando = S._crossoverTipos==null;
+  const kpi=`<div class="card">
+    <h2>💼 Backend · Mentoria &amp; Consultoria · ${A.days}d</h2>
+    <div class="kpis">
+      <div class="kpi"><div class="k-l">Receita bruta</div><div class="k-v">${fmtMoney0(receita)}</div><div class="k-s">${totLiq>0?'líquida '+fmtMoney0(totLiq):(carregando?'<span class="loading"></span>':'')}</div></div>
+      <div class="kpi"><div class="k-l">Vendas</div><div class="k-v">${fmtNum(vendas)}</div><div class="k-s">${fmtNum(totComp)} compradores</div></div>
+      <div class="kpi"><div class="k-l">Ticket médio</div><div class="k-v">${fmtMoney0(ticket)}</div><div class="k-s">bruto</div></div>
+    </div>
+    <div class="mini" style="margin-top:10px">Backend fechado por WhatsApp/call — <b>sem mídia paga direta</b>, por isso não há campanhas para otimizar aqui. Receita da Assiny (projeto "Consultorias &amp; Mentorias"). O split por tipo, a origem e a taxa de conversão do front estão logo abaixo.</div>
+  </div>`;
+  return kpi + renderBackendProdutos(A) + renderCrossover(A);
+}
+
+function renderBackendProdutos(A){
+  const head=`<h2>📦 Produtos do backend <span class="mini" style="text-transform:none">receita e compradores por produto no período</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadFunis()">↻ Atualizar</button></h2>`;
+  if(S._funisLoading || S._funis==null){ if(!S._funisLoading && S.connected) setTimeout(()=>fetchFunis(),40); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Carregando produtos…</div></div>`; }
+  const prodMap={};
+  S._funis.forEach(f=>(f.produtos||[]).forEach(p=>{
+    const k=p.nome||'(sem nome)';
+    if(!prodMap[k]) prodMap[k]={nome:k, compradores:0, receita:0};
+    prodMap[k].compradores+=p.compradores; prodMap[k].receita+=p.receita;
+  }));
+  const prods=Object.values(prodMap).sort((a,b)=>b.receita-a.receita);
+  if(!prods.length) return `<div class="card">${head}<div class="empty">Sem vendas no período.</div></div>`;
+  const totR=prods.reduce((s,p)=>s+p.receita,0);
+  const tipoBadge=(nome)=> /franquia|consultoria/i.test(nome)?'<span class="badge b-novo">Consultoria</span>':'<span class="badge b-bom">Mentoria</span>';
+  return `<div class="card">${head}
+    <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
+      <th>Produto</th><th>Tipo</th><th class="num">Compradores</th><th class="num">Receita</th><th class="num">Ticket</th><th class="num">% da receita</th>
+    </tr></thead><tbody>
+    ${prods.map(p=>`<tr><td>${esc(p.nome)}</td><td>${tipoBadge(p.nome)}</td><td class="num">${fmtNum(p.compradores)}</td><td class="num">${fmtMoney0(p.receita)}</td><td class="num">${fmtMoney0(p.compradores?p.receita/p.compradores:0)}</td><td class="num">${totR?(p.receita/totR*100).toFixed(0):0}%</td></tr>`).join('')}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:8px">Produtos com "Franquia"/"Consultoria" no nome contam como Consultoria; o resto como Mentoria. Receita bruta antes de taxas.</div>
+  </div>`;
 }
 
 function renderKPIs(A){
