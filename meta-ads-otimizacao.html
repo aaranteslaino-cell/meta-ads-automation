@@ -148,12 +148,13 @@ S._topPubLoading = false;
 if(typeof S.backendKeyword!=='string' || !S.backendKeyword) S.backendKeyword='mentoria'; // palavra-chave do backend (organização Mentoria e Consultorias)
 S._crossover = null;      // compradores backend + origem no front (Supabase, sempre visível, independe da organização selecionada)
 S._crossoverRate = null;  // taxa de conversão geral front→backend (histórico completo)
+S._crossoverTipos = null; // breakdown por tipo (Mentoria x Consultoria): taxa, receita, ticket
 S._crossoverLoading = false;
 S._crossoverCAC = null;   // custo real (gasto Meta) por campanha de origem, carregado sob demanda
 S._crossoverCACLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverCAC:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -431,16 +432,18 @@ async function fetchCrossover(){
   try{
     const kw=(S.backendKeyword||'mentoria').trim();
     const {since,until}=periodRange(S.period);
-    const [r1,r2]=await Promise.all([
+    const [r1,r2,r3]=await Promise.all([
       fetch(`${S.sbUrl}/rest/v1/rpc/backend_buyers_origin`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_backend_keyword:kw})}),
-      fetch(`${S.sbUrl}/rest/v1/rpc/backend_conversion_rate`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_backend_keyword:kw})})
+      fetch(`${S.sbUrl}/rest/v1/rpc/backend_conversion_rate`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_backend_keyword:kw})}),
+      fetch(`${S.sbUrl}/rest/v1/rpc/backend_breakdown_tipo`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_backend_keyword:kw})})
     ]);
     S._crossover = r1.ok ? await r1.json() : [];
     S._crossoverRate = r2.ok ? (await r2.json())[0] : null;
-  }catch(e){ S._crossover=[]; S._crossoverRate=null; }
+    S._crossoverTipos = r3.ok ? await r3.json() : [];
+  }catch(e){ S._crossover=[]; S._crossoverRate=null; S._crossoverTipos=[]; }
   S._crossoverLoading=false; render();
 }
-function reloadCrossover(){ S._crossover=null; S._crossoverRate=null; S._crossoverCAC=null; fetchCrossover(); }
+function reloadCrossover(){ S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; fetchCrossover(); }
 function setBackendKeyword(v){ S.backendKeyword=(v||'mentoria').trim(); saveState(); reloadCrossover(); }
 
 // CAC real: para cada campanha de origem dos convertidos, busca o gasto vitalício no Meta
@@ -884,6 +887,31 @@ function renderCrossover(A){
   const campArr=Object.values(byCamp).sort((a,b)=>b.receitaBackend-a.receitaBackend);
   const cac=S._crossoverCAC;
   const cacBtn = cac ? '' : `<button class="btn btn-purple btn-sm" onclick="fetchCrossoverCAC()" ${S._crossoverCACLoading?'disabled':''}>${S._crossoverCACLoading?'<span class="loading"></span> Carregando…':'💰 Carregar CAC real (gasto Meta)'}</button>`;
+  // ── breakdown por tipo (Mentoria x Consultoria) ──
+  const tipos = S._crossoverTipos||[];
+  const linha=(l,v)=>`<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;gap:12px"><span class="mini">${l}</span><b style="white-space:nowrap">${v}</b></div>`;
+  const tipoBlock=(t)=>{
+    const isCons = t.tipo==='Consultoria';
+    const origens = comFront.filter(r=>(r.backend_tipo||'Mentoria')===t.tipo);
+    const campIds = [...new Set(origens.map(r=>r.front_meta_campaign_id).filter(Boolean))];
+    let cacTipo=null;
+    if(cac){ const gasto=campIds.reduce((s,id)=>s+(cac[id]!=null?+cac[id]:0),0); cacTipo=origens.length?gasto/origens.length:null; }
+    const cor=isCons?'#7c3aed':'#0891b2';
+    const custoVal = cac ? (cacTipo!=null?fmtMoney0(cacTipo):'—')
+                         : (origens.length?'<span class="mini" style="font-weight:400">clique “Carregar CAC”</span>':'<span class="mini" style="font-weight:400">sem origem Meta rastreada</span>');
+    return `<div style="flex:1;min-width:250px;border:1px solid #e9e9ef;border-left:4px solid ${cor};border-radius:10px;padding:14px 16px;background:#fff">
+      <div style="font-weight:800;font-size:15px;margin-bottom:10px">${isCons?'🏛️ Consultoria':'🎓 Mentoria'}</div>
+      ${linha('Receita bruta (período)', fmtMoney0(t.receita_bruta))}
+      ${linha('Receita líquida', fmtMoney0(t.receita_liquida))}
+      ${linha('Vendas / compradores', fmtNum(t.vendas)+' / '+fmtNum(t.compradores))}
+      ${linha('Ticket médio', fmtMoney0(t.ticket_medio))}
+      ${linha('Taxa front→backend', t.taxa_conversao+'% <span class="mini" style="font-weight:400">('+fmtNum(t.convertidos_hist)+' conv. no histórico)</span>')}
+      ${linha('Custo (CAC atribuído)', custoVal)}
+    </div>`;
+  };
+  const ordem={'Mentoria':0,'Consultoria':1};
+  const tiposHtml = tipos.length ? `<h3 style="margin:4px 0 8px">Separado por tipo <span class="mini" style="text-transform:none">receita, ticket e compradores no período · taxa de conversão no histórico</span></h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">${[...tipos].sort((a,b)=>(ordem[a.tipo]??9)-(ordem[b.tipo]??9)).map(tipoBlock).join('')}</div>` : '';
   return `<div class="card">${head}${kwField}
     <div class="kpis" style="margin-bottom:14px">
       <div class="kpi good"><div class="k-l">Taxa de conversão front→backend</div><div class="k-v">${rate.taxa_conversao}%</div><div class="k-s">${fmtNum(rate.convertidos)} de ${fmtNum(rate.total_front_buyers)} (histórico completo)</div></div>
@@ -891,6 +919,7 @@ function renderCrossover(A){
       <div class="kpi"><div class="k-l">Receita backend</div><div class="k-v">${fmtMoney0(receitaBackend)}</div><div class="k-s">ticket ${fmtMoney0(ticketBackend)}</div></div>
       <div class="kpi"><div class="k-l">LTV médio (front+backend)</div><div class="k-v">${fmtMoney0(ltvMedio)}</div><div class="k-s">dos convertidos com origem</div></div>
     </div>
+    ${tiposHtml}
     <h3 style="margin:2px 0 8px">Origem (campanha que trouxe o comprador no front) <span class="mini" style="text-transform:none">ordenado por receita backend atribuída</span></h3>
     <div style="margin-bottom:10px">${cacBtn}</div>
     <div class="tbl-wrap" style="max-height:none"><table><thead><tr>
@@ -907,9 +936,9 @@ function renderCrossover(A){
     </tbody></table></div>
     <details style="margin-top:14px"><summary>Ver cada comprador convertido (${rows.length})</summary>
       <div class="tbl-wrap" style="max-height:340px;margin-top:8px"><table><thead><tr>
-        <th>E-mail</th><th>Backend</th><th class="num">Valor</th><th>Origem (front)</th><th class="num">Dias até converter</th>
+        <th>E-mail</th><th>Tipo</th><th>Backend</th><th class="num">Valor</th><th>Origem (front)</th><th class="num">Dias até converter</th>
       </tr></thead><tbody>
-      ${rows.map(r=>`<tr><td>${esc(r.cliente_email)}</td><td>${esc(r.backend_produto||'')}</td><td class="num">${fmtMoney0(r.backend_valor)}</td>
+      ${rows.map(r=>`<tr><td>${esc(r.cliente_email)}</td><td>${esc(r.backend_tipo||'Mentoria')}</td><td>${esc(r.backend_produto||'')}</td><td class="num">${fmtMoney0(r.backend_valor)}</td>
         <td>${r.front_projeto?esc(r.front_projeto):'<span class="mini">sem compra front identificada</span>'}</td>
         <td class="num">${r.dias_front_ate_backend!=null?Math.round(r.dias_front_ate_backend):'—'}</td></tr>`).join('')}
       </tbody></table></div>
@@ -1485,14 +1514,14 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverCAC=null; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; saveState(); refreshData(); }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
   if(!S.customSince) S.customSince=value;
   if(!S.customUntil) S.customUntil=value;
   if(S.customSince>S.customUntil){ const t=S.customSince; S.customSince=S.customUntil; S.customUntil=t; }
-  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverCAC=null; saveState(); refreshData();
+  S.period='custom'; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; saveState(); refreshData();
 }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
