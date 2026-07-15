@@ -857,10 +857,7 @@ function renderFunis(A){
 // Card fixo: sempre visível, não depende da Organização selecionada no topo.
 function renderCrossover(A){
   const head=`<h2>🔗 IniciAmazon → Backend <span class="mini" style="text-transform:none">cruza compradores do front com a organização de mentoria/consultoria pelo e-mail, sem janela de tempo</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadCrossover()">↻ Atualizar</button></h2>`;
-  const kwField=`<div class="row" style="gap:8px;margin:8px 0 12px;align-items:center">
-    <label style="margin:0">Palavra-chave da organização backend</label>
-    <input value="${esc(S.backendKeyword)}" onchange="setBackendKeyword(this.value)" style="width:200px" placeholder="mentoria">
-  </div>`;
+  const kwField='';
   if(S._crossoverLoading || S._crossover==null){
     if(!S._crossoverLoading && S.connected) setTimeout(()=>fetchCrossover(),40);
     return `<div class="card">${head}${kwField}<div class="empty"><span class="loading"></span> Cruzando compradores…</div></div>`;
