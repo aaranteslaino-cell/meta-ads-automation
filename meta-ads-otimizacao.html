@@ -1259,8 +1259,9 @@ function renderTopAdsAudiences(A){
     pubHtml = arr.length ? dimTable('', arr, '', 'Conjuntos') : `<div class="empty">Nenhum público ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
   return `<div class="card">${head}
-    <h3 style="margin:2px 0 8px">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com venda e gasto mínimo, agrupados por nome</span>
-      <select onchange="setTopAdsSort(this.value)" style="float:right;padding:3px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
+      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com venda e gasto mínimo, agrupados por nome</span></h3>
+      <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
         <option value="faixaB" ${S.topAdsSort==='faixaB'?'selected':''}>Mais leads Faixa B</option>
@@ -1270,7 +1271,8 @@ function renderTopAdsAudiences(A){
         <option value="spend" ${S.topAdsSort==='spend'?'selected':''}>Maior gasto</option>
         <option value="front" ${S.topAdsSort==='front'?'selected':''}>Mais vendas front</option>
         <option value="cpa" ${S.topAdsSort==='cpa'?'selected':''}>Menor CPA</option>
-      </select></h3>
+      </select>
+    </div>
     ${adsHtml}
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios ativo (público customizado, interesses ou amplo/Advantage+)</span></h3>
