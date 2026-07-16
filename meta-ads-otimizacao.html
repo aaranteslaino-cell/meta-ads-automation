@@ -1213,9 +1213,12 @@ function renderTopAdsAudiences(A){
     const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3); // evita ROAS absurdo por gasto quase zero + 1 venda de ruído
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
-    const fBadge=(lbl,n,cor)=> n>0?`<span style="font-weight:700;color:${cor};margin-right:8px">${lbl} ${n}</span>`:`<span style="color:#ccc;margin-right:8px">${lbl} 0</span>`;
-    const faixaLine=(g)=>{ const conhecidos=g.fa+g.fb+g.fc+g.fsem; if(!(conhecidos+g.fresp0)) return '';
-      return `<div class="i-sub" style="margin-top:2px">Faixas: ${fBadge('A',g.fa,'#137333')}${fBadge('B',g.fb,'#0891b2')}${fBadge('C',g.fc,'#b26a00')}${fBadge('Sem caixa',g.fsem,'#8a8a8a')}<span style="color:#bbb">Não respondeu ${g.fresp0}</span>${conhecidos?` <span class="mini">· ${Math.round(100*(g.fa+g.fb)/conhecidos)}% A+B entre os que responderam</span>`:''}</div>`;
+    // % exato com dígitos significativos (não arredonda p/ 0 quando é > 0)
+    const pctExato=(n,tot)=>{ if(!tot||!n) return '0%'; const p=100*n/tot; let s=p>=1?p.toFixed(1):p.toPrecision(2); s=s.replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); return s+'%'; };
+    const fBadge=(lbl,n,tot,cor)=> `<span style="color:${n>0?cor:'#ccc'};margin-right:10px">${lbl} <b>${n}</b> <span style="font-weight:400">(${pctExato(n,tot)})</span></span>`;
+    const faixaLine=(g)=>{ const tot=g.fa+g.fb+g.fc+g.fsem+g.fresp0; if(!tot) return '';
+      const conhecidos=g.fa+g.fb+g.fc+g.fsem;
+      return `<div class="i-sub" style="margin-top:2px">Faixas (de ${tot} compradores): ${fBadge('A',g.fa,tot,'#137333')}${fBadge('B',g.fb,tot,'#0891b2')}${fBadge('C',g.fc,tot,'#b26a00')}${fBadge('Sem caixa',g.fsem,tot,'#8a8a8a')}<span style="color:#bbb">Não respondeu <b>${g.fresp0}</b> (${pctExato(g.fresp0,tot)})</span>${conhecidos?` <span class="mini">· A+B = ${pctExato(g.fa+g.fb,conhecidos)} entre os que responderam</span>`:''}</div>`;
     };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
