@@ -144,6 +144,7 @@ S._funis = null;       // funis de checkout + produtos (conversão)
 S._funisLoading = false;
 S._topAds = null;      // melhores anúncios ativos
 S._topAdsLoading = false;
+if(typeof S.topAdsSort!=='string') S.topAdsSort='roas'; // critério de ordenação dos top anúncios
 S._topPub = null;      // melhores públicos ativos
 S._topPubLoading = false;
 if(typeof S.backendKeyword!=='string' || !S.backendKeyword) S.backendKeyword='mentoria'; // palavra-chave do backend (organização Mentoria e Consultorias)
@@ -381,6 +382,7 @@ async function fetchTopAds(){
   S._topAdsLoading=false; render();
 }
 function reloadTopAds(){ S._topAds=null; fetchTopAds(); }
+function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
 
 // ── Melhores públicos ativos ──────────────────────────────────────────────────
 async function fetchAdsetEntities(parentId, tokenId){
@@ -1210,7 +1212,19 @@ function renderTopAdsAudiences(A){
       if(o._accountName) g.contas.add(o._accountName);
       if(f){ g.fa+=f.a; g.fb+=f.b; g.fc+=f.c; g.fsem+=f.sem; g.fresp0+=f.resp0; }
     });
-    const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
+    const roasCmp=(a,b)=>(b.roas??-1)-(a.roas??-1);
+    const CMP={
+      roas:roasCmp,
+      faixaA:(a,b)=>(b.fa-a.fa)||roasCmp(a,b),
+      faixaB:(a,b)=>(b.fb-a.fb)||roasCmp(a,b),
+      faixaC:(a,b)=>(b.fc-a.fc)||roasCmp(a,b),
+      faixaAB:(a,b)=>((b.fa+b.fb)-(a.fa+a.fb))||roasCmp(a,b),
+      receita:(a,b)=>b.receita-a.receita,
+      spend:(a,b)=>b.spend-a.spend,
+      front:(a,b)=>b.front-a.front,
+      cpa:(a,b)=>(a.cpa==null?Infinity:a.cpa)-(b.cpa==null?Infinity:b.cpa)
+    };
+    const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort(CMP[S.topAdsSort]||roasCmp);
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3); // evita ROAS absurdo por gasto quase zero + 1 venda de ruído
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
     // % exato com dígitos significativos (não arredonda p/ 0 quando é > 0)
@@ -1218,7 +1232,7 @@ function renderTopAdsAudiences(A){
     const fBadge=(lbl,n,tot,cor)=> `<span style="color:${n>0?cor:'#ccc'};margin-right:10px">${lbl} <b>${n}</b> <span style="font-weight:400">(${pctExato(n,tot)})</span></span>`;
     const faixaLine=(g)=>{ const tot=g.fa+g.fb+g.fc+g.fsem+g.fresp0; if(!tot) return '';
       const conhecidos=g.fa+g.fb+g.fc+g.fsem;
-      return `<div class="i-sub" style="margin-top:2px">Faixas (de ${tot} compradores): ${fBadge('A',g.fa,tot,'#137333')}${fBadge('B',g.fb,tot,'#0891b2')}${fBadge('C',g.fc,tot,'#b26a00')}${fBadge('Sem caixa',g.fsem,tot,'#8a8a8a')}<span style="color:#bbb">Não respondeu <b>${g.fresp0}</b> (${pctExato(g.fresp0,tot)})</span>${conhecidos?` <span class="mini">· A+B = ${pctExato(g.fa+g.fb,conhecidos)} entre os que responderam</span>`:''}</div>`;
+      return `<div class="i-sub" style="margin-top:2px">Faixas (de ${tot} compradores): ${fBadge('A',g.fa,tot,'#137333')}${fBadge('B',g.fb,tot,'#0891b2')}${fBadge('C',g.fc,tot,'#b26a00')}${fBadge('Sem faixa',g.fsem,tot,'#8a8a8a')}<span style="color:#bbb">Não respondeu <b>${g.fresp0}</b> (${pctExato(g.fresp0,tot)})</span>${conhecidos?` <span class="mini">· A+B = ${pctExato(g.fa+g.fb,conhecidos)} entre os que responderam</span>`:''}</div>`;
     };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
@@ -1245,12 +1259,23 @@ function renderTopAdsAudiences(A){
     pubHtml = arr.length ? dimTable('', arr, '', 'Conjuntos') : `<div class="empty">Nenhum público ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
   return `<div class="card">${head}
-    <h3 style="margin:2px 0 8px">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com pelo menos 1 venda e gasto mínimo (evita ROAS irreal por ruído), ordenados por ROAS</span></h3>
+    <h3 style="margin:2px 0 8px">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com venda e gasto mínimo, agrupados por nome</span>
+      <select onchange="setTopAdsSort(this.value)" style="float:right;padding:3px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd">
+        <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
+        <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
+        <option value="faixaB" ${S.topAdsSort==='faixaB'?'selected':''}>Mais leads Faixa B</option>
+        <option value="faixaC" ${S.topAdsSort==='faixaC'?'selected':''}>Mais leads Faixa C</option>
+        <option value="faixaAB" ${S.topAdsSort==='faixaAB'?'selected':''}>Mais leads A+B</option>
+        <option value="receita" ${S.topAdsSort==='receita'?'selected':''}>Maior receita</option>
+        <option value="spend" ${S.topAdsSort==='spend'?'selected':''}>Maior gasto</option>
+        <option value="front" ${S.topAdsSort==='front'?'selected':''}>Mais vendas front</option>
+        <option value="cpa" ${S.topAdsSort==='cpa'?'selected':''}>Menor CPA</option>
+      </select></h3>
     ${adsHtml}
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios ativo (público customizado, interesses ou amplo/Advantage+)</span></h3>
     ${pubHtml}
-    <div class="mini" style="margin-top:8px">Carregado sob demanda (não entra no refresh automático, para não pesar). Receita cruzada pelo ID exato do anúncio/conjunto no Supabase. <b>Faixas</b> = poder de investimento dos compradores daquele criativo (cruzado com a pesquisa de onboarding por e-mail). "Não respondeu" = comprou mas não preencheu o quiz. Faixa A é rara (~5% do total), então quase sempre aparece 0; o sinal útil é comparar criativos pela proporção de C/Sem caixa e pelo % A+B entre os que responderam. Contas fora do fuso de Brasília podem ter pequena diferença de janela.</div>
+    <div class="mini" style="margin-top:8px">Carregado sob demanda (não entra no refresh automático, para não pesar). Receita cruzada pelo ID exato do anúncio/conjunto no Supabase. <b>Faixas</b> = poder de investimento dos compradores daquele criativo (cruzado com a pesquisa de onboarding por e-mail). <b>"Sem faixa"</b> = respondeu mas não é A/B/C (sem caixa declarado). <b>"Não respondeu"</b> = comprou mas não preencheu o quiz. Faixa A é rara (~5% do total); o número é exato por criativo (0% só quando é realmente zero). Use o seletor de ordenação p/ ver quais criativos trazem mais de cada faixa. Contas fora do fuso de Brasília podem ter pequena diferença de janela.</div>
   </div>`;
 }
 
