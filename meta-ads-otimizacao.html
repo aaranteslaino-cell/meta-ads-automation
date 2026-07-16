@@ -509,7 +509,10 @@ async function fetchRevenue(){
     // Faturamento TOTAL do funil (por projeto na Assiny) — bate com o painel da Assiny
     let funnelTotal={front:0,total:0,receita:0};
     try{ const r3=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})}); if(r3.ok){ const o=(await r3.json())[0]||{}; funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
-    return {byCampaign, byAdset, byAd, offsite, funnelTotal};
+    // faixa dos compradores por criativo (ad_id), cruzando com a pesquisa
+    let faixaAd={};
+    try{ const r4=await fetch(`${S.sbUrl}/rest/v1/rpc/faixa_por_criativo`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})}); if(r4.ok){ (await r4.json()).forEach(x=>{ faixaAd[String(x.ad_id)]={n:parseInt(x.compradores)||0,a:parseInt(x.faixa_a)||0,b:parseInt(x.faixa_b)||0,c:parseInt(x.faixa_c)||0,sem:parseInt(x.sem_faixa)||0,resp0:parseInt(x.sem_resposta)||0}; }); } }catch(_){}
+    return {byCampaign, byAdset, byAd, offsite, funnelTotal, faixaAd};
   }catch(e){ console.warn('receita falhou',e.message); return {byCampaign:{}, byAdset:{}, byAd:{}, offsite:{front:0,total:0,receita:0}, funnelTotal:{front:0,total:0,receita:0}, _error:e.message}; }
 }
 function attachRevenue(rows){
@@ -1201,9 +1204,16 @@ function renderTopAdsAudiences(A){
     }).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3); // evita ROAS absurdo por gasto quase zero + 1 venda de ruído
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
+    const faixaAd=(S._rev&&S._rev.faixaAd)||{};
+    const fBadge=(lbl,n,cor)=> n>0?`<span style="font-weight:700;color:${cor};margin-right:8px">${lbl} ${n}</span>`:`<span style="color:#ccc;margin-right:8px">${lbl} 0</span>`;
+    const faixaLine=(id)=>{ const f=faixaAd[String(id)]; if(!f||!f.n) return '';
+      const conhecidos=f.a+f.b+f.c+f.sem;
+      return `<div class="i-sub" style="margin-top:2px">Faixas: ${fBadge('A',f.a,'#137333')}${fBadge('B',f.b,'#0891b2')}${fBadge('C',f.c,'#b26a00')}${fBadge('Sem caixa',f.sem,'#8a8a8a')}<span style="color:#bbb">Não respondeu ${f.resp0}</span>${conhecidos?` <span class="mini">· ${Math.round(100*(f.a+f.b)/conhecidos)}% A+B entre os que responderam</span>`:''}</div>`;
+    };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
         <div class="i-sub">${esc(a._accountName)} · ${fmtMoney0(a.spend)} gasto · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)} · ${esc(String(a.id))}</div>
+        ${faixaLine(a.id)}
       </div>`).join('')
       : `<div class="empty">Nenhum anúncio ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
@@ -1230,7 +1240,7 @@ function renderTopAdsAudiences(A){
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios ativo (público customizado, interesses ou amplo/Advantage+)</span></h3>
     ${pubHtml}
-    <div class="mini" style="margin-top:8px">Carregado sob demanda (não entra no refresh automático, para não pesar). Receita cruzada pelo ID exato do anúncio/conjunto no Supabase. Contas fora do fuso de Brasília podem ter pequena diferença de janela aqui (não usa o reagrupamento horário do Panorama).</div>
+    <div class="mini" style="margin-top:8px">Carregado sob demanda (não entra no refresh automático, para não pesar). Receita cruzada pelo ID exato do anúncio/conjunto no Supabase. <b>Faixas</b> = poder de investimento dos compradores daquele criativo (cruzado com a pesquisa de onboarding por e-mail). "Não respondeu" = comprou mas não preencheu o quiz. Faixa A é rara (~5% do total), então quase sempre aparece 0; o sinal útil é comparar criativos pela proporção de C/Sem caixa e pelo % A+B entre os que responderam. Contas fora do fuso de Brasília podem ter pequena diferença de janela.</div>
   </div>`;
 }
 
