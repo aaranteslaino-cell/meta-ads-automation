@@ -1197,23 +1197,30 @@ function renderTopAdsAudiences(A){
   else if(S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="fetchTopAds()">Carregar melhores anúncios</button>`; }
   else {
     const byAd=(S._rev&&S._rev.byAd)||{};
-    const ads=S._topAds.filter(o=>matchFunnel(o.campaign_name)).map(o=>{
-      const hit=byAd[String(o.id)]; const receita=hit?hit.receita:0, front=hit?hit.front:0, total=hit?hit.total:0;
-      const roas=o.spend>0?receita/o.spend:null; const cpa=front>0?o.spend/front:null;
-      return {...o, receita, front, total, roas, cpa};
-    }).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
+    const faixaAd=(S._rev&&S._rev.faixaAd)||{};
+    // agrupa anúncios pelo NOME (mesmo criativo em campanhas/contas diferentes vira um só)
+    const groups={};
+    S._topAds.filter(o=>matchFunnel(o.campaign_name)).forEach(o=>{
+      const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
+      const k=(o.name||'').trim()||String(o.id);
+      if(!groups[k]) groups[k]={name:o.name||k, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0};
+      const g=groups[k];
+      g.n++; g.spend+=o.spend||0; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
+      g.receita+=hit?hit.receita:0; g.front+=hit?hit.front:0; g.total+=hit?hit.total:0;
+      if(o._accountName) g.contas.add(o._accountName);
+      if(f){ g.fa+=f.a; g.fb+=f.b; g.fc+=f.c; g.fsem+=f.sem; g.fresp0+=f.resp0; }
+    });
+    const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort((a,b)=>(b.roas??-1)-(a.roas??-1));
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3); // evita ROAS absurdo por gasto quase zero + 1 venda de ruído
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
-    const faixaAd=(S._rev&&S._rev.faixaAd)||{};
     const fBadge=(lbl,n,cor)=> n>0?`<span style="font-weight:700;color:${cor};margin-right:8px">${lbl} ${n}</span>`:`<span style="color:#ccc;margin-right:8px">${lbl} 0</span>`;
-    const faixaLine=(id)=>{ const f=faixaAd[String(id)]; if(!f||!f.n) return '';
-      const conhecidos=f.a+f.b+f.c+f.sem;
-      return `<div class="i-sub" style="margin-top:2px">Faixas: ${fBadge('A',f.a,'#137333')}${fBadge('B',f.b,'#0891b2')}${fBadge('C',f.c,'#b26a00')}${fBadge('Sem caixa',f.sem,'#8a8a8a')}<span style="color:#bbb">Não respondeu ${f.resp0}</span>${conhecidos?` <span class="mini">· ${Math.round(100*(f.a+f.b)/conhecidos)}% A+B entre os que responderam</span>`:''}</div>`;
+    const faixaLine=(g)=>{ const conhecidos=g.fa+g.fb+g.fc+g.fsem; if(!(conhecidos+g.fresp0)) return '';
+      return `<div class="i-sub" style="margin-top:2px">Faixas: ${fBadge('A',g.fa,'#137333')}${fBadge('B',g.fb,'#0891b2')}${fBadge('C',g.fc,'#b26a00')}${fBadge('Sem caixa',g.fsem,'#8a8a8a')}<span style="color:#bbb">Não respondeu ${g.fresp0}</span>${conhecidos?` <span class="mini">· ${Math.round(100*(g.fa+g.fb)/conhecidos)}% A+B entre os que responderam</span>`:''}</div>`;
     };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
-        <div class="i-top"><div class="i-name">${esc(a.name)}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
-        <div class="i-sub">${esc(a._accountName)} · ${fmtMoney0(a.spend)} gasto · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)} · ${esc(String(a.id))}</div>
-        ${faixaLine(a.id)}
+        <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
+        <div class="i-sub">${esc([...a.contas].join(', '))} · ${fmtMoney0(a.spend)} gasto · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
+        ${faixaLine(a)}
       </div>`).join('')
       : `<div class="empty">Nenhum anúncio ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
