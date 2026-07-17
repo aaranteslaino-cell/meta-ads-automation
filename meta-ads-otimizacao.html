@@ -194,7 +194,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
@@ -479,7 +479,7 @@ async function fetchPesquisa(){
   if(S._pesquisaLoading) return; S._pesquisaLoading=true; render();
   try{
     const {since,until}=periodRange(S.period);
-    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/pesquisa_panel`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})});
+    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/pesquisa_panel`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:S.funnel})});
     S._pesquisa = r.ok ? await r.json() : {};
   }catch(e){ S._pesquisa={}; }
   S._pesquisaLoading=false; render();
@@ -1023,8 +1023,8 @@ function renderCrossover(A){
 const RENDA_LBL=['Sem renda','Menos de 1k','1k–3k','3k–5k','5k–10k','10k–20k','Acima de 20k'];
 const INVEST_LBL=['Sem caixa','Menos de 1k','1k–3k','3k–5k','5k–10k','10k–15k','Acima de 15k'];
 function renderPesquisa(A){
-  if(!['NATH','ALL'].includes(S.funnel)) return ''; // pesquisa é do funil Nathalia
-  const head=`<h2>🧭 Perfil dos compradores · pesquisa de onboarding <span class="mini" style="text-transform:none">quiz preenchido após comprar o IniciAmazon (funil Nathalia) · snapshot 01–13 jul</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadPesquisa()">↻ Atualizar</button></h2>`;
+  if(!['NATH','TOME'].includes(S.funnel)) return ''; // pesquisa existe p/ Nathalia e Tomé
+  const head=`<h2>🧭 Perfil dos compradores · pesquisa de onboarding <span class="mini" style="text-transform:none">quiz preenchido após comprar o IniciAmazon (funil ${esc(currentFunnel().label)})</span><button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadPesquisa()">↻ Atualizar</button></h2>`;
   if(S._pesquisaLoading || S._pesquisa==null){ if(!S._pesquisaLoading && S.connected) setTimeout(()=>fetchPesquisa(),40); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Carregando perfil…</div></div>`; }
   const p=S._pesquisa; if(!p || !p.total) return `<div class="card">${head}<div class="empty">Sem respostas de pesquisa importadas.</div></div>`;
   const fx=p.por_faixa||[];
