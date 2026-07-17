@@ -1195,12 +1195,19 @@ function renderTopAdsAudiences(A){
   else {
     const byAd=(S._rev&&S._rev.byAd)||{};
     const faixaAd=(S._rev&&S._rev.faixaAd)||{};
-    // agrupa anúncios pelo NOME (mesmo criativo em campanhas/contas diferentes vira um só)
+    // remove sufixo de "cópia" (Meta duplica como "- Cópia", "— Cópia 2", "(Cópia)", "- Copy") p/ juntar com o original
+    const baseAdName=(nm)=>{
+      let n=String(nm||'').trim();
+      const re=/\s*[-—–]\s*c[óo]pia(\s+\d+)?\s*$|\s*\(\s*c[óo]pia(\s+\d+)?\s*\)\s*$|\s*[-—–]\s*copy(\s+\d+)?\s*$/i;
+      let prev; do{ prev=n; n=n.replace(re,'').trim(); }while(n!==prev && n);
+      return n||String(nm||'').trim();
+    };
+    // agrupa anúncios pelo NOME base (cópias juntam com o original; mesmo criativo em campanhas/contas diferentes vira um só)
     const groups={};
     S._topAds.filter(o=>matchFunnel(o.campaign_name)).forEach(o=>{
       const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
-      const k=(o.name||'').trim()||String(o.id);
-      if(!groups[k]) groups[k]={name:o.name||k, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0};
+      const k=baseAdName(o.name)||String(o.id);
+      if(!groups[k]) groups[k]={name:k, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0};
       const g=groups[k];
       g.n++; g.spend+=o.spend||0; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
       g.receita+=hit?hit.receita:0; g.front+=hit?hit.front:0; g.total+=hit?hit.total:0;
