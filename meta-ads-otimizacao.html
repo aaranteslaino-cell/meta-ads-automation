@@ -363,18 +363,14 @@ async function fetchTopAds(){
     const accs=(S.accounts||[]).filter(a=>a.currency==='BRL');
     const results=await Promise.all(accs.map(async acc=>{
       try{
-        const [ents, ins] = await Promise.all([fetchAdEntities(acc.id,acc._tokenId), fetchAdInsights(acc.id,acc._tokenId)]);
-        const byId={}; ents.forEach(e=>{ byId[e.id]={...e}; });
-        ins.forEach(r=>{
-          const o=byId[r.ad_id]; if(!o) return; // só ativos (já filtrados na entidade)
-          Object.assign(o,{
-            spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
-            ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0,
-            initiate_checkout:getActionValue(r.actions,'initiate_checkout')||getActionValue(r.actions,'offsite_conversion.fb_pixel_initiate_checkout'),
-            campaign_name:r.campaign_name, _accountName:acc.name, _currency:acc.currency
-          });
-        });
-        return Object.values(byId).filter(o=>(o.spend||0)>0);
+        // usa só os insights (trazem ad_name + campaign_name) -> inclui anúncios ATIVOS e PAUSADOS
+        const ins=await fetchAdInsights(acc.id,acc._tokenId);
+        return (ins||[]).map(r=>({
+          id:r.ad_id, name:r.ad_name||'(sem nome)', campaign_name:r.campaign_name,
+          spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
+          ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0,
+          _accountName:acc.name, _currency:acc.currency
+        })).filter(o=>(o.spend||0)>0);
       }catch(e){ return []; }
     }));
     S._topAds=results.flat();
@@ -387,8 +383,7 @@ function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
 // ── Melhores públicos ativos ──────────────────────────────────────────────────
 async function fetchAdsetEntities(parentId, tokenId){
   const tok=getTokenById(tokenId);
-  const params={fields:'id,name,status,effective_status,campaign_id,targeting{custom_audiences{name},flexible_spec,age_min,age_max,genders}', limit:500,
-    filtering: JSON.stringify([{field:'effective_status',operator:'IN',value:['ACTIVE']}])};
+  const params={fields:'id,name,status,effective_status,campaign_id,targeting{custom_audiences{name},flexible_spec,age_min,age_max,genders}', limit:500};
   const r=await api(`/${parentId}/adsets`, params, tok);
   return r.data||[];
 }
@@ -1192,7 +1187,7 @@ function renderTable(A){
 
 // ── Panorama final: melhores anúncios e públicos ativos ──────────────────────
 function renderTopAdsAudiences(A){
-  const head=`<h2>🏆 Melhores anúncios e públicos ativos <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
+  const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
   let adsHtml;
   if(S._topAdsLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios ativos…</div>`; }
@@ -1239,7 +1234,7 @@ function renderTopAdsAudiences(A){
         <div class="i-sub">${esc([...a.contas].join(', '))} · ${fmtMoney0(a.spend)} gasto · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
         ${faixaLine(a)}
       </div>`).join('')
-      : `<div class="empty">Nenhum anúncio ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
+      : `<div class="empty">Nenhum anúncio com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
   // Públicos
   let pubHtml;
@@ -1256,11 +1251,11 @@ function renderTopAdsAudiences(A){
       const a=m[k]; a.n++; a.spend+=o.spend||0; a.receita+=receita; a.front+=front; a.imp+=o.impressions||0; a.clicks+=o.clicks||0;
     });
     const arr=Object.values(m).map(a=>({...a, roas:a.spend>0?a.receita/a.spend:null, cpa:a.front>0?a.spend/a.front:null, ctr:a.imp>0?a.clicks/a.imp*100:0})).sort((x,y)=>y.spend-x.spend);
-    pubHtml = arr.length ? dimTable('', arr, '', 'Conjuntos') : `<div class="empty">Nenhum público ativo com venda no período para ${esc(currentFunnel().label)}.</div>`;
+    pubHtml = arr.length ? dimTable('', arr, '', 'Conjuntos') : `<div class="empty">Nenhum público com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
   return `<div class="card">${head}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
-      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">ativos, com venda e gasto mínimo, agrupados por nome</span></h3>
+      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span></h3>
       <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
@@ -1275,7 +1270,7 @@ function renderTopAdsAudiences(A){
     </div>
     ${adsHtml}
     <hr style="margin:16px 0">
-    <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios ativo (público customizado, interesses ou amplo/Advantage+)</span></h3>
+    <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios (público customizado, interesses ou amplo/Advantage+) · inclui pausados</span></h3>
     ${pubHtml}
     <div class="mini" style="margin-top:8px">Carregado sob demanda (não entra no refresh automático, para não pesar). Receita cruzada pelo ID exato do anúncio/conjunto no Supabase. <b>Faixas</b> = poder de investimento dos compradores daquele criativo (cruzado com a pesquisa de onboarding por e-mail). <b>"Sem faixa"</b> = respondeu mas não é A/B/C (sem caixa declarado). <b>"Não respondeu"</b> = comprou mas não preencheu o quiz. Faixa A é rara (~5% do total); o número é exato por criativo (0% só quando é realmente zero). Use o seletor de ordenação p/ ver quais criativos trazem mais de cada faixa. Contas fora do fuso de Brasília podem ter pequena diferença de janela.</div>
   </div>`;
