@@ -131,6 +131,7 @@ if(typeof S.sbKey !== 'string' || !S.sbKey) S.sbKey = SB_KEY_DEFAULT;
 if(S.cpaAlvo == null) S.cpaAlvo = '';       // vazio = usa CPA médio da carteira
 if(S.roasAlvo == null || S.roasAlvo === '') S.roasAlvo = 1.0;
 if(S.minSpend == null) S.minSpend = '';     // vazio = default por período
+if(S.usdBrl == null || S.usdBrl === '') S.usdBrl = 5.40; // taxa USD→BRL p/ converter gasto de contas em dólar
 // Custo alvo por métrica (referência nov/2025–jan/2026, métricas de pixel do Meta). Editáveis e persistidos.
 S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22, tkm:100, cvt:60, ppc:1.5}, S.alvos||{});
 S._rev = null;
@@ -556,16 +557,23 @@ function shortName(n){
 // ── Motor de análise ────────────────────────────────────────────────────────
 function analyze(){
   const days=periodDays(S.period);
-  // universo do funil: BRL, com gasto no período, batendo o funil (+ refino). Inclui pausadas/desativadas.
-  const inFunil = r => (r._currency||'BRL')==='BRL' && (r.spend||0)>0 && matchFunnel(r.name);
+  // converte gasto de contas em dólar p/ real (taxa editável) e recalcula ROAS/CPA em BRL
+  const usdRate = parseFloat(S.usdBrl)>0 ? parseFloat(S.usdBrl) : 5.40;
+  (S.data||[]).forEach(r=>{
+    r._spendBRL = ((r._currency||'BRL')==='USD') ? (r.spend||0)*usdRate : (r.spend||0);
+    r._roas = (r._spendBRL>0) ? ((r._receita||0)/r._spendBRL) : null;
+    r._cpa  = (r._vendasFront>0) ? (r._spendBRL/r._vendasFront) : null;
+  });
+  // universo do funil: com gasto no período, batendo o funil (+ refino). Inclui pausadas/desativadas E contas USD (convertidas).
+  const inFunil = r => (r._spendBRL||0)>0 && matchFunnel(r.name);
   const rowsAll = (S.data||[]).filter(inFunil);
   // decisão (bom/ruim, escalar/cortar, botões): só o que está ATIVO agora
   let rows = rowsAll.filter(r=>(r.effective_status||'')==='ACTIVE');
   const pausadasCount = rowsAll.length - rows.length;
   // TOTAIS do período: tudo que gastou (ativas + pausadas/desativadas) → análise correta do dia
   const T={spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,lpv:0};
-  rowsAll.forEach(r=>{ T.spend+=r.spend||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
-  const pausadasGasto = rowsAll.filter(r=>(r.effective_status||'')!=='ACTIVE').reduce((s,r)=>s+(r.spend||0),0);
+  rowsAll.forEach(r=>{ T.spend+=r._spendBRL||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
+  const pausadasGasto = rowsAll.filter(r=>(r.effective_status||'')!=='ACTIVE').reduce((s,r)=>s+(r._spendBRL||0),0);
   const blendedCPA = T.front>0 ? T.spend/T.front : 0;
   const off=(S._rev&&S._rev.offsite)||{front:0,total:0,receita:0};
   const funnelTotal=(S._rev&&S._rev.funnelTotal)||{front:0,total:0,receita:0};
@@ -578,7 +586,7 @@ function analyze(){
 
   // classifica — critério baseado SÓ no ROAS vs ROAS alvo (breakeven)
   rows.forEach(r=>{
-    const spend=r.spend||0, roas=r._roas;
+    const spend=r._spendBRL||0, roas=r._roas;
     let v,reason;
     if(spend<minSpend){ v='novo'; reason='gasto abaixo do mínimo para julgar ('+fmtMoney0(spend)+')'; }
     else if(roas==null){ v='novo'; reason='sem dado de receita'; }
@@ -591,14 +599,14 @@ function analyze(){
   const foraAlvo=rows.filter(r=>r._breaches.length).length;
 
   const good=rows.filter(r=>r._verdict==='bom').sort((a,b)=>(b._roas||0)-(a._roas||0));
-  const bad =rows.filter(r=>r._verdict==='ruim').sort((a,b)=>(b.spend||0)-(a.spend||0));
-  const watch=rows.filter(r=>r._verdict==='observar').sort((a,b)=>(b.spend||0)-(a.spend||0));
-  const gastoRuim=bad.reduce((s,r)=>s+(r.spend||0),0);
+  const bad =rows.filter(r=>r._verdict==='ruim').sort((a,b)=>(b._spendBRL||0)-(a._spendBRL||0));
+  const watch=rows.filter(r=>r._verdict==='observar').sort((a,b)=>(b._spendBRL||0)-(a._spendBRL||0));
+  const gastoRuim=bad.reduce((s,r)=>s+(r._spendBRL||0),0);
 
   // agregações
   const aggBy=(keyFn)=>{
     const m={};
-    rows.forEach(r=>{ const k=keyFn(r); if(k==null) return; if(!m[k]) m[k]={key:k,spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,n:0}; const a=m[k]; a.spend+=r.spend||0; a.receita+=r._receita||0; a.front+=r._vendasFront||0; a.total+=r._vendasTotal||0; a.imp+=r.impressions||0; a.clicks+=r.clicks||0; a.ic+=r.initiate_checkout||0; a.n++; });
+    rows.forEach(r=>{ const k=keyFn(r); if(k==null) return; if(!m[k]) m[k]={key:k,spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,n:0}; const a=m[k]; a.spend+=r._spendBRL||0; a.receita+=r._receita||0; a.front+=r._vendasFront||0; a.total+=r._vendasTotal||0; a.imp+=r.impressions||0; a.clicks+=r.clicks||0; a.ic+=r.initiate_checkout||0; a.n++; });
     return Object.values(m).map(a=>({...a, roas:a.spend>0?a.receita/a.spend:null, cpa:a.front>0?a.spend/a.front:null, ctr:a.imp>0?a.clicks/a.imp*100:0, cpm:a.imp>0?a.spend/a.imp*1000:0, cpc:a.clicks>0?a.spend/a.clicks:0, cic:a.ic>0?a.spend/a.ic:0, ticket:a.front>0?a.receita/a.front:0})).sort((x,y)=>y.spend-x.spend);
   };
   const byConta=aggBy(tagCA);
@@ -608,7 +616,7 @@ function analyze(){
 
   // fragmentação: grupos (conta+lance+oferta+estrutura) com >2 campanhas
   const fragMap={};
-  rows.forEach(r=>{ const k=tagCA(r)+' | '+tagLance(r)+' | '+tagOferta(r)+' | '+tagEstrutura(r); if(!fragMap[k]) fragMap[k]={key:k,n:0,spend:0}; fragMap[k].n++; fragMap[k].spend+=r.spend||0; });
+  rows.forEach(r=>{ const k=tagCA(r)+' | '+tagLance(r)+' | '+tagOferta(r)+' | '+tagEstrutura(r); if(!fragMap[k]) fragMap[k]={key:k,n:0,spend:0}; fragMap[k].n++; fragMap[k].spend+=r._spendBRL||0; });
   const frag=Object.values(fragMap).filter(g=>g.n>=3).sort((a,b)=>b.n-a.n);
 
   // ações recomendadas
@@ -679,6 +687,7 @@ function renderControls(A){
       <div><label>CPA alvo (front)</label><input style="width:130px" value="${esc(S.cpaAlvo)}" onchange="setCfg('cpaAlvo',this.value)" placeholder="média: ${fmtMoney0(A.blendedCPA)}"></div>
       <div><label>ROAS alvo</label><input style="width:90px" value="${esc(S.roasAlvo)}" onchange="setCfg('roasAlvo',this.value)"></div>
       <div><label>Gasto mín. p/ julgar</label><input style="width:120px" value="${esc(S.minSpend)}" onchange="setCfg('minSpend',this.value)" placeholder="auto: ${fmtMoney0(A.minSpend)}"></div>
+      <div><label>Taxa USD→BRL</label><input style="width:90px" value="${esc(S.usdBrl)}" onchange="setCfg('usdBrl',this.value)" placeholder="5.40"></div>
     </div>
     <div class="info-box" style="margin-top:12px">💰 O faturamento cruza a receita real do Supabase pela UTM e <b>inclui front, order bump, upsell e downsell</b> (≈97% dos upsells vêm com a UTM da campanha). O que vem sem UTM do meta (direct/orgânico) aparece em <b>Outras fontes</b>. Continua sendo atribuição por UTM, então cruze também com o <b>ROAS relativo entre campanhas</b>.</div>`}
   </div>`;
@@ -815,7 +824,7 @@ function itemCard(r){
   return `<div class="item ${r._verdict}">
     <div class="i-top"><div class="i-name">${esc(r.name)}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
     <div class="i-reason">${esc(r._reason)}</div>
-    <div class="i-sub">${fmtMoney0(r.spend)} gasto · <b>${fmtMoney0(r._receita)} receita</b> · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · TKM ${r._ticket!=null?fmtMoney0(r._ticket):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
+    <div class="i-sub">${fmtMoney0(r._spendBRL!=null?r._spendBRL:r.spend)} gasto${(r._currency||'BRL')==='USD'?' <span class="mini">(US$'+fmtNum(Math.round(r.spend))+')</span>':''} · <b>${fmtMoney0(r._receita)} receita</b> · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · TKM ${r._ticket!=null?fmtMoney0(r._ticket):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
   </div>`;
 }
 function renderGoodBad(A){
@@ -1171,8 +1180,8 @@ function renderTable(A){
     ${rows.map(r=>`<tr>
       <td>${badge(r._verdict)}</td>
       <td>${(r._breaches&&r._breaches.length)?`<span class="badge b-ruim" title="${esc(r._breaches.join(' · '))}">🚩 ${r._breaches.length}</span>`:'<span class="mini">ok</span>'}</td>
-      <td>${esc(r.name)}<div class="mini" style="font-family:monospace">${esc(String(r.id))}</div></td>
-      <td class="num">${fmtMoney0(r.spend)}</td>
+      <td>${esc(r.name)}${(r._currency||'BRL')==='USD'?' <span class="mini">💵USD</span>':''}<div class="mini" style="font-family:monospace">${esc(String(r.id))}</div></td>
+      <td class="num">${fmtMoney0(r._spendBRL!=null?r._spendBRL:r.spend)}</td>
       <td class="num">${fmtPct(r.ctr)}</td>
       <td class="num">${r.cost_per_initiate_checkout?fmtMoney0(r.cost_per_initiate_checkout):'—'}</td>
       <td class="num">${r._vendasFront||0}</td>
@@ -1203,13 +1212,15 @@ function renderTopAdsAudiences(A){
       return n||String(nm||'').trim();
     };
     // agrupa anúncios pelo NOME base (cópias juntam com o original; mesmo criativo em campanhas/contas diferentes vira um só)
+    const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const groups={};
     S._topAds.filter(o=>matchFunnel(o.campaign_name)).forEach(o=>{
       const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
       const k=baseAdName(o.name)||String(o.id);
       if(!groups[k]) groups[k]={name:k, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0};
       const g=groups[k];
-      g.n++; g.spend+=o.spend||0; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
+      const spBRL=((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0);
+      g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
       g.receita+=hit?hit.receita:0; g.front+=hit?hit.front:0; g.total+=hit?hit.total:0;
       if(o._accountName) g.contas.add(o._accountName);
       if(f){ g.fa+=f.a; g.fb+=f.b; g.fc+=f.c; g.fsem+=f.sem; g.fresp0+=f.resp0; }
