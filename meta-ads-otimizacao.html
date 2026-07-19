@@ -1237,26 +1237,33 @@ function renderTopAdsAudiences(A){
   else {
     const byAd=(S._rev&&S._rev.byAd)||{};
     const faixaAd=(S._rev&&S._rev.faixaAd)||{};
-    // remove sufixo de "cópia" (Meta duplica como "- Cópia", "— Cópia 2", "(Cópia)", "- Copy") p/ juntar com o original
     const baseAdName=(nm)=>{
       let n=String(nm||'').trim();
       const re=/\s*[-—–]\s*c[óo]pia(\s+\d+)?\s*$|\s*\(\s*c[óo]pia(\s+\d+)?\s*\)\s*$|\s*[-—–]\s*copy(\s+\d+)?\s*$/i;
       let prev; do{ prev=n; n=n.replace(re,'').trim(); }while(n!==prev && n);
       return n||String(nm||'').trim();
     };
-    // agrupa anúncios pelo NOME base (cópias juntam com o original; mesmo criativo em campanhas/contas diferentes vira um só)
+    const adCode=(nm)=>{
+      const base=baseAdName(nm);
+      const m=base.match(/^(AD\s*\d+(?:\s*\/\s*\d+)?)/i);
+      return m ? m[1] : base;
+    };
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const groups={};
     S._topAds.filter(o=>matchFunnel(o.campaign_name)).forEach(o=>{
       const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
-      const k=baseAdName(o.name)||String(o.id);
-      if(!groups[k]) groups[k]={name:k, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0};
-      const g=groups[k];
+      const base=baseAdName(o.name)||String(o.id);
+      const code=adCode(o.name);
+      if(!groups[code]) groups[code]={name:code, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0, vars:{}};
+      const g=groups[code];
       const spBRL=((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0);
       g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
       g.receita+=hit?hit.receita:0; g.front+=hit?hit.front:0; g.total+=hit?hit.total:0;
       if(o._accountName) g.contas.add(o._accountName);
       if(f){ g.fa+=f.a; g.fb+=f.b; g.fc+=f.c; g.fsem+=f.sem; g.fresp0+=f.resp0; }
+      if(!g.vars[base]) g.vars[base]={name:base, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0};
+      const v=g.vars[base]; v.n++; v.spend+=spBRL; v.imp+=o.impressions||0; v.clicks+=o.clicks||0;
+      v.receita+=hit?hit.receita:0; v.front+=hit?hit.front:0; v.total+=hit?hit.total:0;
     });
     const roasCmp=(a,b)=>(b.roas??-1)-(a.roas??-1);
     const CMP={
@@ -1271,19 +1278,27 @@ function renderTopAdsAudiences(A){
       cpa:(a,b)=>(a.cpa==null?Infinity:a.cpa)-(b.cpa==null?Infinity:b.cpa)
     };
     const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort(CMP[S.topAdsSort]||roasCmp);
-    const minG=Math.max(20, (A.cpaAlvo||80)*0.3); // evita ROAS absurdo por gasto quase zero + 1 venda de ruído
+    const minG=Math.max(20, (A.cpaAlvo||80)*0.3);
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
-    // % exato com dígitos significativos (não arredonda p/ 0 quando é > 0)
     const pctExato=(n,tot)=>{ if(!tot||!n) return '0%'; const p=100*n/tot; let s=p>=1?p.toFixed(1):p.toPrecision(2); s=s.replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); return s+'%'; };
     const fBadge=(lbl,n,tot,cor)=> `<span style="color:${n>0?cor:'#ccc'};margin-right:10px">${lbl} <b>${n}</b> <span style="font-weight:400">(${pctExato(n,tot)})</span></span>`;
     const faixaLine=(g)=>{ const tot=g.fa+g.fb+g.fc+g.fsem+g.fresp0; if(!tot) return '';
       const conhecidos=g.fa+g.fb+g.fc+g.fsem;
       return `<div class="i-sub" style="margin-top:2px">Faixas (de ${tot} compradores): ${fBadge('A',g.fa,tot,'#137333')}${fBadge('B',g.fb,tot,'#0891b2')}${fBadge('C',g.fc,tot,'#b26a00')}${fBadge('Sem faixa',g.fsem,tot,'#8a8a8a')}<span style="color:#bbb">Não respondeu <b>${g.fresp0}</b> (${pctExato(g.fresp0,tot)})</span>${conhecidos?` <span class="mini">· A+B = ${pctExato(g.fa+g.fb,conhecidos)} entre os que responderam</span>`:''}</div>`;
     };
+    const variantLine=(g)=>{
+      const varArr=Object.values(g.vars).sort((a,b)=>b.spend-a.spend);
+      if(varArr.length<=1) return '';
+      return `<details style="margin-top:4px"><summary class="mini" style="cursor:pointer;color:#7b2ff7;font-weight:600">${varArr.length} variantes</summary><div style="padding:6px 0 2px 14px;border-left:2px solid #e8e0f5">${varArr.map(v=>{
+        const vRoas=v.spend>0?v.receita/v.spend:null;
+        return `<div class="mini" style="margin-bottom:4px"><b>${esc(v.name)}</b> <span style="color:#999">(${v.n})</span> · ${fmtMoney0(v.spend)} gasto · <b>${fmtMoney0(v.receita)} receita</b> · ${v.front} front / ${v.total} tot · ROAS <span style="color:${roasColor(vRoas)}">${vRoas!=null?fmtRoas(vRoas):'—'}</span></div>`;
+      }).join('')}</div></details>`;
+    };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
         <div class="i-sub">${esc([...a.contas].join(', '))} · ${fmtMoney0(a.spend)} gasto · <b>${fmtMoney0(a.receita)} receita</b> · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
         ${faixaLine(a)}
+        ${variantLine(a)}
       </div>`).join('')
       : `<div class="empty">Nenhum anúncio com venda no período para ${esc(currentFunnel().label)}.</div>`;
   }
