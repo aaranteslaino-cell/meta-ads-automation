@@ -382,19 +382,22 @@ async function fetchTopAds(){
   if(S._topAdsLoading) return; S._topAdsLoading=true; render();
   try{
     const accs=(S.accounts||[]);
-    const results=await Promise.all(accs.map(async acc=>{
+    const allAds=[]; let okCount=0, errCount=0, errNames=[];
+    for(const acc of accs){
       try{
         const ins=await fetchAdInsights(acc.id,acc._tokenId);
-        return (ins||[]).map(r=>({
+        const mapped=(ins||[]).map(r=>({
           id:r.ad_id, name:r.ad_name||'(sem nome)', campaign_name:r.campaign_name,
           spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
           ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0,
           _accountName:acc.name, _currency:acc.currency
         })).filter(o=>(o.spend||0)>0);
-      }catch(e){ return []; }
-    }));
-    S._topAds=results.flat();
-  }catch(e){ S._topAds=[]; }
+        allAds.push(...mapped); okCount++;
+      }catch(e){ errCount++; errNames.push(acc.name); console.warn('[TopAds] erro na conta', acc.name, e.message); }
+    }
+    S._topAds=allAds;
+    S._topAdsMeta={ok:okCount, err:errCount, errNames, total:allAds.length};
+  }catch(e){ S._topAds=[]; S._topAdsMeta={ok:0,err:0,errNames:[],total:0}; }
   S._topAdsLoading=false; render();
 }
 function reloadTopAds(){ S._topAds=null; fetchTopAds(); }
@@ -439,7 +442,8 @@ async function fetchTopAudiences(){
   if(S._topPubLoading) return; S._topPubLoading=true; render();
   try{
     const accs=(S.accounts||[]);
-    const results=await Promise.all(accs.map(async acc=>{
+    const allPub=[];
+    for(const acc of accs){
       try{
         const [ents, ins] = await Promise.all([fetchAdsetEntities(acc.id,acc._tokenId), fetchAdsetInsights(acc.id,acc._tokenId)]);
         const byId={}; ents.forEach(e=>{ byId[e.id]={...e, publico:publicoLabel(e)}; });
@@ -448,10 +452,10 @@ async function fetchTopAudiences(){
           Object.assign(o,{ spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0, ctr:parseFloat(r.ctr)||0,
             campaign_name:r.campaign_name, _accountName:acc.name, _currency:acc.currency });
         });
-        return Object.values(byId).filter(o=>(o.spend||0)>0);
-      }catch(e){ return []; }
-    }));
-    S._topPub=results.flat();
+        allPub.push(...Object.values(byId).filter(o=>(o.spend||0)>0));
+      }catch(e){ console.warn('[TopPub] erro na conta', acc.name, e.message); }
+    }
+    S._topPub=allPub;
   }catch(e){ S._topPub=[]; }
   S._topPubLoading=false; render();
 }
@@ -1304,7 +1308,7 @@ function renderTopAdsAudiences(A){
   }
   return `<div class="card">${head}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
-      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span></h3>
+      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
       <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
