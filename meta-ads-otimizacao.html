@@ -1255,6 +1255,12 @@ function renderTopAdsAudiences(A){
     totalAfter=filtered.length;
     spendBefore=S._topAds.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
     spendAfter=filtered.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    const searchAd015_all=S._topAds.filter(o=>/ad015/i.test(o.name));
+    const searchAd015_funil=filtered.filter(o=>/ad015/i.test(o.name));
+    const spAd015_all=searchAd015_all.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    const spAd015_funil=searchAd015_funil.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    const ad015codes={};
+    searchAd015_funil.forEach(o=>{const c=adCode(o.name); if(!ad015codes[c]) ad015codes[c]=0; ad015codes[c]+=((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0);});
     const groups={};
     filtered.forEach(o=>{
       const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
@@ -1343,6 +1349,7 @@ function renderTopAdsAudiences(A){
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
       <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
       <div class="mini" style="color:#999;width:100%">Diag: ${totalBefore} ads total · ${totalAfter} no funil ${esc(currentFunnel().label)} · gasto total R$ ${fmtNum(Math.round(spendBefore))} · gasto funil R$ ${fmtNum(Math.round(spendAfter))} · periodo: ${S.period==='custom'?S.customSince+' a '+S.customUntil:S.period} · taxa USD: ${usdRate}</div>
+      <div class="mini" style="color:#c5221f;width:100%">🔍 AD015: ${searchAd015_all.length} ads total (R$ ${fmtNum(Math.round(spAd015_all))}) · ${searchAd015_funil.length} no funil (R$ ${fmtNum(Math.round(spAd015_funil))}) · grupos: ${Object.entries(ad015codes).map(([k,v])=>k+' R$'+fmtNum(Math.round(v))).join(', ')}</div>
       <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
