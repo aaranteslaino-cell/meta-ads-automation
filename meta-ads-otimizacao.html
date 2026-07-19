@@ -1231,7 +1231,7 @@ function renderTable(A){
 function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
-  let adsHtml;
+  let adsHtml; let totalBefore=0,totalAfter=0,spendBefore=0,spendAfter=0,usdRate=5.40;
   if(S._topAdsLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios ativos…</div>`; }
   else if(S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="fetchTopAds()">Carregar melhores anúncios</button>`; }
   else {
@@ -1249,12 +1249,12 @@ function renderTopAdsAudiences(A){
       const m=base.match(/^(AD\s*\d+(?:\s*\/\s*\d+)?)/i);
       return m ? m[1] : base;
     };
-    const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
-    const totalBefore=S._topAds.length;
+    usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+    totalBefore=S._topAds.length;
     const filtered=S._topAds.filter(o=>matchFunnel(o.campaign_name));
-    const totalAfter=filtered.length;
-    const spendBefore=S._topAds.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
-    const spendAfter=filtered.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    totalAfter=filtered.length;
+    spendBefore=S._topAds.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    spendAfter=filtered.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
     const groups={};
     filtered.forEach(o=>{
       const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
