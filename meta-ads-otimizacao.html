@@ -1239,6 +1239,7 @@ function renderTopAdsAudiences(A){
     const faixaAd=(S._rev&&S._rev.faixaAd)||{};
     const baseAdName=(nm)=>{
       let n=String(nm||'').trim();
+      n=n.replace(/^[""“”]+|[""“”]+$/g,'').trim();
       const re=/\s*[-—–]\s*c[óo]pia(\s+\d+)?\s*$|\s*\(\s*c[óo]pia(\s+\d+)?\s*\)\s*$|\s*[-—–]\s*copy(\s+\d+)?\s*$/i;
       let prev; do{ prev=n; n=n.replace(re,'').trim(); }while(n!==prev && n);
       return n||String(nm||'').trim();
