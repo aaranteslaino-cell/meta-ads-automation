@@ -1231,7 +1231,7 @@ function renderTable(A){
 function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
-  let adsHtml; let totalBefore=0,totalAfter=0,spendBefore=0,spendAfter=0,usdRate=5.40;
+  let adsHtml; let totalBefore=0,totalAfter=0,spendBefore=0,spendAfter=0,usdRate=5.40,searchAd015_all=[],searchAd015_funil=[],spAd015_all=0,spAd015_funil=0,ad015codes={};
   if(S._topAdsLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios ativos…</div>`; }
   else if(S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="fetchTopAds()">Carregar melhores anúncios</button>`; }
   else {
@@ -1255,11 +1255,11 @@ function renderTopAdsAudiences(A){
     totalAfter=filtered.length;
     spendBefore=S._topAds.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
     spendAfter=filtered.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
-    const searchAd015_all=S._topAds.filter(o=>/ad015/i.test(o.name));
-    const searchAd015_funil=filtered.filter(o=>/ad015/i.test(o.name));
-    const spAd015_all=searchAd015_all.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
-    const spAd015_funil=searchAd015_funil.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
-    const ad015codes={};
+    searchAd015_all=S._topAds.filter(o=>/ad015/i.test(o.name));
+    searchAd015_funil=filtered.filter(o=>/ad015/i.test(o.name));
+    spAd015_all=searchAd015_all.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    spAd015_funil=searchAd015_funil.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
+    ad015codes={};
     searchAd015_funil.forEach(o=>{const c=adCode(o.name); if(!ad015codes[c]) ad015codes[c]=0; ad015codes[c]+=((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0);});
     const groups={};
     filtered.forEach(o=>{
