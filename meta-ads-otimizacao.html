@@ -263,10 +263,16 @@ function periodDays(period){
 async function fetchInsights(parentId, level, tokenId, tzOffset){
   if(tzOffset!=null && Number(tzOffset)!==BR_OFFSET) return await fetchInsightsHourlyBRT(parentId, level, tokenId, Number(tzOffset));
   const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
-  const params={level, fields:`${INSIGHT_FIELDS},campaign_id,campaign_name`, limit:500};
-  if(S.period==='custom') params.time_range=brWindow('custom'); else params.date_preset=S.period;
-  const r = await api(`/${parentId}/insights`, params, tok);
-  return r.data||[];
+  const qs=[`level=${level}`,`fields=${encodeURIComponent(INSIGHT_FIELDS+',campaign_id,campaign_name')}`,`limit=500`];
+  if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
+  let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
+  const all=[]; let pages=0;
+  while(url && pages<30){ pages++;
+    const j=await (await fetch(url)).json(); if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+    if(j.data) all.push(...j.data);
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return all;
 }
 async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
   const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
@@ -310,8 +316,15 @@ async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
 }
 async function fetchEntityList(parentId, tokenId){
   const tok=getTokenById(tokenId);
-  const r=await api(`/${parentId}/campaigns`, {fields:'id,name,status,effective_status,objective,bid_strategy,daily_budget,lifetime_budget,updated_time', limit:500}, tok);
-  return r.data||[];
+  const flds=encodeURIComponent('id,name,status,effective_status,objective,bid_strategy,daily_budget,lifetime_budget,updated_time');
+  let url=`${GQL}/${parentId}/campaigns?fields=${flds}&limit=500&access_token=${encodeURIComponent(tok)}`;
+  const all=[]; let pages=0;
+  while(url && pages<30){ pages++;
+    const j=await (await fetch(url)).json(); if(j.error) break;
+    if(j.data) all.push(...j.data);
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return all;
 }
 function mergeInsightsAndEntities(insights, entities){
   const byId={};
@@ -353,10 +366,17 @@ async function fetchAdEntities(parentId, tokenId){
 }
 async function fetchAdInsights(parentId, tokenId){
   const tok=getTokenById(tokenId);
-  const params={level:'ad', fields:`${INSIGHT_FIELDS},ad_id,ad_name,adset_id,campaign_id,campaign_name`, limit:500};
-  if(S.period==='custom') params.time_range=brWindow('custom'); else params.date_preset=S.period;
-  const r=await api(`/${parentId}/insights`, params, tok);
-  return r.data||[];
+  const flds=encodeURIComponent(INSIGHT_FIELDS+',ad_id,ad_name,adset_id,campaign_id,campaign_name');
+  const qs=[`level=ad`,`fields=${flds}`,`limit=500`];
+  if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
+  let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
+  const all=[]; let pages=0;
+  while(url && pages<30){ pages++;
+    const j=await (await fetch(url)).json(); if(j.error) break;
+    if(j.data) all.push(...j.data);
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return all;
 }
 async function fetchTopAds(){
   if(S._topAdsLoading) return; S._topAdsLoading=true; render();
@@ -383,16 +403,29 @@ function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
 // ── Melhores públicos ativos ──────────────────────────────────────────────────
 async function fetchAdsetEntities(parentId, tokenId){
   const tok=getTokenById(tokenId);
-  const params={fields:'id,name,status,effective_status,campaign_id,targeting{custom_audiences{name},flexible_spec,age_min,age_max,genders}', limit:500};
-  const r=await api(`/${parentId}/adsets`, params, tok);
-  return r.data||[];
+  const flds=encodeURIComponent('id,name,status,effective_status,campaign_id,targeting{custom_audiences{name},flexible_spec,age_min,age_max,genders}');
+  let url=`${GQL}/${parentId}/adsets?fields=${flds}&limit=500&access_token=${encodeURIComponent(tok)}`;
+  const all=[]; let pages=0;
+  while(url && pages<30){ pages++;
+    const j=await (await fetch(url)).json(); if(j.error) break;
+    if(j.data) all.push(...j.data);
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return all;
 }
 async function fetchAdsetInsights(parentId, tokenId){
   const tok=getTokenById(tokenId);
-  const params={level:'adset', fields:`${INSIGHT_FIELDS},adset_id,adset_name,campaign_id,campaign_name`, limit:500};
-  if(S.period==='custom') params.time_range=brWindow('custom'); else params.date_preset=S.period;
-  const r=await api(`/${parentId}/insights`, params, tok);
-  return r.data||[];
+  const flds=encodeURIComponent(INSIGHT_FIELDS+',adset_id,adset_name,campaign_id,campaign_name');
+  const qs=[`level=adset`,`fields=${flds}`,`limit=500`];
+  if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
+  let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
+  const all=[]; let pages=0;
+  while(url && pages<30){ pages++;
+    const j=await (await fetch(url)).json(); if(j.error) break;
+    if(j.data) all.push(...j.data);
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return all;
 }
 function publicoLabel(adset){
   const t=adset.targeting||{};
