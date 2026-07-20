@@ -424,20 +424,17 @@ async function fetchTopAds(){
   }catch(e){ S._topAds=[]; S._topAdsMeta={ok:0,err:0,errNames:[],total:0}; }
   S._topAdsLoading=false; render();
 }
-function reloadTopAds(){ S._topAds=null; fetchTopAds(); }
+function reloadTopAds(){ S._topAds=null; S._refData=null; loadTopAds(); }
 function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
+function _isNathCriativos(){ const ck=S.view==='criativos'?(S.criativosFunnel||'ALL'):''; return ck==='NATH'; }
+function loadTopAds(){ if(_isNathCriativos()) fetchRefData(); else fetchTopAds(); }
 async function fetchRefData(){
   if(S._refLoading) return; S._refLoading=true; render();
   try{
     const r=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/nath-ref.json?v='+Date.now());
     S._refData=await r.json();
-    S.useRefData=true; saveState();
   }catch(e){ console.warn('[Ref] erro:', e); S._refData=null; }
   S._refLoading=false; render();
-}
-function toggleRefData(){
-  if(!S._refData){ fetchRefData(); return; }
-  S.useRefData=!S.useRefData; saveState(); render();
 }
 
 // ── Melhores públicos ativos ──────────────────────────────────────────────────
@@ -1271,8 +1268,9 @@ function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
   let adsHtml; let usdRate=5.40;
+  const _nathRef=_isNathCriativos()&&S._refData;
   if(S._topAdsLoading||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
-  else if(S._topAds==null&&!(S.useRefData&&S._refData)){ adsHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-purple" onclick="fetchTopAds()">Carregar via API</button><button class="btn btn-purple" onclick="fetchRefData()" style="background:#2563eb">Carregar via Planilha (Nov/25 - Jul/26)</button></div>`; }
+  else if(!_nathRef&&S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="loadTopAds()">Carregar melhores anúncios</button>`; }
   else {
     const byAd=(S._rev&&S._rev.byAd)||{};
     const faixaAd=(S._rev&&S._rev.faixaAd)||{};
@@ -1290,7 +1288,7 @@ function renderTopAdsAudiences(A){
     };
     usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const groups={};
-    if(S.useRefData&&S._refData&&S._refData.groups){
+    if(_nathRef&&S._refData.groups){
       S._refData.groups.forEach(rg=>{
         groups[rg.code]={name:rg.code,n:rg.n,spend:rg.spend,imp:rg.imp,clicks:rg.clicks,
           receita:0,front:0,total:0,contas:new Set(rg.accounts||[]),
@@ -1396,8 +1394,7 @@ function renderTopAdsAudiences(A){
   return `<div class="card">${head}
     ${criativosFilter}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
-      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${S.useRefData&&S._refData?` <span class="mini" style="color:#2563eb">via planilha (${S._refData.period?.start?.slice(0,7)} a ${S._refData.period?.end?.slice(0,7)}) · ${S._refData.totalAds} ads · R$ ${fmtNum(Math.round(S._refData.totalSpend))}</span>`:S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
-      <button class="chip ${S.useRefData&&S._refData?'active':''}" onclick="toggleRefData()" style="font-size:11px;padding:3px 8px;${S.useRefData&&S._refData?'background:#2563eb;color:#fff':''}">${S.useRefData&&S._refData?'Planilha ativo':'Usar Planilha'}</button>
+      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${_nathRef?` <span class="mini" style="color:#2563eb">${S._refData.totalAds} ads · R$ ${fmtNum(Math.round(S._refData.totalSpend))} investido (${S._refData.period?.start?.slice(0,7)} a ${S._refData.period?.end?.slice(0,7)})</span>`:S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
       <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
