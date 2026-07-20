@@ -266,9 +266,14 @@ async function fetchInsights(parentId, level, tokenId, tzOffset){
   const qs=[`level=${level}`,`fields=${encodeURIComponent(INSIGHT_FIELDS+',campaign_id,campaign_name')}`,`limit=500`];
   if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
   let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
-  const all=[]; let pages=0;
+  const all=[]; let pages=0; let rlErrs=0;
   while(url && pages<30){ pages++;
-    const j=await (await fetch(url)).json(); if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+    const j=await (await fetch(url)).json();
+    if(j.error){
+      const code=j.error.code||0;
+      if((code===4||code===17||code===32||code===613)&&rlErrs<3){ rlErrs++; await new Promise(r=>setTimeout(r,rlErrs*15000)); continue; }
+      throw new Error(`(${code}) ${j.error.message}`);
+    }
     if(j.data) all.push(...j.data);
     url=(j.paging&&j.paging.next)?j.paging.next:null;
   }
@@ -286,11 +291,15 @@ async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
     'time_range='+encodeURIComponent(JSON.stringify({since:accSince,until:accUntil})),
     'limit=500','access_token='+encodeURIComponent(tok)
   ].join('&');
-  const acc={}; let pages=0;
+  const acc={}; let pages=0; let rlErrs=0;
   while(url && pages<60){
     pages++;
     const json=await (await fetch(url)).json();
-    if(json.error) throw new Error(`(${json.error.code}) ${json.error.message}`);
+    if(json.error){
+      const code=json.error.code||0;
+      if((code===4||code===17||code===32||code===613)&&rlErrs<3){ rlErrs++; await new Promise(r=>setTimeout(r,rlErrs*15000)); continue; }
+      throw new Error(`(${code}) ${json.error.message}`);
+    }
     (json.data||[]).forEach(row=>{
       const hStr=row.hourly_stats_aggregated_by_advertiser_time_zone||'00';
       const hr=parseInt(hStr.slice(0,2),10)||0;
@@ -344,16 +353,19 @@ function mergeInsightsAndEntities(insights, entities){
   return Object.values(byId);
 }
 async function fetchAllCampaigns(){
-  const promises = S.accounts.map(async acc=>{
+  const all=[];
+  for(let i=0;i<S.accounts.length;i++){
+    const acc=S.accounts[i];
     try{
       const insights = await fetchInsights(acc.id,'campaign',acc._tokenId,acc._tzOffset);
       let entities=[]; try{ entities=await fetchEntityList(acc.id,acc._tokenId); }catch(e){}
       const merged = mergeInsightsAndEntities(insights, entities);
       merged.forEach(m=>{ m._accountId=acc.id; m._accountName=acc.name; m._currency=acc.currency; m._tokenId=acc._tokenId; });
-      return merged;
-    }catch(e){ return []; }
-  });
-  return (await Promise.all(promises)).flat();
+      all.push(...merged);
+    }catch(e){ console.warn('[Campaigns] erro conta',acc.name,e.message); }
+    if(i<S.accounts.length-1) await new Promise(r=>setTimeout(r,500));
+  }
+  return all;
 }
 
 // ── Melhores anúncios ativos ─────────────────────────────────────────────────
