@@ -195,7 +195,8 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; saveState(); render(); }
+function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
@@ -401,7 +402,7 @@ async function fetchTopAds(){
   try{
     const accs=(S.accounts||[]);
     const f=currentFunnel();
-    const campFilter=f.match||'';
+    const campFilter=(S.view==='criativos')?'':f.match||'';
     const allAds=[]; let okCount=0, errCount=0, errNames=[]; const accStats=[];
     for(let i=0;i<accs.length;i++){
       const acc=accs[i];
@@ -702,7 +703,7 @@ function render(){
   const root=$('root');
   if(!S.connected){ root.innerHTML=renderConnect(); return; }
   const A=analyze();
-  root.innerHTML = renderControls(A) + (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : renderDashboard(A));
+  root.innerHTML = renderControls(A) + (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : (S.view==='criativos' ? renderTopAdsAudiences(A) : renderDashboard(A)));
 }
 
 function renderConnect(){
@@ -727,7 +728,9 @@ function renderControls(A){
     <hr>
     <div class="row" style="margin-bottom:12px;padding:8px 10px;background:#faf9ff;border-radius:10px">
       <label style="margin:0 8px 0 0;color:#7b2ff7">Organização:</label>
-      ${FUNNELS.map(f=>`<button class="chip ${S.funnel===f.key?'active':''}" onclick="setFunnel('${f.key}')">${f.emoji} ${f.label}</button>`).join('')}
+      ${FUNNELS.map(f=>`<button class="chip ${S.view!=='criativos'&&S.funnel===f.key?'active':''}" onclick="setView('dash');setFunnel('${f.key}')">${f.emoji} ${f.label}</button>`).join('')}
+      <span style="border-left:2px solid #e0d8f5;height:24px;margin:0 6px"></span>
+      <button class="chip ${S.view==='criativos'?'active':''}" onclick="setView('criativos')" style="${S.view==='criativos'?'background:#7b2ff7;color:#fff':''}">🎨 Criativos</button>
     </div>
     <div class="row" style="margin-bottom:12px">
       <label style="margin:0 6px 0 0">Período:</label>
@@ -758,7 +761,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A)+renderTopAdsAudiences(A);
+  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
 }
 
 // ── Visão própria do Backend (Mentoria & Consultoria) — sem mídia paga ───────
@@ -1274,7 +1277,8 @@ function renderTopAdsAudiences(A){
     };
     usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     totalBefore=S._topAds.length;
-    const filtered=S._topAds.filter(o=>matchFunnel(o.campaign_name));
+    const isCriativos=S.view==='criativos';
+    const filtered=isCriativos?S._topAds:S._topAds.filter(o=>matchFunnel(o.campaign_name));
     totalAfter=filtered.length;
     spendBefore=S._topAds.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
     spendAfter=filtered.reduce((s,o)=>s+(((o._currency||'BRL')==='USD')?(o.spend||0)*usdRate:(o.spend||0)),0);
@@ -1355,7 +1359,7 @@ function renderTopAdsAudiences(A){
   else if(S._topPub==null){ pubHtml=`<button class="btn btn-purple" onclick="fetchTopAudiences()">Carregar melhores públicos</button>`; }
   else {
     const byAdset=(S._rev&&S._rev.byAdset)||{};
-    const pubs=S._topPub.filter(o=>matchFunnel(o.campaign_name));
+    const pubs=S.view==='criativos'?S._topPub:S._topPub.filter(o=>matchFunnel(o.campaign_name));
     const m={};
     const usdRateP=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     pubs.forEach(o=>{
