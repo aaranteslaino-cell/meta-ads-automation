@@ -426,6 +426,19 @@ async function fetchTopAds(){
 }
 function reloadTopAds(){ S._topAds=null; fetchTopAds(); }
 function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
+async function fetchRefData(){
+  if(S._refLoading) return; S._refLoading=true; render();
+  try{
+    const r=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/nath-ref.json?v='+Date.now());
+    S._refData=await r.json();
+    S.useRefData=true; saveState();
+  }catch(e){ console.warn('[Ref] erro:', e); S._refData=null; }
+  S._refLoading=false; render();
+}
+function toggleRefData(){
+  if(!S._refData){ fetchRefData(); return; }
+  S.useRefData=!S.useRefData; saveState(); render();
+}
 
 // ── Melhores públicos ativos ──────────────────────────────────────────────────
 async function fetchAdsetEntities(parentId, tokenId){
@@ -1258,8 +1271,8 @@ function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
   let adsHtml; let usdRate=5.40;
-  if(S._topAdsLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios ativos…</div>`; }
-  else if(S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="fetchTopAds()">Carregar melhores anúncios</button>`; }
+  if(S._topAdsLoading||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
+  else if(S._topAds==null&&!(S.useRefData&&S._refData)){ adsHtml=`<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-purple" onclick="fetchTopAds()">Carregar via API</button><button class="btn btn-purple" onclick="fetchRefData()" style="background:#2563eb">Carregar via Planilha (Nov/25 - Jul/26)</button></div>`; }
   else {
     const byAd=(S._rev&&S._rev.byAd)||{};
     const faixaAd=(S._rev&&S._rev.faixaAd)||{};
@@ -1276,28 +1289,44 @@ function renderTopAdsAudiences(A){
       return m ? m[1].replace(/\s+/g,'').toUpperCase() : base;
     };
     usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
-    const isCriativos=S.view==='criativos';
-    const filtered=isCriativos?S._topAds:S._topAds.filter(o=>matchFunnel(o.campaign_name));
     const groups={};
-    filtered.forEach(o=>{
-      const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
-      const base=baseAdName(o.name)||String(o.id);
-      const code=adCode(o.name);
-      if(!groups[code]) groups[code]={name:code, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0, vars:{}, accs:{}};
-      const g=groups[code];
-      const cur=o._currency||'BRL';
-      const spBRL=(cur==='USD')?(o.spend||0)*usdRate:(o.spend||0);
-      g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
-      g.receita+=hit?hit.receita:0; g.front+=hit?hit.front:0; g.total+=hit?hit.total:0;
-      if(o._accountName) g.contas.add(o._accountName);
-      if(f){ g.fa+=f.a; g.fb+=f.b; g.fc+=f.c; g.fsem+=f.sem; g.fresp0+=f.resp0; }
-      const ak=o._accountName||'?';
-      if(!g.accs[ak]) g.accs[ak]={name:ak, cur, n:0, raw:0, brl:0};
-      const ga=g.accs[ak]; ga.n++; ga.raw+=o.spend||0; ga.brl+=spBRL;
-      if(!g.vars[base]) g.vars[base]={name:base, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0};
-      const v=g.vars[base]; v.n++; v.spend+=spBRL; v.imp+=o.impressions||0; v.clicks+=o.clicks||0;
-      v.receita+=hit?hit.receita:0; v.front+=hit?hit.front:0; v.total+=hit?hit.total:0;
-    });
+    if(S.useRefData&&S._refData&&S._refData.groups){
+      S._refData.groups.forEach(rg=>{
+        groups[rg.code]={name:rg.code,n:rg.n,spend:rg.spend,imp:rg.imp,clicks:rg.clicks,
+          receita:0,front:0,total:0,contas:new Set(rg.accounts||[]),
+          fa:0,fb:0,fc:0,fsem:0,fresp0:0,vars:{},accs:{}};
+        const g=groups[rg.code];
+        (rg.adIds||[]).forEach(aid=>{
+          const hit=byAd[aid];const f=faixaAd[aid];
+          if(hit){g.receita+=hit.receita||0;g.front+=hit.front||0;g.total+=hit.total||0;}
+          if(f){g.fa+=f.a||0;g.fb+=f.b||0;g.fc+=f.c||0;g.fsem+=f.sem||0;g.fresp0+=f.resp0||0;}
+        });
+        (rg.vars||[]).forEach(v=>{g.vars[v.name]={name:v.name,n:v.n,spend:v.spend,imp:v.imp,clicks:v.clicks,receita:0,front:0,total:0};});
+        (rg.accounts||[]).forEach(a=>{g.accs[a]={name:a,cur:'BRL',n:0,raw:0,brl:0};});
+      });
+    } else {
+      const isCriativos=S.view==='criativos';
+      const filtered=isCriativos?S._topAds:S._topAds.filter(o=>matchFunnel(o.campaign_name));
+      filtered.forEach(o=>{
+        const hit=byAd[String(o.id)]; const f=faixaAd[String(o.id)];
+        const base=baseAdName(o.name)||String(o.id);
+        const code=adCode(o.name);
+        if(!groups[code]) groups[code]={name:code, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0, contas:new Set(), fa:0,fb:0,fc:0,fsem:0,fresp0:0, vars:{}, accs:{}};
+        const g=groups[code];
+        const cur=o._currency||'BRL';
+        const spBRL=(cur==='USD')?(o.spend||0)*usdRate:(o.spend||0);
+        g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
+        g.receita+=hit?hit.receita:0; g.front+=hit?hit.front:0; g.total+=hit?hit.total:0;
+        if(o._accountName) g.contas.add(o._accountName);
+        if(f){ g.fa+=f.a; g.fb+=f.b; g.fc+=f.c; g.fsem+=f.sem; g.fresp0+=f.resp0; }
+        const ak=o._accountName||'?';
+        if(!g.accs[ak]) g.accs[ak]={name:ak, cur, n:0, raw:0, brl:0};
+        const ga=g.accs[ak]; ga.n++; ga.raw+=o.spend||0; ga.brl+=spBRL;
+        if(!g.vars[base]) g.vars[base]={name:base, n:0, spend:0, imp:0, clicks:0, receita:0, front:0, total:0};
+        const v=g.vars[base]; v.n++; v.spend+=spBRL; v.imp+=o.impressions||0; v.clicks+=o.clicks||0;
+        v.receita+=hit?hit.receita:0; v.front+=hit?hit.front:0; v.total+=hit?hit.total:0;
+      });
+    }
     const roasCmp=(a,b)=>(b.roas??-1)-(a.roas??-1);
     const CMP={
       roas:roasCmp,
@@ -1367,7 +1396,8 @@ function renderTopAdsAudiences(A){
   return `<div class="card">${head}
     ${criativosFilter}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
-      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
+      <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${S.useRefData&&S._refData?` <span class="mini" style="color:#2563eb">via planilha (${S._refData.period?.start?.slice(0,7)} a ${S._refData.period?.end?.slice(0,7)}) · ${S._refData.totalAds} ads · R$ ${fmtNum(Math.round(S._refData.totalSpend))}</span>`:S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
+      <button class="chip ${S.useRefData&&S._refData?'active':''}" onclick="toggleRefData()" style="font-size:11px;padding:3px 8px;${S.useRefData&&S._refData?'background:#2563eb;color:#fff':''}">${S.useRefData&&S._refData?'Planilha ativo':'Usar Planilha'}</button>
       <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
