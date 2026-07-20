@@ -433,6 +433,24 @@ async function fetchRefData(){
   try{
     const r=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/nath-ref.json?v='+Date.now());
     S._refData=await r.json();
+    const since=S._refData.period.start+'T00:00:00-03:00';
+    const until=S._refData.period.end+'T23:59:59-03:00';
+    const hdr={'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey};
+    const [revRes,faixaRes]=await Promise.all([
+      fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_by_ad`,{method:'POST',headers:hdr,body:JSON.stringify({p_since:since,p_until:until})}),
+      fetch(`${S.sbUrl}/rest/v1/rpc/faixa_por_criativo`,{method:'POST',headers:hdr,body:JSON.stringify({p_since:since,p_until:until})})
+    ]);
+    if(revRes.ok){
+      const rows=await revRes.json(); const byAd={};
+      const add=(k,v)=>{if(!k)return;if(!byAd[k])byAd[k]={front:0,total:0,receita:0};byAd[k].front+=v.front;byAd[k].total+=v.total;byAd[k].receita+=v.receita;};
+      (rows||[]).forEach(r=>{add(r.ad_id,{front:parseInt(r.vendas_front)||0,total:parseInt(r.vendas_total)||0,receita:parseFloat(r.receita_bruta)||0});});
+      S._refData._byAd=byAd;
+    }
+    if(faixaRes.ok){
+      const faixaAd={};
+      (await faixaRes.json()).forEach(x=>{faixaAd[String(x.ad_id)]={n:parseInt(x.compradores)||0,a:parseInt(x.faixa_a)||0,b:parseInt(x.faixa_b)||0,c:parseInt(x.faixa_c)||0,sem:parseInt(x.sem_faixa)||0,resp0:parseInt(x.sem_resposta)||0};});
+      S._refData._faixaAd=faixaAd;
+    }
   }catch(e){ console.warn('[Ref] erro:', e); S._refData=null; }
   S._refLoading=false; render();
 }
@@ -1272,8 +1290,8 @@ function renderTopAdsAudiences(A){
   if(S._topAdsLoading||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
   else if(!_nathRef&&S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="loadTopAds()">Carregar melhores anúncios</button>`; }
   else {
-    const byAd=(S._rev&&S._rev.byAd)||{};
-    const faixaAd=(S._rev&&S._rev.faixaAd)||{};
+    const byAd=_nathRef?(S._refData._byAd||{}):(S._rev&&S._rev.byAd)||{};
+    const faixaAd=_nathRef?(S._refData._faixaAd||{}):(S._rev&&S._rev.faixaAd)||{};
     const baseAdName=(nm)=>{
       let n=String(nm||'').trim();
       n=n.replace(/^[“”''””''`´]+|[“”''””''`´]+$/g,'').trim();
