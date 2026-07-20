@@ -353,19 +353,16 @@ function mergeInsightsAndEntities(insights, entities){
   return Object.values(byId);
 }
 async function fetchAllCampaigns(){
-  const all=[];
-  for(let i=0;i<S.accounts.length;i++){
-    const acc=S.accounts[i];
+  const promises = S.accounts.map(async acc=>{
     try{
       const insights = await fetchInsights(acc.id,'campaign',acc._tokenId,acc._tzOffset);
       let entities=[]; try{ entities=await fetchEntityList(acc.id,acc._tokenId); }catch(e){}
       const merged = mergeInsightsAndEntities(insights, entities);
       merged.forEach(m=>{ m._accountId=acc.id; m._accountName=acc.name; m._currency=acc.currency; m._tokenId=acc._tokenId; });
-      all.push(...merged);
-    }catch(e){ console.warn('[Campaigns] erro conta',acc.name,e.message); }
-    if(i<S.accounts.length-1) await new Promise(r=>setTimeout(r,500));
-  }
-  return all;
+      return merged;
+    }catch(e){ console.warn('[Campaigns] erro conta',acc.name,e.message); return []; }
+  });
+  return (await Promise.all(promises)).flat();
 }
 
 // ── Melhores anúncios ativos ─────────────────────────────────────────────────
