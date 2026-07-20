@@ -1326,7 +1326,7 @@ function renderTopAdsAudiences(A){
     };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
-        <div class="i-sub">${esc([...a.contas].join(', '))} · ${fmtMoney0(a.spend)} gasto · <b>${fmtMoney0(a.receita)} receita</b> · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
+        <div class="i-sub">${fmtMoney0(a.spend)} gasto · <b>${fmtMoney0(a.receita)} receita</b> · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
         ${faixaLine(a)}
         ${variantLine(a)}
       </div>`).join('')
