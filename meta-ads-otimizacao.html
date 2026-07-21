@@ -426,6 +426,7 @@ async function fetchTopAds(){
 }
 function reloadTopAds(){ S._topAds=null; S._refData=null; loadTopAds(); }
 function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
+function setAdSearch(v){ S._adSearch=v||''; render(); const el=document.querySelector('[data-adsearch]'); if(el){el.focus();el.selectionStart=el.selectionEnd=el.value.length;} }
 function _isNathCriativos(){ const ck=S.view==='criativos'?(S.criativosFunnel||'ALL'):''; return ck==='NATH'; }
 function loadTopAds(){ if(_isNathCriativos()) fetchRefData(); else fetchTopAds(); }
 async function fetchRefData(){
@@ -1353,8 +1354,8 @@ function renderTopAdsAudiences(A){
     };
     const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort(CMP[S.topAdsSort]||roasCmp);
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3);
-    console.log('[DEBUG] _nathRef=',!!_nathRef,'byAd keys=',Object.keys(byAd).length,'groups=',Object.keys(groups).length,'ads with front>=1=',ads.filter(a=>a.front>=1).length,'sample AD05=',groups['AD05']?{front:groups['AD05'].front,receita:groups['AD05'].receita,spend:groups['AD05'].spend}:'N/A');
-    const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
+    const q=(S._adSearch||'').toLowerCase();
+    const top=ads.filter(a=>a.front>=1 && a.spend>=minG && (!q||a.name.toLowerCase().includes(q))).slice(0,30);
     const pctExato=(n,tot)=>{ if(!tot||!n) return '0%'; const p=100*n/tot; let s=p>=1?p.toFixed(1):p.toPrecision(2); s=s.replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); return s+'%'; };
     const fBadge=(lbl,n,tot,cor)=> `<span style="color:${n>0?cor:'#ccc'};margin-right:10px">${lbl} <b>${n}</b> <span style="font-weight:400">(${pctExato(n,tot)})</span></span>`;
     const faixaLine=(g)=>{ const tot=g.fa+g.fb+g.fc+g.fsem+g.fresp0; if(!tot) return '';
@@ -1383,7 +1384,7 @@ function renderTopAdsAudiences(A){
         ${variantLine(a)}
         ${accLine(a)}
       </div>`).join('')
-      : `<div class="empty">Nenhum anúncio com venda no período para ${esc(currentFunnel().label)}.</div>`;
+      : `<div class="empty">${q?'Nenhum anúncio encontrado para "'+esc(q)+'"':'Nenhum anúncio com venda no período para '+esc(currentFunnel().label)}.</div>`;
   }
   // Públicos
   let pubHtml;
@@ -1410,6 +1411,7 @@ function renderTopAdsAudiences(A){
     ${criativosFilter}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
       <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${_nathRef?` <span class="mini" style="color:#2563eb">${S._refData.totalAds} ads · R$ ${fmtNum(Math.round(S._refData.totalSpend))} investido (${S._refData.period?.start?.slice(0,7)} a ${S._refData.period?.end?.slice(0,7)})</span>`:S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
+      <input type="text" data-adsearch placeholder="Pesquisar ad..." value="${esc(S._adSearch||'')}" oninput="setAdSearch(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;width:180px">
       <select onchange="setTopAdsSort(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;max-width:220px">
         <option value="roas" ${S.topAdsSort==='roas'?'selected':''}>Ordenar por: ROAS</option>
         <option value="faixaA" ${S.topAdsSort==='faixaA'?'selected':''}>Mais leads Faixa A</option>
