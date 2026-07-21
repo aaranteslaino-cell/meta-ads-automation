@@ -199,6 +199,66 @@ function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=
 function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
+// ── Seleção em massa ─────────────────────────────────────────────────────────
+if(!S._sel) S._sel={};
+function toggleSel(id,ev){ if(ev)ev.stopPropagation(); S._sel[id]?delete S._sel[id]:(S._sel[id]=true); render(); }
+function selAllVerdict(v){ const A=analyze(); const rows=v==='bom'?A.good:v==='ruim'?A.bad:v==='observar'?A.watch:[]; rows.forEach(r=>{S._sel[r.id]=true;}); render(); }
+function clearSel(){ S._sel={}; render(); }
+function selCount(){ return Object.keys(S._sel).length; }
+async function execBulk(action,pct){
+  const ids=Object.keys(S._sel);
+  if(!ids.length){ alert('Nenhuma campanha selecionada.'); return; }
+  const byId={}; (S.data||[]).forEach(r=>byId[r.id]=r);
+  const validos=ids.filter(id=>byId[id]);
+  if(!validos.length){ alert('Campanhas selecionadas não encontradas nos dados.'); return; }
+  if(action==='PAUSAR'){
+    if(!confirm('Pausar '+validos.length+' campanha(s)? Isso aplica direto na conta.')) return;
+    let ok=0,fail=0;
+    for(const id of validos){
+      const d=byId[id],tok=getTokenById(d._tokenId);
+      if(!tok){fail++;continue;}
+      try{await apiPost(id,{status:'PAUSED'},tok);S._exec=S._exec||{};S._exec[id]='DESATIVAR';await logOtim(id,'DESATIVAR',null,null);ok++;}catch(e){fail++;}
+    }
+    await refreshOtim(); S._sel={}; render();
+    alert('Pausar: '+ok+' ok, '+fail+' falha(s).');
+  } else if(action==='ATIVAR'){
+    if(!confirm('Ativar '+validos.length+' campanha(s)?')) return;
+    let ok=0,fail=0;
+    for(const id of validos){
+      const d=byId[id],tok=getTokenById(d._tokenId);
+      if(!tok){fail++;continue;}
+      try{await apiPost(id,{status:'ACTIVE'},tok);S._exec=S._exec||{};S._exec[id]='ATIVAR';ok++;}catch(e){fail++;}
+    }
+    S._sel={}; render();
+    alert('Ativar: '+ok+' ok, '+fail+' falha(s).');
+  } else if(action==='ESCALAR'){
+    if(!pct||pct<=1){ alert('Escolha um percentual.'); return; }
+    const pctTxt='+'+Math.round((pct-1)*100)+'%';
+    if(!confirm('Escalar '+pctTxt+' em '+validos.length+' campanha(s)?')) return;
+    let ok=0,fail=0;
+    for(const id of validos){
+      const d=byId[id],daily=+(d.daily_budget||0),tok=getTokenById(d._tokenId);
+      if(!daily||!tok){fail++;continue;}
+      const novo=Math.round(daily*pct);
+      try{await apiPost(id,{daily_budget:String(novo)},tok);S._exec=S._exec||{};S._exec[id]='ESCALAR';await logOtim(id,'ESCALAR',+(daily/100).toFixed(2),+(novo/100).toFixed(2));ok++;}catch(e){fail++;}
+    }
+    await refreshOtim(); S._sel={}; render();
+    alert('Escalar '+pctTxt+': '+ok+' ok, '+fail+' falha(s).');
+  } else if(action==='REDUZIR'){
+    if(!pct||pct>=1){ alert('Escolha um percentual.'); return; }
+    const pctTxt=Math.round((pct-1)*100)+'%';
+    if(!confirm('Reduzir '+pctTxt+' em '+validos.length+' campanha(s)?')) return;
+    let ok=0,fail=0;
+    for(const id of validos){
+      const d=byId[id],daily=+(d.daily_budget||0),tok=getTokenById(d._tokenId);
+      if(!daily||!tok){fail++;continue;}
+      const novo=Math.round(daily*pct);
+      try{await apiPost(id,{daily_budget:String(novo)},tok);S._exec=S._exec||{};S._exec[id]='REDUZIR';await logOtim(id,'REDUZIR',+(daily/100).toFixed(2),+(novo/100).toFixed(2));ok++;}catch(e){fail++;}
+    }
+    await refreshOtim(); S._sel={}; render();
+    alert('Reduzir '+pctTxt+': '+ok+' ok, '+fail+' falha(s).');
+  }
+}
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
 function alvoBreaches(r){
   const a=S.alvos, out=[];
@@ -726,6 +786,25 @@ function render(){
   if(!S.connected){ root.innerHTML=renderConnect(); return; }
   const A=analyze();
   root.innerHTML = renderControls(A) + (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : (S.view==='criativos' ? renderTopAdsAudiences(A) : renderDashboard(A)));
+  // Barra flutuante de ações em massa
+  let bar=document.getElementById('bulk-bar');
+  const n=selCount();
+  if(n>0){
+    if(!bar){bar=document.createElement('div');bar.id='bulk-bar';document.body.appendChild(bar);}
+    bar.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#1e1b4b;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:9999;box-shadow:0 -2px 12px rgba(0,0,0,.3);font-size:13px';
+    bar.innerHTML=`<b>${n} campanha(s) selecionada(s)</b>
+      <button class="btn btn-sm" style="background:#ef4444;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('PAUSAR')">Pausar</button>
+      <button class="btn btn-sm" style="background:#22c55e;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('ATIVAR')">Ativar</button>
+      <select id="bulk-esc-pct" style="padding:3px 6px;font-size:12px;border-radius:4px;border:1px solid #555;background:#2d2a5e;color:#fff">
+        <option value="1.15">+15%</option><option value="1.2">+20%</option><option value="1.3" selected>+30%</option><option value="1.5">+50%</option><option value="2">+100%</option>
+      </select>
+      <button class="btn btn-sm" style="background:#7b2ff7;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('ESCALAR',parseFloat(document.getElementById('bulk-esc-pct').value))">Escalar</button>
+      <select id="bulk-red-pct" style="padding:3px 6px;font-size:12px;border-radius:4px;border:1px solid #555;background:#2d2a5e;color:#fff">
+        <option value="0.85">-15%</option><option value="0.8">-20%</option><option value="0.7" selected>-30%</option><option value="0.5">-50%</option>
+      </select>
+      <button class="btn btn-sm" style="background:#f59e0b;color:#000;padding:4px 12px;border-radius:6px" onclick="execBulk('REDUZIR',parseFloat(document.getElementById('bulk-red-pct').value))">Reduzir</button>
+      <button onclick="clearSel()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:12px;margin-left:auto">limpar selecao</button>`;
+  } else if(bar){ bar.remove(); }
 }
 
 function renderConnect(){
@@ -902,22 +981,27 @@ function renderAlvos(A){
 function setAlvo(k,v){ const n=parseFloat(String(v).replace(',','.')); if(!isNaN(n)) S.alvos[k]=n; saveState(); render(); }
 
 function itemCard(r){
-  return `<div class="item ${r._verdict}">
-    <div class="i-top"><div class="i-name">${esc(r.name)}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
-    <div class="i-reason">${esc(r._reason)}</div>
-    <div class="i-sub">${fmtMoney0(r._spendBRL!=null?r._spendBRL:r.spend)} gasto${(r._currency||'BRL')==='USD'?' <span class="mini">(US$'+fmtNum(Math.round(r.spend))+')</span>':''} · <b>${fmtMoney0(r._receita)} receita</b> · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · TKM ${r._ticket!=null?fmtMoney0(r._ticket):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
+  const ck=S._sel&&S._sel[r.id];
+  return `<div class="item ${r._verdict}" style="display:flex;gap:8px;align-items:flex-start${ck?';background:#e8e0f5':''}">
+    <input type="checkbox" ${ck?'checked':''} onclick="toggleSel('${r.id}',event)" style="margin-top:4px;cursor:pointer;flex-shrink:0;width:16px;height:16px;accent-color:#7b2ff7">
+    <div style="flex:1;min-width:0">
+      <div class="i-top"><div class="i-name">${esc(r.name)}</div><div class="i-metric" style="color:${roasColor(r._roas)}">${fmtRoas(r._roas)}</div></div>
+      <div class="i-reason">${esc(r._reason)}</div>
+      <div class="i-sub">${fmtMoney0(r._spendBRL!=null?r._spendBRL:r.spend)} gasto${(r._currency||'BRL')==='USD'?' <span class="mini">(US$'+fmtNum(Math.round(r.spend))+')</span>':''} · <b>${fmtMoney0(r._receita)} receita</b> · ${r._vendasFront||0} front / ${r._vendasTotal||0} tot · CPA ${r._cpa!=null?fmtMoney0(r._cpa):'—'} · TKM ${r._ticket!=null?fmtMoney0(r._ticket):'—'} · CTR ${fmtPct(r.ctr)} · ${esc(String(r.id))}</div>
+    </div>
   </div>`;
 }
 function renderGoodBad(A){
+  const selLink=(v,n)=>n?` <a href="#" onclick="event.preventDefault();selAllVerdict('${v}')" style="font-size:11px;color:#7b2ff7;text-decoration:none;font-weight:400">selecionar todas</a>`:'';
   return `<div class="card"><div class="cols2">
-    <div class="lane"><h3>✅ O que está BOM <span class="pill">${A.good.length}</span></h3>
+    <div class="lane"><h3>✅ O que está BOM <span class="pill">${A.good.length}</span>${selLink('bom',A.good.length)}</h3>
       ${A.good.length?A.good.slice(0,12).map(itemCard).join(''):'<div class="empty">Nada acima da média ainda.</div>'}
     </div>
-    <div class="lane"><h3>🔴 O que está RUIM <span class="pill">${A.bad.length}</span></h3>
+    <div class="lane"><h3>🔴 O que está RUIM <span class="pill">${A.bad.length}</span>${selLink('ruim',A.bad.length)}</h3>
       ${A.bad.length?A.bad.slice(0,12).map(itemCard).join(''):'<div class="empty">Nenhuma drenando caixa. 👏</div>'}
     </div>
   </div>
-  ${A.watch.length?`<details><summary>🟡 Observar (${A.watch.length}) — perto da média, deixar rodar</summary><div style="margin-top:10px">${A.watch.slice(0,20).map(itemCard).join('')}</div></details>`:''}
+  ${A.watch.length?`<details><summary>🟡 Observar (${A.watch.length}) — perto da média, deixar rodar${selLink('observar',A.watch.length)}</summary><div style="margin-top:10px">${A.watch.slice(0,20).map(itemCard).join('')}</div></details>`:''}
   </div>`;
 }
 
