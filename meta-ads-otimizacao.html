@@ -514,6 +514,7 @@ async function fetchTopAds(){
 function reloadTopAds(){ S._topAds=null; S._refData=null; loadTopAds(); }
 function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
 function setAdSearch(v){ S._adSearch=v||''; render(); const el=document.querySelector('[data-adsearch]'); if(el){el.focus();el.selectionStart=el.selectionEnd=el.value.length;} }
+function setCampSearch(v){ S._campSearch=v||''; render(); const el=document.querySelector('[data-campsearch]'); if(el){el.focus();el.selectionStart=el.selectionEnd=el.value.length;} }
 function _isNathCriativos(){ const ck=S.view==='criativos'?(S.criativosFunnel||'ALL'):''; return ck==='NATH'; }
 function loadTopAds(){ if(_isNathCriativos()) fetchRefData(); else fetchTopAds(); }
 async function fetchRefData(){
@@ -2069,10 +2070,14 @@ function renderAcompanhamento(A){
   const slotBar=`<div class="row" style="gap:6px;margin-bottom:10px"><span class="mini" style="font-weight:700">Horários de análise:</span>${SLOTS_ANALISE.map(s=>`<span class="chip ${nearestSlot()===s?'active':''}" style="cursor:default">${s}</span>`).join('')}</div>`;
   const activeCamps=(S.data||[]).filter(r=>(r.effective_status||'')==='ACTIVE' && (r._spendBRL||r.spend||0)>0 && matchFunnel(r.name)).sort((a,b)=>(b._spendBRL||b.spend||0)-(a._spendBRL||a.spend||0));
   const selName=(activeCamps.find(c=>String(c.id)===S.selCampaign)||{}).name||'';
-  const campSel=`<div class="row" style="gap:8px;margin-bottom:12px"><span class="mini" style="font-weight:700">Campanha:</span><select onchange="setSelCampaign(this.value)" style="max-width:680px;flex:1;padding:6px 8px">
+  const cq=(S._campSearch||'').toLowerCase();
+  const campsFiltered=cq?activeCamps.filter(c=>String(c.name).toLowerCase().includes(cq)):activeCamps;
+  const campSel=`<div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="mini" style="font-weight:700">Campanha:</span>
+    <input type="text" data-campsearch placeholder="Pesquisar campanha..." value="${esc(S._campSearch||'')}" oninput="setCampSearch(this.value)" style="padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #ddd;width:220px">
+    <select onchange="setSelCampaign(this.value)" style="max-width:680px;flex:1;padding:6px 8px">
     <option value="">Todas do funil (${activeCamps.length})</option>
-    ${activeCamps.map(c=>`<option value="${esc(String(c.id))}" ${S.selCampaign===String(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
-  </select>${S.selCampaign?`<button class="btn btn-gray btn-sm" onclick="setSelCampaign('')">limpar</button>`:''}</div>`;
+    ${campsFiltered.map(c=>`<option value="${esc(String(c.id))}" ${S.selCampaign===String(c.id)?'selected':''}>${esc(c.name)}</option>`).join('')}
+  </select>${cq?`<span class="mini" style="color:#888">${campsFiltered.length} de ${activeCamps.length}</span>`:''}${S.selCampaign||cq?`<button class="btn btn-gray btn-sm" onclick="S._campSearch='';setSelCampaign('')">limpar</button>`:''}</div>`;
   const head=`<h2>📈 Acompanhamento das otimizações <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadIntraday();reloadOtim()">↻ Atualizar</button></h2>`;
   // ── Gráfico do dia (sempre visível, auto-carregado) ──
   let intradayHtml='';
