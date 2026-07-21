@@ -159,7 +159,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _refData:null, _refLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -1310,9 +1310,9 @@ function renderTopAdsAudiences(A){
           fa:0,fb:0,fc:0,fsem:0,fresp0:0,vars:{},accs:{}};
         const g=groups[rg.code];
         (rg.adIds||[]).forEach(aid=>{
-          const hit=byAd[aid];const f=faixaAd[aid];
-          if(hit){g.receita+=hit.receita||0;g.front+=hit.front||0;g.total+=hit.total||0;}
-          if(f){g.fa+=f.a||0;g.fb+=f.b||0;g.fc+=f.c||0;g.fsem+=f.sem||0;g.fresp0+=f.resp0||0;}
+          const hit=byAd[aid];const fx=faixaAd[aid];
+          if(hit){g.receita+=(hit.receita??hit.r??0);g.front+=(hit.front??hit.f??0);g.total+=(hit.total??hit.t??0);}
+          if(fx){g.fa+=fx.a||0;g.fb+=fx.b||0;g.fc+=fx.c||0;g.fsem+=fx.sem||0;g.fresp0+=fx.resp0||0;}
         });
         (rg.vars||[]).forEach(v=>{g.vars[v.name]={name:v.name,n:v.n,spend:v.spend,imp:v.imp,clicks:v.clicks,receita:0,front:0,total:0};});
         (rg.accounts||[]).forEach(a=>{g.accs[a]={name:a,cur:'BRL',n:0,raw:0,brl:0};});
