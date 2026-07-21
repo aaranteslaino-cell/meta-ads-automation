@@ -201,7 +201,17 @@ function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=n
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
 // ── Seleção em massa ─────────────────────────────────────────────────────────
 if(!S._sel) S._sel={};
-function toggleSel(id,ev){ if(ev)ev.stopPropagation(); S._sel[id]?delete S._sel[id]:(S._sel[id]=true); render(); }
+function toggleSel(id,ev){
+  if(ev)ev.stopPropagation();
+  const on=!S._sel[id]; on?(S._sel[id]=true):delete S._sel[id];
+  // atualização in-place: sem re-render, para não perder a posição do scroll da tabela
+  if(ev&&ev.target){
+    ev.target.checked=on;
+    const tr=ev.target.closest('tr'); if(tr) tr.style.background=on?'#f3eefe':'';
+    const card=ev.target.closest('.item'); if(card) card.style.background=on?'#e8e0f5':'';
+  }
+  renderBulkBar();
+}
 function selAllVerdict(v){ const A=analyze(); const rows=v==='bom'?A.good:v==='ruim'?A.bad:v==='observar'?A.watch:[]; rows.forEach(r=>{S._sel[r.id]=true;}); render(); }
 function selAllComp(){
   const byId={}; (S.data||[]).forEach(r=>byId[r.id]=r);
@@ -798,10 +808,15 @@ function analyze(){
 function render(){
   const root=$('root');
   const _sx=window.scrollX,_sy=window.scrollY;
+  const _tops=[...document.querySelectorAll('.tbl-wrap')].map(el=>({t:el.scrollTop,l:el.scrollLeft}));
   if(!S.connected){ root.innerHTML=renderConnect(); return; }
   const A=analyze();
   root.innerHTML = renderControls(A) + (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : (S.view==='criativos' ? renderTopAdsAudiences(A) : renderDashboard(A)));
   window.scrollTo(_sx,_sy);
+  [...document.querySelectorAll('.tbl-wrap')].forEach((el,i)=>{ if(_tops[i]){ el.scrollTop=_tops[i].t; el.scrollLeft=_tops[i].l; } });
+  renderBulkBar();
+}
+function renderBulkBar(){
   // Barra flutuante de ações em massa
   let bar=document.getElementById('bulk-bar');
   const n=selCount();
