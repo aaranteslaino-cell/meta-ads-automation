@@ -2076,12 +2076,12 @@ function renderAcompanhamento(A){
   const allCamps=Object.values(_uni).sort((a,b)=>(b._spendBRL||0)-(a._spendBRL||0));
   const selName=(allCamps.find(c=>String(c.id)===S.selCampaign)||{}).name||'';
   const cq=(S._campSearch||'').toLowerCase();
-  const campsFiltered=cq?allCamps.filter(c=>String(c.name).toLowerCase().includes(cq)||String(c.id).includes(cq)):activeCamps;
+  const campsFiltered=cq?allCamps.filter(c=>String(c.name).toLowerCase().includes(cq)||String(c.id).includes(cq)):allCamps;
   const statusTag=(c)=>{ return (c.effective_status||'')==='ACTIVE'||!c.effective_status?'':' [pausada]'; };
   const campSel=`<div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap"><span class="mini" style="font-weight:700">Campanha:</span>
     <input type="text" data-campsearch placeholder="Pesquisar por nome ou ID..." value="${esc(S._campSearch||'')}" oninput="setCampSearch(this.value)" style="padding:6px 8px;font-size:13px;border-radius:6px;border:1px solid #ddd;width:220px">
     <select onchange="setSelCampaign(this.value)" style="max-width:680px;flex:1;padding:6px 8px">
-    <option value="">Todas do funil (${activeCamps.length})</option>
+    <option value="">Todas do funil (${allCamps.length})</option>
     ${campsFiltered.map(c=>`<option value="${esc(String(c.id))}" ${S.selCampaign===String(c.id)?'selected':''}>${esc(c.name)}${statusTag(c)}</option>`).join('')}
   </select>${cq?`<span class="mini" style="color:#888">${campsFiltered.length} de ${allCamps.length}</span>`:''}${S.selCampaign||cq?`<button class="btn btn-gray btn-sm" onclick="S._campSearch='';setSelCampaign('')">limpar</button>`:''}</div>`;
   const head=`<h2>📈 Acompanhamento das otimizações <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadIntraday();reloadOtim()">↻ Atualizar</button></h2>`;
