@@ -433,10 +433,6 @@ async function fetchRefData(){
   try{
     const r=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/nath-ref.json?v='+Date.now());
     S._refData=await r.json();
-    const rawByAd=S._refData._byAd||{};
-    const byAd={};
-    Object.entries(rawByAd).forEach(([k,v])=>{byAd[k]={front:v.f||0,total:v.t||0,receita:v.r||0};});
-    S._refData._byAd=byAd;
     try{
       const hdr={'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey};
       const since=S._refData.period.start+'T00:00:00-03:00';
@@ -1283,12 +1279,14 @@ function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
   let adsHtml; let usdRate=5.40;
-  if(_isNathCriativos()&&S._refData&&(!S._refData._byAd||Object.keys(S._refData._byAd).length===0)){S._refData=null;fetchRefData();return '';}
   const _nathRef=_isNathCriativos()&&S._refData;
   if(S._topAdsLoading||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
   else if(!_nathRef&&S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="loadTopAds()">Carregar melhores anúncios</button>`; }
   else {
-    const byAd=_nathRef?(S._refData._byAd||{}):(S._rev&&S._rev.byAd)||{};
+    const _rawByAd=_nathRef?(S._refData._byAd||{}):(S._rev&&S._rev.byAd)||{};
+    const byAd={};
+    if(_nathRef){ Object.entries(_rawByAd).forEach(([k,v])=>{byAd[k]={front:v.front??v.f??0,total:v.total??v.t??0,receita:v.receita??v.r??0};}); }
+    else { Object.assign(byAd,_rawByAd); }
     const faixaAd=_nathRef?(S._refData._faixaAd||{}):(S._rev&&S._rev.faixaAd)||{};
     const baseAdName=(nm)=>{
       let n=String(nm||'').trim();
@@ -1355,6 +1353,7 @@ function renderTopAdsAudiences(A){
     };
     const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort(CMP[S.topAdsSort]||roasCmp);
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3);
+    console.log('[DEBUG] _nathRef=',!!_nathRef,'byAd keys=',Object.keys(byAd).length,'groups=',Object.keys(groups).length,'ads with front>=1=',ads.filter(a=>a.front>=1).length,'sample AD05=',groups['AD05']?{front:groups['AD05'].front,receita:groups['AD05'].receita,spend:groups['AD05'].spend}:'N/A');
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG).slice(0,10);
     const pctExato=(n,tot)=>{ if(!tot||!n) return '0%'; const p=100*n/tot; let s=p>=1?p.toFixed(1):p.toPrecision(2); s=s.replace(/(\.\d*?)0+$/,'$1').replace(/\.$/,''); return s+'%'; };
     const fBadge=(lbl,n,tot,cor)=> `<span style="color:${n>0?cor:'#ccc'};margin-right:10px">${lbl} <b>${n}</b> <span style="font-weight:400">(${pctExato(n,tot)})</span></span>`;
