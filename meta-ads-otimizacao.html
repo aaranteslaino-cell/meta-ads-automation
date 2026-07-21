@@ -326,16 +326,19 @@ const BR_OFFSET = -3;
 const brToday = () => new Intl.DateTimeFormat('en-CA',{timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 const addDaysStr = (s,days)=>{ const d=new Date(s+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+days); return d.toISOString().slice(0,10); };
 function customRange(){ const u=S.customUntil||brToday(); const s=S.customSince||addDaysStr(u,-6); return (s<=u)?{since:s,until:u}:{since:u,until:s}; }
+function monthStart(){ return brToday().slice(0,8)+'01'; }
 function brWindow(period){
   const today=brToday();
   if(period==='custom') return customRange();
   if(period==='today') return {since:today,until:today};
   if(period==='yesterday'){ const y=addDaysStr(today,-1); return {since:y,until:y}; }
+  if(period==='this_month') return {since:monthStart(),until:today};
   const n=period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7;
   return {since:addDaysStr(today,-n),until:addDaysStr(today,-1)};
 }
 function periodDays(period){
   if(period==='custom'){ const r=customRange(); return Math.max(1, Math.round((new Date(r.until+'T00:00:00Z')-new Date(r.since+'T00:00:00Z'))/864e5)+1); }
+  if(period==='this_month'){ return Math.max(1, Math.round((new Date(brToday()+'T00:00:00Z')-new Date(monthStart()+'T00:00:00Z'))/864e5)+1); }
   return period==='today'||period==='yesterday'?1:(period==='last_3d'?3:period==='last_7d'?7:period==='last_14d'?14:period==='last_30d'?30:7);
 }
 
@@ -654,6 +657,7 @@ function periodRange(period){
   if(period==='custom'){ const r=customRange(); return {since:at(r.since), until:at(addDaysStr(r.until,1))}; }
   if(period==='today') return {since:at(today),until:at(addDaysStr(today,1))};
   if(period==='yesterday') return {since:at(addDaysStr(today,-1)),until:at(today)};
+  if(period==='this_month') return {since:at(monthStart()),until:at(addDaysStr(today,1))};
   const n=periodDays(period);
   return {since:at(addDaysStr(today,-n)),until:at(today)};
 }
@@ -851,7 +855,7 @@ function renderConnect(){
   </div>`;
 }
 
-const PERIODS=[['today','Hoje'],['yesterday','Ontem'],['last_3d','3 dias'],['last_7d','7 dias'],['last_14d','14 dias'],['last_30d','30 dias']];
+const PERIODS=[['today','Hoje'],['yesterday','Ontem'],['last_3d','3 dias'],['last_7d','7 dias'],['last_14d','14 dias'],['last_30d','30 dias'],['this_month','Este mês']];
 function renderControls(A){
   return `<div class="card">
     <div class="row" style="justify-content:space-between">
