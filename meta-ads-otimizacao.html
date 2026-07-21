@@ -1283,6 +1283,7 @@ function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
   let adsHtml; let usdRate=5.40;
+  if(_isNathCriativos()&&S._refData&&(!S._refData._byAd||Object.keys(S._refData._byAd).length===0)){S._refData=null;fetchRefData();return '';}
   const _nathRef=_isNathCriativos()&&S._refData;
   if(S._topAdsLoading||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
   else if(!_nathRef&&S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="loadTopAds()">Carregar melhores anúncios</button>`; }
