@@ -435,9 +435,10 @@ async function fetchAdEntities(parentId, tokenId){
   const r=await api(`/${parentId}/ads`, params, tok);
   return r.data||[];
 }
+const VIDEO_FIELDS='video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_avg_time_watched_actions';
 async function fetchAdInsights(parentId, tokenId, campaignFilter){
   const tok=getTokenById(tokenId);
-  const flds=encodeURIComponent(INSIGHT_FIELDS+',ad_id,ad_name,adset_id,campaign_id,campaign_name');
+  const flds=encodeURIComponent(INSIGHT_FIELDS+','+VIDEO_FIELDS+',ad_id,ad_name,adset_id,campaign_id,campaign_name');
   const qs=[`level=ad`,`fields=${flds}`,`limit=500`];
   if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
   if(campaignFilter) qs.push('filtering='+encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:campaignFilter}])));
@@ -469,10 +470,16 @@ async function fetchTopAds(){
       const acc=accs[i];
       try{
         const ins=await fetchAdInsights(acc.id,acc._tokenId,campFilter||null);
+        const vv=(r,f)=>{const a=r[f];return (a&&a.length)?(parseFloat(a[0].value)||0):0;};
         const mapped=(ins||[]).map(r=>({
           id:r.ad_id, name:r.ad_name||'(sem nome)', campaign_name:r.campaign_name,
           spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
           ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0,
+          v3:(()=>{const x=(r.actions||[]).find(a=>a.action_type==='video_view');return x?(parseFloat(x.value)||0):0;})(),
+          vPlays:vv(r,'video_play_actions'), vThru:vv(r,'video_thruplay_watched_actions'),
+          vP25:vv(r,'video_p25_watched_actions'), vP50:vv(r,'video_p50_watched_actions'),
+          vP75:vv(r,'video_p75_watched_actions'), vP100:vv(r,'video_p100_watched_actions'),
+          vAvgT:vv(r,'video_avg_time_watched_actions'),
           _accountName:acc.name, _currency:acc.currency
         })).filter(o=>(o.spend||0)>0);
         allAds.push(...mapped); okCount++;
@@ -1359,6 +1366,79 @@ function renderTable(A){
   </div>`;
 }
 
+// ── Funil de vídeo: hook rate, hold rate, retenção real por criativo ─────────
+function renderVideoAnalysis(){
+  let inner;
+  if(S._topAdsLoading){ inner=`<div class="empty"><span class="loading"></span> Carregando métricas de vídeo…</div>`; }
+  else if(S._topAds==null){ inner=`<button class="btn btn-purple" onclick="fetchTopAds()">Carregar hook & hold rate (API do Meta, período selecionado no topo)</button><div class="mini" style="margin-top:6px">Puxa views de 3s, ThruPlay e retenção 25/50/75/100% por anúncio. Sujeito a rate limit em períodos longos.</div>`; }
+  else {
+    const baseAdName=(nm)=>{
+      let n=String(nm||'').trim();
+      n=n.replace(/^[“”''””''`´]+|[“”''””''`´]+$/g,'').trim();
+      const re=/\s*[-—–]\s*c[óo]pia(\s+\d+)?\s*$|\s*\(\s*c[óo]pia(\s+\d+)?\s*\)\s*$|\s*[-—–]\s*copy(\s+\d+)?\s*$/i;
+      let prev; do{ prev=n; n=n.replace(re,'').trim(); }while(n!==prev && n);
+      return n||String(nm||'').trim();
+    };
+    const adCode=(nm)=>{
+      const base=baseAdName(nm);
+      const m=base.match(/\b(AD\s*\d+(?:\s*\/\s*\d+)?)\b/i);
+      return m ? m[1].replace(/\s+/g,'').toUpperCase() : base;
+    };
+    const usdRateV=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+    const m={};
+    S._topAds.forEach(o=>{
+      const code=adCode(o.name);
+      if(!m[code]) m[code]={name:code,n:0,spend:0,imp:0,clicks:0,v3:0,vThru:0,vP25:0,vP50:0,vP75:0,vP100:0,vAvgSum:0,vAvgN:0};
+      const g=m[code];
+      const spBRL=((o._currency||'BRL')==='USD')?(o.spend||0)*usdRateV:(o.spend||0);
+      g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
+      g.v3+=o.v3||0; g.vThru+=o.vThru||0; g.vP25+=o.vP25||0; g.vP50+=o.vP50||0; g.vP75+=o.vP75||0; g.vP100+=o.vP100||0;
+      if(o.vAvgT>0){ g.vAvgSum+=o.vAvgT*(o.v3||1); g.vAvgN+=(o.v3||1); }
+    });
+    const q=(S._adSearch||'').toLowerCase();
+    const rows=Object.values(m)
+      .filter(g=>g.v3>=100&&(!q||g.name.toLowerCase().includes(q)))
+      .map(g=>({...g,
+        hook:g.imp>0?g.v3/g.imp*100:0,
+        hold:g.v3>0?g.vThru/g.v3*100:0,
+        r50:g.v3>0?g.vP50/g.v3*100:0,
+        r75:g.v3>0?g.vP75/g.v3*100:0,
+        r100:g.v3>0?g.vP100/g.v3*100:0,
+        avgT:g.vAvgN>0?g.vAvgSum/g.vAvgN:0,
+        ctrImp:g.imp>0?g.clicks/g.imp*100:0,
+        ctrView:g.v3>0?g.clicks/g.v3*100:0}))
+      .sort((a,b)=>b.spend-a.spend).slice(0,30);
+    const cor=(v,bom,medio)=>v>=bom?'#137333':v>=medio?'#b26a00':'#c5221f';
+    inner = rows.length ? `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr>
+      <th style="text-align:left">Criativo</th><th>Gasto</th><th>Impr.</th>
+      <th title="views de 3s ÷ impressões — quantos pararam o dedo">Hook</th>
+      <th title="ThruPlay (15s ou completo) ÷ views de 3s — quantos seguraram">Hold</th>
+      <th>50%</th><th title="proxy de quem chegou perto do CTA">75%</th><th>100%</th>
+      <th>Tempo médio</th><th>CTR</th>
+      <th title="cliques ÷ views de 3s — eficiência do CTA entre quem assistiu">CTR/views</th>
+    </tr></thead><tbody>
+    ${rows.map(g=>`<tr>
+      <td style="text-align:left;font-weight:600">${esc(g.name)}${g.n>1?` <span class="mini" style="color:#999">(${g.n})</span>`:''}</td>
+      <td class="num">${fmtMoney0(g.spend)}</td><td class="num">${fmtNum(g.imp)}</td>
+      <td class="num" style="color:${cor(g.hook,30,20)};font-weight:700">${g.hook.toFixed(1)}%</td>
+      <td class="num" style="color:${cor(g.hold,60,40)};font-weight:700">${g.hold.toFixed(0)}%</td>
+      <td class="num">${g.r50.toFixed(0)}%</td>
+      <td class="num" style="font-weight:600">${g.r75.toFixed(0)}%</td>
+      <td class="num">${g.r100.toFixed(0)}%</td>
+      <td class="num">${g.avgT?g.avgT.toFixed(0)+'s':'—'}</td>
+      <td class="num">${g.ctrImp.toFixed(2)}%</td>
+      <td class="num" style="font-weight:600">${g.ctrView.toFixed(2)}%</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:8px"><b>Hook</b> = views de 3s ÷ impressões (verde ≥30%, âmbar ≥20%): mede se o início do vídeo para o dedo. <b>Hold</b> = ThruPlay ÷ views de 3s (verde ≥60%): mede se o vídeo segura quem parou. <b>50/75/100%</b> = retenção sobre views de 3s; a API não sabe em que segundo entra o CTA, então <b>75% é o melhor proxy de "assistiu até o CTA"</b>. <b>CTR/views</b> = cliques ÷ views de 3s: eficiência do CTA entre quem realmente assistiu. Hook alto + hold baixo = promessa boa, corpo fraco. Hook baixo + hold alto = corpo bom, troque os 3 primeiros segundos. Métricas do <b>período selecionado no topo</b> (API), não do histórico da planilha. Mínimo de 100 views de 3s para entrar na tabela.</div>`
+    : `<div class="empty">Nenhum criativo com pelo menos 100 views de vídeo no período${q?' para "'+esc(q)+'"':''}. Anúncios de imagem não aparecem aqui.</div>`;
+  }
+  return `<hr style="margin:16px 0">
+    <details open><summary style="cursor:pointer;font-weight:700;font-size:15px;color:#0891b2">🎬 Funil de vídeo — hook & hold rate <span class="mini" style="font-weight:400;color:#888">(métricas reais de visualização, por criativo)</span></summary>
+    <div style="margin-top:8px">${inner}</div>
+    </details>`;
+}
+
 // ── Análise cruzada de criativos ─────────────────────────────────────────────
 function renderCreativeAnalysis(ads){
   if(!ads||!ads.length) return '';
@@ -1409,19 +1489,8 @@ function renderCreativeAnalysis(ads){
   const byTipo=aggBy(a=>a._t.tipo);
   const byRoteiro=aggBy(a=>a._t.roteiro);
   const byCenario=aggBy(a=>a._t.cenario);
-  const byHook=aggBy(a=>a._t.hook);
-  const byCTA=aggBy(a=>a._t.cta);
-  // Hook × CTA matrix
-  const hcMap={};
-  tagged.forEach(a=>{const h=a._t.hook,c=a._t.cta;if(!h||!c)return;const k=h+' x '+c;if(!hcMap[k])hcMap[k]={key:k,spend:0,receita:0,front:0,total:0,n:0,fa:0,fb:0,fc:0,fsem:0,fresp0:0};const d=hcMap[k];d.spend+=a.spend;d.receita+=a.receita;d.front+=a.front;d.total+=a.total||0;d.n++;d.fa+=a.fa||0;d.fb+=a.fb||0;d.fc+=a.fc||0;d.fsem+=a.fsem||0;d.fresp0+=a.fresp0||0;});
-  const hookCTA=Object.values(hcMap).map(d=>({...d,roas:d.spend>0?d.receita/d.spend:null,cpa:d.front>0?d.spend/d.front:null,ticket:d.front>0?d.receita/d.front:0,pctAB:((d.fa+d.fb)/(d.fa+d.fb+d.fc+d.fsem||1)*100)})).sort((a,b)=>b.spend-a.spend);
   // Recommendations
   const recs=[];
-  if(hookCTA.length>=2){
-    const bestHC=hookCTA.filter(r=>r.front>=10).sort((a,b)=>(b.roas||0)-(a.roas||0))[0];
-    const worstHC=hookCTA.filter(r=>r.front>=10).sort((a,b)=>(a.roas||0)-(b.roas||0))[0];
-    if(bestHC&&worstHC&&bestHC.key!==worstHC.key) recs.push(`<b>${esc(bestHC.key)}</b> e a combinacao mais eficiente (ROAS ${fmtRoas(bestHC.roas)}, CPA ${fmtMoney0(bestHC.cpa)}). Crie novos criativos com essa combinacao. Evite <b>${esc(worstHC.key)}</b> (ROAS ${fmtRoas(worstHC.roas)}).`);
-  }
   if(byTipo.length>=2){
     const worst=byTipo.filter(r=>r.front>=20).sort((a,b)=>(a.roas||0)-(b.roas||0))[0];
     const best=byTipo.filter(r=>r.front>=20).sort((a,b)=>(b.roas||0)-(a.roas||0))[0];
@@ -1439,13 +1508,10 @@ function renderCreativeAnalysis(ads){
   return `<hr style="margin:16px 0">
     <details open><summary style="cursor:pointer;font-weight:700;font-size:15px;color:#5046e5">🔬 Analise cruzada de criativos <span class="mini" style="font-weight:400;color:#888">(${tagged.length} criativos com venda)</span></summary>
     ${recsHtml}
-    ${tbl('Hook x CTA',hookCTA,'Combinacao')}
     ${tbl('Por tipo de criativo',byTipo,'Tipo')}
     ${tbl('Por roteiro',byRoteiro,'Roteiro')}
     ${tbl('Por cenario/estilo',byCenario,'Cenario')}
-    ${tbl('Por hook',byHook,'Hook')}
-    ${tbl('Por CTA',byCTA,'CTA')}
-    <div class="mini" style="margin-top:10px">Tags extraidas automaticamente dos nomes dos criativos. <b>%A+B</b> = percentual de compradores Faixa A+B entre os que responderam a pesquisa (quanto maior, melhor a qualidade do lead). <b>Ticket</b> = receita media por comprador front. Criativos sem tag reconhecida aparecem em "Outros".</div>
+    <div class="mini" style="margin-top:10px">Tags extraidas automaticamente dos nomes dos criativos — agrupamento de conteudo, nao analise causal. Para saber POR QUE um criativo performa (hook, retencao, CTA), use a secao "Funil de video" acima, que usa metricas reais de visualizacao. <b>%A+B</b> = percentual de compradores Faixa A+B entre os que responderam a pesquisa. <b>Ticket</b> = receita media por comprador front.</div>
     </details>`;
 }
 
@@ -1453,9 +1519,9 @@ function renderCreativeAnalysis(ads){
 function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
-  let adsHtml; let usdRate=5.40;
+  let adsHtml; let usdRate=5.40; let _adsAnalysis=null;
   const _nathRef=_isNathCriativos()&&S._refData;
-  if(S._topAdsLoading||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
+  if((S._topAdsLoading&&!_nathRef)||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
   else if(!_nathRef&&S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="loadTopAds()">Carregar melhores anúncios</button>`; }
   else {
     const _rawByAd=_nathRef?(S._refData._byAd||{}):(S._rev&&S._rev.byAd)||{};
@@ -1527,6 +1593,7 @@ function renderTopAdsAudiences(A){
       cpa:(a,b)=>(a.cpa==null?Infinity:a.cpa)-(b.cpa==null?Infinity:b.cpa)
     };
     const ads=Object.values(groups).map(g=>({...g, roas:g.spend>0?g.receita/g.spend:null, cpa:g.front>0?g.spend/g.front:null, ctr:g.imp>0?g.clicks/g.imp*100:0})).sort(CMP[S.topAdsSort]||roasCmp);
+    _adsAnalysis=ads;
     const minG=Math.max(20, (A.cpaAlvo||80)*0.3);
     const q=(S._adSearch||'').toLowerCase();
     const top=ads.filter(a=>a.front>=1 && a.spend>=minG && (!q||a.name.toLowerCase().includes(q))).slice(0,30);
@@ -1599,7 +1666,8 @@ function renderTopAdsAudiences(A){
       </select>
     </div>
     ${adsHtml}
-    ${_nathRef?renderCreativeAnalysis(ads):''}
+    ${renderVideoAnalysis()}
+    ${_nathRef&&_adsAnalysis?renderCreativeAnalysis(_adsAnalysis):''}
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios (público customizado, interesses ou amplo/Advantage+) · inclui pausados</span></h3>
     ${pubHtml}
