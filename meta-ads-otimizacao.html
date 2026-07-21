@@ -1275,6 +1275,96 @@ function renderTable(A){
   </div>`;
 }
 
+// ── Análise cruzada de criativos ─────────────────────────────────────────────
+function renderCreativeAnalysis(ads){
+  if(!ads||!ads.length) return '';
+  const _tag=(nm,re)=>{const m=String(nm).match(re);return m?m[1]||m[0]:null;};
+  const extractTags=(name)=>{
+    const t={};
+    const hm=name.match(/\bH(?:o[ck]+\s*)?(\d)\b/i); if(hm) t.hook='H'+hm[1];
+    const cm=name.match(/\bCTA\s*(\d)\b/i); if(cm) t.cta='CTA'+cm[1];
+    const rm=name.match(/\bRM(\d+)\b/); if(rm) t.roteiro='RM'+rm[1].padStart(2,'0');
+    if(/Casa[_\s-]?Nath/i.test(name)) t.cenario='Casa Nath';
+    else if(/IA[_-]Nath/i.test(name)) t.cenario='IA Nath';
+    else if(/ROI[_\s]?MANSION/i.test(name)) t.cenario='ROI Mansion';
+    else if(/CASA[_\s]?TOM[EÉ]/i.test(name)) t.cenario='Casa Tome';
+    if(/comente/i.test(name)) t.tipo='Comente';
+    else if(/Remessa/i.test(name)) t.tipo='Remessa';
+    else if(/\bNath\s+V\d/i.test(name)) t.tipo='Nath V';
+    else if(/Cri[a]?tivo/i.test(name)) t.tipo='Criativo LG';
+    else if(/\bAD\s*\d+/i.test(name)) t.tipo='AD';
+    else t.tipo='Outros';
+    return t;
+  };
+  const tagged=ads.filter(a=>a.front>=1).map(a=>({...a,_t:extractTags(a.name)}));
+  if(!tagged.length) return '';
+  const aggBy=(keyFn)=>{
+    const m={};
+    tagged.forEach(a=>{const k=keyFn(a);if(!k)return;if(!m[k])m[k]={key:k,spend:0,receita:0,front:0,total:0,n:0,fa:0,fb:0,fc:0,fsem:0,fresp0:0};const d=m[k];d.spend+=a.spend;d.receita+=a.receita;d.front+=a.front;d.total+=a.total||0;d.n++;d.fa+=a.fa||0;d.fb+=a.fb||0;d.fc+=a.fc||0;d.fsem+=a.fsem||0;d.fresp0+=a.fresp0||0;});
+    return Object.values(m).map(d=>({...d,roas:d.spend>0?d.receita/d.spend:null,cpa:d.front>0?d.spend/d.front:null,ticket:d.front>0?d.receita/d.front:0,pctAB:((d.fa+d.fb)/(d.fa+d.fb+d.fc+d.fsem||1)*100)})).sort((a,b)=>b.spend-a.spend);
+  };
+  const tbl=(title,rows,extraCol)=>{
+    if(!rows.length) return '';
+    const best=rows.reduce((b,r)=>(r.roas!=null&&(b==null||r.roas>b.roas))?r:b,null);
+    const bestCPA=rows.filter(r=>r.cpa!=null&&r.front>=10).reduce((b,r)=>(b==null||r.cpa<b.cpa)?r:b,null);
+    return `<div style="margin-top:12px"><b>${title}</b>
+    <div style="overflow-x:auto"><table class="dim-tbl" style="margin-top:4px;font-size:12px"><thead><tr>
+      <th style="text-align:left">${extraCol||'Dimensao'}</th><th>Gasto</th><th>Receita</th><th>ROAS</th><th>CPA</th><th>Front</th><th>Ticket</th><th>%A+B</th><th>Criativos</th>
+    </tr></thead><tbody>
+    ${rows.map(r=>{const isBest=best&&r.key===best.key;const isBestCPA=bestCPA&&r.key===bestCPA.key;return `<tr${isBest?' style="background:#e8f5e9"':''}>
+      <td style="text-align:left;font-weight:600">${esc(r.key)}${isBest?' <span style="color:#137333;font-size:10px">melhor ROAS</span>':''}${isBestCPA&&!isBest?' <span style="color:#0891b2;font-size:10px">melhor CPA</span>':''}</td>
+      <td class="num">${fmtMoney0(r.spend)}</td><td class="num">${fmtMoney0(r.receita)}</td>
+      <td class="num" style="color:${roasColor(r.roas)};font-weight:700">${r.roas!=null?fmtRoas(r.roas):'--'}</td>
+      <td class="num">${r.cpa!=null?fmtMoney0(r.cpa):'--'}</td>
+      <td class="num">${fmtNum(r.front)}</td><td class="num">${fmtMoney0(r.ticket)}</td>
+      <td class="num">${r.fa+r.fb+r.fc+r.fsem?r.pctAB.toFixed(0)+'%':'--'}</td>
+      <td class="num">${r.n}</td>
+    </tr>`;}).join('')}
+    </tbody></table></div></div>`;
+  };
+  const byTipo=aggBy(a=>a._t.tipo);
+  const byRoteiro=aggBy(a=>a._t.roteiro);
+  const byCenario=aggBy(a=>a._t.cenario);
+  const byHook=aggBy(a=>a._t.hook);
+  const byCTA=aggBy(a=>a._t.cta);
+  // Hook × CTA matrix
+  const hcMap={};
+  tagged.forEach(a=>{const h=a._t.hook,c=a._t.cta;if(!h||!c)return;const k=h+' x '+c;if(!hcMap[k])hcMap[k]={key:k,spend:0,receita:0,front:0,total:0,n:0,fa:0,fb:0,fc:0,fsem:0,fresp0:0};const d=hcMap[k];d.spend+=a.spend;d.receita+=a.receita;d.front+=a.front;d.total+=a.total||0;d.n++;d.fa+=a.fa||0;d.fb+=a.fb||0;d.fc+=a.fc||0;d.fsem+=a.fsem||0;d.fresp0+=a.fresp0||0;});
+  const hookCTA=Object.values(hcMap).map(d=>({...d,roas:d.spend>0?d.receita/d.spend:null,cpa:d.front>0?d.spend/d.front:null,ticket:d.front>0?d.receita/d.front:0,pctAB:((d.fa+d.fb)/(d.fa+d.fb+d.fc+d.fsem||1)*100)})).sort((a,b)=>b.spend-a.spend);
+  // Recommendations
+  const recs=[];
+  if(hookCTA.length>=2){
+    const bestHC=hookCTA.filter(r=>r.front>=10).sort((a,b)=>(b.roas||0)-(a.roas||0))[0];
+    const worstHC=hookCTA.filter(r=>r.front>=10).sort((a,b)=>(a.roas||0)-(b.roas||0))[0];
+    if(bestHC&&worstHC&&bestHC.key!==worstHC.key) recs.push(`<b>${esc(bestHC.key)}</b> e a combinacao mais eficiente (ROAS ${fmtRoas(bestHC.roas)}, CPA ${fmtMoney0(bestHC.cpa)}). Crie novos criativos com essa combinacao. Evite <b>${esc(worstHC.key)}</b> (ROAS ${fmtRoas(worstHC.roas)}).`);
+  }
+  if(byTipo.length>=2){
+    const worst=byTipo.filter(r=>r.front>=20).sort((a,b)=>(a.roas||0)-(b.roas||0))[0];
+    const best=byTipo.filter(r=>r.front>=20).sort((a,b)=>(b.roas||0)-(a.roas||0))[0];
+    if(worst&&worst.roas!=null&&worst.roas<0.7) recs.push(`Criativos tipo <b>${esc(worst.key)}</b> tem o pior ROAS (${fmtRoas(worst.roas)}) com CPA ${fmtMoney0(worst.cpa)}. Considere reduzir o volume nesse formato.`);
+    if(best&&best.roas!=null&&best.roas>0.8&&best.spend<byTipo[0].spend*0.5) recs.push(`<b>${esc(best.key)}</b> tem ROAS ${fmtRoas(best.roas)} mas ainda com pouco gasto (${fmtMoney0(best.spend)}). Tem espaco para escalar.`);
+  }
+  const escalaveis=ads.filter(a=>a.roas!=null&&a.roas>=0.95&&a.front>=50&&a.spend<200000).sort((a,b)=>(b.roas||0)-(a.roas||0)).slice(0,3);
+  if(escalaveis.length) recs.push(`Criativos com ROAS alto e espaco para escalar: ${escalaveis.map(a=>`<b>${esc(a.name)}</b> (ROAS ${fmtRoas(a.roas)}, gasto ${fmtMoney0(a.spend)})`).join(', ')}.`);
+  const gastando=ads.filter(a=>a.spend>=100000&&a.roas!=null&&a.roas<0.65).sort((a,b)=>b.spend-a.spend).slice(0,3);
+  if(gastando.length) recs.push(`Alto gasto com ROAS fraco: ${gastando.map(a=>`<b>${esc(a.name)}</b> (${fmtMoney0(a.spend)}, ROAS ${fmtRoas(a.roas)})`).join(', ')}. Avaliar se compensa manter.`);
+  const recsHtml=recs.length?`<div style="margin-top:12px;padding:10px 14px;background:#f0f4ff;border-radius:8px;border-left:3px solid #5046e5">
+    <b style="color:#5046e5">Recomendacoes para novos testes</b>
+    <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.6">${recs.map(r=>`<li>${r}</li>`).join('')}</ul>
+  </div>`:'';
+  return `<hr style="margin:16px 0">
+    <details open><summary style="cursor:pointer;font-weight:700;font-size:15px;color:#5046e5">🔬 Analise cruzada de criativos <span class="mini" style="font-weight:400;color:#888">(${tagged.length} criativos com venda)</span></summary>
+    ${recsHtml}
+    ${tbl('Hook x CTA',hookCTA,'Combinacao')}
+    ${tbl('Por tipo de criativo',byTipo,'Tipo')}
+    ${tbl('Por roteiro',byRoteiro,'Roteiro')}
+    ${tbl('Por cenario/estilo',byCenario,'Cenario')}
+    ${tbl('Por hook',byHook,'Hook')}
+    ${tbl('Por CTA',byCTA,'CTA')}
+    <div class="mini" style="margin-top:10px">Tags extraidas automaticamente dos nomes dos criativos. <b>%A+B</b> = percentual de compradores Faixa A+B entre os que responderam a pesquisa (quanto maior, melhor a qualidade do lead). <b>Ticket</b> = receita media por comprador front. Criativos sem tag reconhecida aparecem em "Outros".</div>
+    </details>`;
+}
+
 // ── Panorama final: melhores anúncios e públicos ativos ──────────────────────
 function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
@@ -1425,6 +1515,7 @@ function renderTopAdsAudiences(A){
       </select>
     </div>
     ${adsHtml}
+    ${_nathRef?renderCreativeAnalysis(ads):''}
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios (público customizado, interesses ou amplo/Advantage+) · inclui pausados</span></h3>
     ${pubHtml}
