@@ -82,7 +82,16 @@ tr.total{background:#f3eefe;font-weight:700}
 .loser{color:#c5221f;font-weight:800}
 details{margin-top:6px}
 summary{cursor:pointer;font-weight:600;color:#7b2ff7;font-size:13px}
+.subtab{background:#f3eefe;border:1px solid #e0d8f5;color:#5a2ca0;border-radius:8px;padding:6px 12px;cursor:pointer;font-size:12.5px;font-weight:600}
+.subtab.on{background:#7b2ff7;border-color:#7b2ff7;color:#fff}
+.drill{cursor:pointer;color:#7b2ff7;font-weight:600}
+.drill:hover{text-decoration:underline}
+.rk-tag{display:inline-block;font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.3px}
+.rk-esc{background:#e6f7ec;color:#137333}.rk-at{background:#fdf3e0;color:#b26a00}.rk-cut{background:#fdeeee;color:#c5221f}.rk-res{background:#f3eefe;color:#7b2ff7}
+.ins-row{padding:8px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:7px;font-size:13px;line-height:1.5}
+.ins-row .rk-tag{margin-right:6px}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -162,6 +171,10 @@ S._crossoverCAC = null;   // custo real (gasto Meta) por campanha de origem, car
 S._crossoverCACLoading = false;
 S._sheet = null;          // dados da planilha do Google (Sessão Estratégica + Direct)
 S._sheetLoading = false;
+if(!S.sheetTab) S.sheetTab = 'geral';       // sub-aba (funil/expert) dentro de Sessão/Direct
+if(!S.sheetLevel) S.sheetLevel = 'campanha'; // nível do detalhamento
+S._sheetDrillCamp = null; S._sheetDrillCampName = '';
+S._sheetDrillAdset = null; S._sheetDrillAdsetName = '';
 S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compradores (funil Nathalia)
 S._pesquisaLoading = false;
 
@@ -202,7 +215,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; saveState(); render(); }
 function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
@@ -687,12 +700,12 @@ async function fetchSheetData(){
     const [inv,form,pag,cdir,fdir]=await Promise.all([
       fetchSheet(SHEET_TABS.investimento),fetchSheet(SHEET_TABS.formulario),fetchSheet(SHEET_TABS.paginas),
       fetchSheet(SHEET_TABS.campanhas_direct),fetchSheet(SHEET_TABS.funil_direct)]);
-    const invest=inv.map(r=>{const cn=r['Campaign Name']||'';const fn=_classFunnel(cn);return {date:_isoDate(r['Date']),funnel:fn,campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),ad:_cleanName(r['Ad Name']||''),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),pv:fn!=='NATIVO'?_num(r['Action Landing Page View']):0};});
+    const invest=inv.map(r=>{const cn=r['Campaign Name']||'';const fn=_classFunnel(cn);return {date:_isoDate(r['Date']),funnel:fn,campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),adset_id:(r['Adset ID']||'').trim(),ad:_cleanName(r['Ad Name']||''),ad_id:(r['Ad ID']||'').trim(),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),pv:fn!=='NATIVO'?_num(r['Action Landing Page View']):0};});
     const qv='Quanto você tem disponível no mês para investir no seu negócio de Amazon?';
     const leads=[];
-    form.forEach(r=>{const cn=r['campaign_name']||'';leads.push({date:_isoDate(r['created_time']),funnel:cn?_classFunnel(cn):'NATIVO',campaign:_cleanName(cn)||'(sem campanha)',opp:_isOpp(r[qv])});});
-    pag.forEach(r=>{const uc=r['utm_campaing']||'';const cn=_nameBeforeId(uc);leads.push({date:_isoDate(r['DATA']),funnel:_classFunnel(cn),campaign:_cleanName(cn)||'(sem campanha)',opp:_isOpp(r['valor_disp'])});});
-    const direct=cdir.map(r=>{const cn=r['Campaign Name']||'';return {date:_isoDate(r['Date']),expert:_classExpert(cn),campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),ad:_cleanName(r['Ad Name']||''),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])};});
+    form.forEach(r=>{const cn=r['campaign_name']||'';leads.push({date:_isoDate(r['created_time']),funnel:cn?_classFunnel(cn):'NATIVO',campaign:_cleanName(cn)||'(sem campanha)',campaign_id:_stripId(r['campaign_id']),adset:_cleanName(r['adset_name']||''),adset_id:_stripId(r['adset_id']),ad:_cleanName(r['ad_name']||''),ad_id:_stripId(r['ad_id']),opp:_isOpp(r[qv])});});
+    pag.forEach(r=>{const uc=r['utm_campaing']||'';const cn=_nameBeforeId(uc);leads.push({date:_isoDate(r['DATA']),funnel:_classFunnel(cn),campaign:_cleanName(cn)||'(sem campanha)',campaign_id:_trailId(uc),adset:_cleanName(_nameBeforeId(r['utm_term']||'')),adset_id:_trailId(r['utm_term']||''),ad:_cleanName(_nameBeforeId(r['utm_content']||'')),ad_id:_trailId(r['utm_content']||''),opp:_isOpp(r['valor_disp'])});});
+    const direct=cdir.map(r=>{const cn=r['Campaign Name']||'';return {date:_isoDate(r['Date']),expert:_classExpert(cn),campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),adset_id:(r['Adset ID']||'').trim(),ad:_cleanName(r['Ad Name']||''),ad_id:(r['Ad ID']||'').trim(),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])};});
     const directDaily=fdir.map(r=>({date:_isoDate(r['Date']),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Inline Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])}));
     const dts=[...invest,...leads,...direct].map(x=>x.date).filter(Boolean).sort();
     S._sheet={maxDate:dts.length?dts[dts.length-1]:brToday(),invest,leads,direct,directDaily};
@@ -880,6 +893,7 @@ function render(){
   root.innerHTML = renderControls(A) + _body;
   window.scrollTo(_sx,_sy);
   [...document.querySelectorAll('.tbl-wrap')].forEach((el,i)=>{ if(_tops[i]){ el.scrollTop=_tops[i].t; el.scrollLeft=_tops[i].l; } });
+  if(S.view!=='criativos' && currentFunnel().sheet){ requestAnimationFrame(()=>{ try{ drawSheetCharts(); }catch(e){ console.warn('chart',e); } }); }
   renderBulkBar();
 }
 function renderBulkBar(){
@@ -954,19 +968,97 @@ function renderControls(A){
   </div>`;
 }
 
-// ── Views da planilha (Sessão / Direct) ─────────────────────────────────────
+// ── Views da planilha (Sessão / Direct) — completo ──────────────────────────
+let _sheetCharts={};
+function _inWin(d,w){ return d && d>=w.since && d<=w.until; }
+function mS(v){ return 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function sheetTabs(){ return currentFunnel().sheet==='sessao'
+  ? [['geral','Visão Geral'],['NATIVO','Nativo'],['CARTA','Carta / Consultoria'],['FLP','FLP (VSL)']]
+  : [['geral','Visão Geral'],['Tomé','Tomé'],['Coelho','Coelho'],['Marcão','Marcão'],['Nath','Nath']]; }
+function setSheetTab(k){ S.sheetTab=k; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; saveState(); render(); }
+function setSheetLevel(k){ S.sheetLevel=k; if(k==='campanha'){S._sheetDrillCamp=null;S._sheetDrillAdset=null;} if(k==='conjunto')S._sheetDrillAdset=null; render(); }
+function sheetDrill(from,id,name){ if(from==='campanha'){S._sheetDrillCamp=id;S._sheetDrillCampName=name;S.sheetLevel='conjunto';} else if(from==='conjunto'){S._sheetDrillAdset=id;S._sheetDrillAdsetName=name;S.sheetLevel='anuncio';} render(); }
+function sheetClearDrill(){ S._sheetDrillCamp=null;S._sheetDrillAdset=null;S.sheetLevel='campanha'; render(); }
+function sheetUpTo(lvl){ if(lvl==='conjunto'){S._sheetDrillAdset=null;S.sheetLevel='conjunto';} render(); }
+function sheetScope(){
+  const w=sheetWindow(), sec=currentFunnel().sheet, t=S.sheetTab==='geral'?null:S.sheetTab;
+  if(sec==='sessao'){
+    return {w, inv:S._sheet.invest.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t)), lds:S._sheet.leads.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t))};
+  }
+  return {w, dir:S._sheet.direct.filter(r=>_inWin(r.date,w)&&(!t||r.expert===t))};
+}
+function sh_sum(a,k){ return a.reduce((s,r)=>s+(r[k]||0),0); }
+function sh_aggS(inv,lds,idKey,nameKey){
+  const m={},g=(k,n)=>m[k]||(m[k]={key:k,id:'',name:n||'(sem nome)',spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0,funnel:''});
+  inv.forEach(r=>{const id=r[idKey]||'';const k=id||('n:'+r[nameKey]);const x=g(k,r[nameKey]);if(id&&!x.id)x.id=id;if(!x.funnel)x.funnel=r.funnel;x.spend+=r.spend;x.impr+=r.impr;x.clicks+=r.clicks;x.pv+=r.pv;});
+  lds.forEach(r=>{const id=r[idKey]||'';const k=id||('n:'+r[nameKey]);const x=g(k,r[nameKey]);if(id&&!x.id)x.id=id;if(!x.funnel)x.funnel=r.funnel;x.leads++;if(r.opp)x.opp++;});
+  return Object.values(m).map(x=>({...x,cpo:x.opp?x.spend/x.opp:null,cpl:x.leads?x.spend/x.leads:null,ctr:x.impr?x.clicks/x.impr*100:0,cpc:x.clicks?x.spend/x.clicks:0}));
+}
+function sh_aggD(dir,idKey,nameKey){
+  const m={},g=(k,n)=>m[k]||(m[k]={key:k,id:'',name:n||'(sem nome)',spend:0,impr:0,clicks:0,conv:0,expert:''});
+  dir.forEach(r=>{const id=r[idKey]||'';const k=id||('n:'+r[nameKey]);const x=g(k,r[nameKey]);if(id&&!x.id)x.id=id;if(!x.expert)x.expert=r.expert;x.spend+=r.spend;x.impr+=r.impr;x.clicks+=r.clicks;x.conv+=r.conv;});
+  return Object.values(m).map(x=>({...x,cc:x.conv?x.spend/x.conv:null,ctr:x.impr?x.clicks/x.impr*100:0,cpc:x.clicks?x.spend/x.clicks:0}));
+}
 function renderSheetView(){
   const f=currentFunnel();
   const head=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start">
-    <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">funil ${f.sheet==='sessao'?'de lead — Oportunidade & CPO':'de mensagem — Conversas & Custo'} · fonte: planilha do Google (ao vivo)</span></h2>
+    <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">${f.sheet==='sessao'?'funil de lead — Oportunidade & CPO':'funil de mensagem — Conversas & Custo'} · planilha do Google (ao vivo)</span></h2>
     ${S._sheet&&S._sheet.maxDate?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(S._sheet.maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}</div>
-    <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="reloadSheet()">↻ Atualizar planilha</button></div>`;
-  if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty"><span class="loading"></span> Carregando planilha…</div></div>`; }
-  if(S._sheet.error){ return head+`<div class="empty">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
-  return head+(f.sheet==='sessao'?renderSessao():renderDirect())+`</div>`;
+    <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="reloadSheet()">↻ Atualizar planilha</button></div>
+    <div class="row" style="margin-top:10px;gap:6px">${sheetTabs().map(([k,l])=>`<button class="subtab ${S.sheetTab===k?'on':''}" onclick="setSheetTab('${k}')">${l}</button>`).join('')}</div>`;
+  if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando planilha…</div></div>`; }
+  if(S._sheet.error){ return head+`<div class="empty" style="margin-top:12px">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
+  return head+`</div>`+(f.sheet==='sessao'?renderSessaoFull():renderDirectFull());
 }
-function _inWin(d,w){ return d && d>=w.since && d<=w.until; }
-function renderSessao(){
+function renderSessaoFull(){
+  const {inv,lds}=sheetScope();
+  const spend=sh_sum(inv,'spend'),impr=sh_sum(inv,'impr'),clicks=sh_sum(inv,'clicks');
+  const leads=lds.length,opp=lds.filter(r=>r.opp).length;
+  const cpl=leads?spend/leads:0,cpo=opp?spend/opp:0,ctr=impr?clicks/impr*100:0,cpc=clicks?spend/clicks:0;
+  const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
+  const kpis=`<div class="card"><div class="kpis">
+    ${kpi('Investimento',mS(spend),'gasto em mídia')}${kpi('Leads',fmtNum(leads),'')}${kpi('CPL',mS(cpl),'custo por lead')}
+    ${kpi('Oportunidades',fmtNum(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'',1)}${kpi('CPO',mS(cpo),'custo por oport.')}
+    ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}
+  </div></div>`;
+  const charts=`<div class="row" style="gap:16px;align-items:stretch"><div class="card" style="flex:2;min-width:320px"><h3 style="margin:0 0 8px">📊 Investimento & Oportunidade · CPO (linha)</h3><div style="height:260px"><canvas id="shBar"></canvas></div></div>
+    <div class="card" style="flex:1;min-width:220px"><h3 style="margin:0 0 8px">Oportunidades por funil</h3><div style="height:260px"><canvas id="shDonut"></canvas></div></div></div>`;
+  const byF={}; ['NATIVO','CARTA','FLP'].forEach(k=>byF[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0});
+  inv.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.spend+=r.spend;g.impr+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;});
+  lds.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.leads++;if(r.opp)g.opp++;});
+  const fRow=g=>`<tr><td style="font-weight:600">${g.k}</td><td class="num">${mS(g.spend)}</td><td class="num">${fmtNum(g.leads)}</td><td class="num">${g.leads?mS(g.spend/g.leads):'—'}</td><td class="num" style="font-weight:700">${fmtNum(g.opp)}</td><td class="num" style="color:#137333;font-weight:700">${g.opp?mS(g.spend/g.opp):'—'}</td><td class="num">${g.k!=='NATIVO'?fmtNum(g.pv):'—'}</td><td class="num">${g.k!=='NATIVO'&&g.pv?(g.leads/g.pv*100).toFixed(0)+'%':'—'}</td></tr>`;
+  const tblF=`<div class="card"><h3 style="margin:0 0 8px">Por funil</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Funil</th><th class="num">Invest.</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Pageviews</th><th class="num">Tx conv LP</th></tr></thead><tbody>${['NATIVO','CARTA','FLP'].map(k=>fRow(byF[k])).join('')}</tbody></table></div><div class="mini" style="margin-top:6px">Pageviews e Tx. conv LP só valem para Carta/FLP. <b>Oportunidade</b> = respondeu o valor e não é "até R$3.000" nem "não tenho como iniciar".</div></div>`;
+  const ins=sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl);
+  const pubs=sh_rankName(inv,lds,'adset'),ads=sh_rankName(inv,lds,'ad');
+  const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableS('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableS('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
+  return kpis+charts+tblF+ins+ranks+sheetDetailCard();
+}
+function sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl){
+  const rows=[`<div class="ins-row"><span class="rk-tag rk-res">Resumo</span> Investimento de <b>${mS(spend)}</b> gerou <b>${fmtNum(opp)}</b> oportunidades — CPO médio <b>${mS(cpo)}</b> · ${fmtNum(leads)} leads (CPL ${mS(cpl)}).</div>`];
+  const bf={};['NATIVO','CARTA','FLP'].forEach(f=>bf[f]={f,spend:0,opp:0});
+  inv.forEach(r=>{(bf[r.funnel]||bf.NATIVO).spend+=r.spend;});
+  lds.forEach(r=>{if(r.opp)(bf[r.funnel]||bf.NATIVO).opp++;});
+  const fv=Object.values(bf).filter(x=>x.opp>=1).map(x=>({...x,cpo:x.spend/x.opp}));
+  const nm={NATIVO:'Nativo',CARTA:'Carta/Consultoria',FLP:'FLP (VSL)'};
+  if(fv.length){const best=fv.slice().sort((a,b)=>a.cpo-b.cpo)[0],worst=fv.slice().sort((a,b)=>b.cpo-a.cpo)[0];
+    rows.push(`<div class="ins-row"><span class="rk-tag rk-res">Insight</span> Funil mais eficiente: <b>${nm[best.f]}</b> — CPO ${mS(best.cpo)} com ${best.opp} oport.</div>`);
+    if(worst.f!==best.f)rows.push(`<div class="ins-row"><span class="rk-tag rk-res">Insight</span> Funil mais caro: <b>${nm[worst.f]}</b> — CPO ${mS(worst.cpo)}.</div>`);}
+  const camps=sh_aggS(inv,lds,'campaign_id','campaign').filter(c=>c.spend>=20),wo=camps.filter(c=>c.opp>=1);
+  wo.filter(c=>c.opp>=2&&c.cpo<cpo).sort((a,b)=>a.cpo-b.cpo).slice(0,3).forEach(c=>rows.push(`<div class="ins-row"><span class="rk-tag rk-esc">Escalar</span> <b>${esc(c.name)}</b> — CPO ${mS(c.cpo)} (${mS(cpo-c.cpo)} abaixo da média), ${c.opp} oport. (${mS(c.spend)}).</div>`));
+  wo.filter(c=>c.cpo>cpo*2).sort((a,b)=>b.cpo-a.cpo).slice(0,2).forEach(c=>rows.push(`<div class="ins-row"><span class="rk-tag rk-at">Atenção</span> <b>${esc(c.name)}</b> — CPO ${mS(c.cpo)} (${(c.cpo/cpo).toFixed(1)}x a média).</div>`));
+  camps.filter(c=>c.opp===0&&c.spend>=100).sort((a,b)=>b.spend-a.spend).slice(0,3).forEach(c=>rows.push(`<div class="ins-row"><span class="rk-tag rk-cut">Cortar</span> <b>${esc(c.name)}</b> gastou ${mS(c.spend)} sem gerar oportunidade (${c.leads} leads).</div>`));
+  return `<div class="card"><h3 style="margin:0 0 8px">🧠 Análise & Insights · Growth</h3>${rows.join('')}</div>`;
+}
+function sh_rankName(inv,lds,dim){
+  const m={},g=n=>m[n]||(m[n]={name:n,spend:0,leads:0,opp:0});
+  inv.forEach(r=>{g(r[dim]||'(sem nome)').spend+=r.spend;});
+  lds.forEach(r=>{const x=g(r[dim]||'(sem nome)');x.leads++;if(r.opp)x.opp++;});
+  return Object.values(m).filter(x=>x.opp>=1&&x.spend>=20).map(x=>({...x,cpo:x.spend/x.opp,cpl:x.leads?x.spend/x.leads:0})).sort((a,b)=>a.cpo-b.cpo).slice(0,7);
+}
+function sh_rankTableS(title,rows){
+  return `<div class="card" style="flex:1;min-width:300px"><h3 style="margin:0 0 8px">${title}</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th>#</th><th style="text-align:left">Nome</th><th class="num">Invest.</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Leads</th><th class="num">CPL</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr><td style="color:#7b2ff7;font-weight:700">${i+1}º</td><td style="text-align:left" title="${esc(r.name)}">${esc(r.name.slice(0,32))}${r.name.length>32?'…':''}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.opp)}</td><td class="num" style="color:#137333;font-weight:700">${mS(r.cpo)}</td><td class="num">${fmtNum(r.leads)}</td><td class="num">${mS(r.cpl)}</td></tr>`).join(''):`<tr><td colspan="7" class="empty">Sem dados.</td></tr>`}</tbody></table></div></div>`;
+}
+function _renderSessao_old_unused(){
   const w=sheetWindow();
   const inv=S._sheet.invest.filter(r=>_inWin(r.date,w));
   const lds=S._sheet.leads.filter(r=>_inWin(r.date,w));
@@ -1003,7 +1095,7 @@ function renderSessao(){
     </tbody></table></div></div>`:'';
   return kpis+tblF+tblC;
 }
-function renderDirect(){
+function _renderDirect_old_unused(){
   const w=sheetWindow();
   const dr=S._sheet.direct.filter(r=>_inWin(r.date,w));
   const spend=dr.reduce((s,r)=>s+r.spend,0), impr=dr.reduce((s,r)=>s+r.impr,0), clicks=dr.reduce((s,r)=>s+r.clicks,0), conv=dr.reduce((s,r)=>s+r.conv,0);
@@ -1030,6 +1122,102 @@ function renderDirect(){
     </tbody></table></div></div>`:'';
   return kpis+tblE+tblC;
 }
+function renderDirectFull(){
+  const {dir}=sheetScope();
+  const spend=sh_sum(dir,'spend'),impr=sh_sum(dir,'impr'),clicks=sh_sum(dir,'clicks'),conv=sh_sum(dir,'conv');
+  const cc=conv?spend/conv:0,ctr=impr?clicks/impr*100:0,cpc=clicks?spend/clicks:0;
+  const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
+  const kpis=`<div class="card"><div class="kpis">
+    ${kpi('Investimento',mS(spend),'gasto em mídia')}${kpi('Conversas',fmtNum(conv),'mensagens iniciadas',1)}${kpi('Custo/Conversa',mS(cc),'')}
+    ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}${kpi('Cliques',fmtNum(clicks),'')}
+  </div></div>`;
+  const charts=`<div class="row" style="gap:16px;align-items:stretch"><div class="card" style="flex:2;min-width:320px"><h3 style="margin:0 0 8px">📊 Investimento & Conversas · Custo/Conversa (linha)</h3><div style="height:260px"><canvas id="shBar"></canvas></div></div>
+    <div class="card" style="flex:1;min-width:220px"><h3 style="margin:0 0 8px">Conversas por expert</h3><div style="height:260px"><canvas id="shDonut"></canvas></div></div></div>`;
+  const rows=[`<div class="ins-row"><span class="rk-tag rk-res">Resumo</span> Investimento de <b>${mS(spend)}</b> gerou <b>${fmtNum(conv)}</b> conversas — custo médio <b>${mS(cc)}</b>.</div>`];
+  const be={};dir.forEach(r=>{(be[r.expert]=be[r.expert]||{e:r.expert,spend:0,conv:0}).spend+=r.spend;be[r.expert].conv+=r.conv;});
+  const ev=Object.values(be).filter(x=>x.conv>=1).map(x=>({...x,cc:x.spend/x.conv}));
+  if(ev.length){const best=ev.slice().sort((a,b)=>a.cc-b.cc)[0];rows.push(`<div class="ins-row"><span class="rk-tag rk-res">Insight</span> Expert mais eficiente: <b>${best.e}</b> — ${mS(best.cc)}/conversa (${best.conv} conversas).</div>`);}
+  const camps=sh_aggD(dir,'campaign_id','campaign').filter(c=>c.spend>=20);
+  camps.filter(c=>c.conv>=3&&c.cc<cc).sort((a,b)=>a.cc-b.cc).slice(0,3).forEach(c=>rows.push(`<div class="ins-row"><span class="rk-tag rk-esc">Escalar</span> <b>${esc(c.name)}</b> — ${mS(c.cc)}/conversa, ${c.conv} conversas (${mS(c.spend)}).</div>`));
+  camps.filter(c=>c.conv===0&&c.spend>=100).sort((a,b)=>b.spend-a.spend).slice(0,3).forEach(c=>rows.push(`<div class="ins-row"><span class="rk-tag rk-cut">Cortar</span> <b>${esc(c.name)}</b> gastou ${mS(c.spend)} sem conversas.</div>`));
+  const ins=`<div class="card"><h3 style="margin:0 0 8px">🧠 Análise & Insights · Growth</h3>${rows.join('')}</div>`;
+  const byEfull={};dir.forEach(r=>{const g=(byEfull[r.expert]=byEfull[r.expert]||{k:r.expert,spend:0,conv:0,impr:0,clicks:0});g.spend+=r.spend;g.conv+=r.conv;g.impr+=r.impr;g.clicks+=r.clicks;});
+  const exArr=Object.values(byEfull).sort((a,b)=>b.spend-a.spend);
+  const tblE=`<div class="card"><h3 style="margin:0 0 8px">Por expert</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Expert</th><th class="num">Invest.</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th><th class="num">CTR</th></tr></thead><tbody>${exArr.map(g=>`<tr><td style="font-weight:600">${g.k}</td><td class="num">${mS(g.spend)}</td><td class="num" style="font-weight:700">${fmtNum(g.conv)}</td><td class="num" style="color:#137333;font-weight:700">${g.conv?mS(g.spend/g.conv):'—'}</td><td class="num">${g.impr?(g.clicks/g.impr*100).toFixed(2)+'%':'—'}</td></tr>`).join('')}</tbody></table></div></div>`;
+  const pubs=sh_rankNameD(dir,'adset'),ads=sh_rankNameD(dir,'ad');
+  const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableD('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableD('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
+  return kpis+charts+tblE+ins+ranks+sheetDetailCard();
+}
+function sh_rankNameD(dir,dim){
+  const m={},g=n=>m[n]||(m[n]={name:n,spend:0,conv:0});
+  dir.forEach(r=>{const x=g(r[dim]||'(sem nome)');x.spend+=r.spend;x.conv+=r.conv;});
+  return Object.values(m).filter(x=>x.conv>=1&&x.spend>=20).map(x=>({...x,cc:x.spend/x.conv})).sort((a,b)=>a.cc-b.cc).slice(0,7);
+}
+function sh_rankTableD(title,rows){
+  return `<div class="card" style="flex:1;min-width:300px"><h3 style="margin:0 0 8px">${title}</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th>#</th><th style="text-align:left">Nome</th><th class="num">Invest.</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr><td style="color:#7b2ff7;font-weight:700">${i+1}º</td><td style="text-align:left" title="${esc(r.name)}">${esc(r.name.slice(0,38))}${r.name.length>38?'…':''}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.conv)}</td><td class="num" style="color:#137333;font-weight:700">${mS(r.cc)}</td></tr>`).join(''):`<tr><td colspan="5" class="empty">Sem dados.</td></tr>`}</tbody></table></div></div>`;
+}
+function sheetDetailCard(){
+  const lvls=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']];
+  const seg=`<div class="row" style="gap:4px">${lvls.map(([k,l])=>`<button class="subtab ${S.sheetLevel===k?'on':''}" onclick="setSheetLevel('${k}')">${l}</button>`).join('')}</div>`;
+  let crumb='';
+  if(S.sheetLevel!=='campanha'&&(S._sheetDrillCamp||S._sheetDrillAdset)){
+    const p=['<a class="drill" onclick="sheetClearDrill()">Todas</a>'];
+    if(S._sheetDrillCamp)p.push(`<a class="drill" onclick="sheetUpTo('conjunto')">${esc((S._sheetDrillCampName||'').slice(0,40))}</a>`);
+    if(S._sheetDrillAdset&&S.sheetLevel==='anuncio')p.push(esc((S._sheetDrillAdsetName||'').slice(0,40)));
+    crumb=`<div class="mini" style="margin:6px 0">${p.join(' › ')}</div>`;
+  }
+  const body=currentFunnel().sheet==='sessao'?sheetDetailSessao():sheetDetailDirect();
+  return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">📋 Detalhamento</h3>${seg}</div>${crumb}${body}</div>`;
+}
+function sheetDetailSessao(){
+  let {inv,lds}=sheetScope(),idKey='campaign_id',nameKey='campaign';
+  if(S.sheetLevel==='conjunto'){idKey='adset_id';nameKey='adset';if(S._sheetDrillCamp){inv=inv.filter(r=>r.campaign_id===S._sheetDrillCamp);lds=lds.filter(r=>r.campaign_id===S._sheetDrillCamp);}}
+  if(S.sheetLevel==='anuncio'){idKey='ad_id';nameKey='ad';if(S._sheetDrillCamp){inv=inv.filter(r=>r.campaign_id===S._sheetDrillCamp);lds=lds.filter(r=>r.campaign_id===S._sheetDrillCamp);}if(S._sheetDrillAdset){inv=inv.filter(r=>r.adset_id===S._sheetDrillAdset);lds=lds.filter(r=>r.adset_id===S._sheetDrillAdset);}}
+  const rows=sh_aggS(inv,lds,idKey,nameKey).sort((a,b)=>b.spend-a.spend);
+  const T={spend:sh_sum(rows,'spend'),leads:sh_sum(rows,'leads'),opp:sh_sum(rows,'opp'),impr:sh_sum(rows,'impr'),clicks:sh_sum(rows,'clicks')};
+  const canDrill=S.sheetLevel!=='anuncio';
+  const nc=r=>{const nm=esc(r.name.slice(0,52))+(r.name.length>52?'…':'');return (canDrill&&r.id)?`<span class="drill" onclick="sheetDrill('${S.sheetLevel}','${esc(r.id)}',this.dataset.n)" data-n="${esc(r.name)}">${nm} ›</span>`:nm;};
+  return `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">${S.sheetLevel==='campanha'?'Campanha':S.sheetLevel==='conjunto'?'Conjunto':'Anúncio'}</th><th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr><td style="text-align:left">${nc(r)}</td><td class="mini" style="text-align:left">${esc(r.id||'—')}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.opp)}</td><td class="num" style="color:#137333;font-weight:700">${r.opp?mS(r.cpo):'—'}</td><td class="num">${fmtNum(r.leads)}</td><td class="num">${r.leads?mS(r.cpl):'—'}</td><td class="num">${r.ctr.toFixed(2)}%</td><td class="num">${mS(r.cpc)}</td><td class="num">${fmtNum(r.impr)}</td></tr>`).join(''):`<tr><td colspan="10" class="empty">Sem dados no período/filtro.</td></tr>`}
+  </tbody><tfoot><tr style="border-top:2px solid #7b2ff7;font-weight:700"><td>TOTAL (${rows.length})</td><td></td><td class="num">${mS(T.spend)}</td><td class="num">${fmtNum(T.opp)}</td><td class="num" style="color:#137333">${T.opp?mS(T.spend/T.opp):'—'}</td><td class="num">${fmtNum(T.leads)}</td><td class="num">${T.leads?mS(T.spend/T.leads):'—'}</td><td class="num">${T.impr?(T.clicks/T.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${T.clicks?mS(T.spend/T.clicks):'—'}</td><td class="num">${fmtNum(T.impr)}</td></tr></tfoot></table></div>`;
+}
+function sheetDetailDirect(){
+  let {dir}=sheetScope(),idKey='campaign_id',nameKey='campaign';
+  if(S.sheetLevel==='conjunto'){idKey='adset_id';nameKey='adset';if(S._sheetDrillCamp)dir=dir.filter(r=>r.campaign_id===S._sheetDrillCamp);}
+  if(S.sheetLevel==='anuncio'){idKey='ad_id';nameKey='ad';if(S._sheetDrillCamp)dir=dir.filter(r=>r.campaign_id===S._sheetDrillCamp);if(S._sheetDrillAdset)dir=dir.filter(r=>r.adset_id===S._sheetDrillAdset);}
+  const rows=sh_aggD(dir,idKey,nameKey).sort((a,b)=>b.spend-a.spend);
+  const T={spend:sh_sum(rows,'spend'),conv:sh_sum(rows,'conv'),impr:sh_sum(rows,'impr'),clicks:sh_sum(rows,'clicks')};
+  const canDrill=S.sheetLevel!=='anuncio';
+  const nc=r=>{const nm=esc(r.name.slice(0,52))+(r.name.length>52?'…':'');return (canDrill&&r.id)?`<span class="drill" onclick="sheetDrill('${S.sheetLevel}','${esc(r.id)}',this.dataset.n)" data-n="${esc(r.name)}">${nm} ›</span>`:nm;};
+  return `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">${S.sheetLevel==='campanha'?'Campanha':S.sheetLevel==='conjunto'?'Conjunto':'Anúncio'}</th><th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr><td style="text-align:left">${nc(r)}</td><td class="mini" style="text-align:left">${esc(r.id||'—')}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.conv)}</td><td class="num" style="color:#137333;font-weight:700">${r.conv?mS(r.cc):'—'}</td><td class="num">${r.ctr.toFixed(2)}%</td><td class="num">${mS(r.cpc)}</td><td class="num">${fmtNum(r.impr)}</td></tr>`).join(''):`<tr><td colspan="8" class="empty">Sem dados no período/filtro.</td></tr>`}
+  </tbody><tfoot><tr style="border-top:2px solid #7b2ff7;font-weight:700"><td>TOTAL (${rows.length})</td><td></td><td class="num">${mS(T.spend)}</td><td class="num">${fmtNum(T.conv)}</td><td class="num" style="color:#137333">${T.conv?mS(T.spend/T.conv):'—'}</td><td class="num">${T.impr?(T.clicks/T.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${T.clicks?mS(T.spend/T.clicks):'—'}</td><td class="num">${fmtNum(T.impr)}</td></tr></tfoot></table></div>`;
+}
+function drawSheetCharts(){
+  if(typeof Chart==='undefined'||!S._sheet||S._sheet.error)return;
+  Object.values(_sheetCharts).forEach(c=>{try{c.destroy();}catch(e){}});_sheetCharts={};
+  const w=sheetWindow(),days=[];for(let d=w.since;d<=w.until;d=addDaysStr(d,1))days.push(d);
+  const labels=days.map(d=>d.slice(8)+'/'+d.slice(5,7));
+  const barEl=document.getElementById('shBar'),dnEl=document.getElementById('shDonut');
+  if(!barEl)return;
+  Chart.defaults.font.size=11;
+  if(currentFunnel().sheet==='sessao'){
+    const {inv,lds}=sheetScope(),ib={},ob={};days.forEach(d=>{ib[d]=0;ob[d]=0;});
+    inv.forEach(r=>{if(ib[r.date]!=null)ib[r.date]+=r.spend;});lds.forEach(r=>{if(r.opp&&ob[r.date]!=null)ob[r.date]++;});
+    const iA=days.map(d=>ib[d]),oA=days.map(d=>ob[d]),cA=days.map((d,i)=>oA[i]?iA[i]/oA[i]:null);
+    _sheetCharts.bar=new Chart(barEl,{data:{labels,datasets:[{type:'bar',label:'Investimento',data:iA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},{type:'bar',label:'Oportunidade',data:oA,backgroundColor:'#c9b3f0',yAxisID:'y1',order:3},{type:'line',label:'CPO',data:cA,borderColor:'#7b2ff7',backgroundColor:'#7b2ff7',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}]},options:shBarOpts()});
+    const bf={NATIVO:0,CARTA:0,FLP:0};lds.forEach(r=>{if(r.opp)bf[r.funnel]=(bf[r.funnel]||0)+1;});
+    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:['Nativo','Carta/Consult.','FLP'],datasets:[{data:[bf.NATIVO,bf.CARTA,bf.FLP],backgroundColor:['#ff6a00','#c9b3f0','#7b2ff7'],borderColor:'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  }else{
+    const {dir}=sheetScope(),ib={},cb={};days.forEach(d=>{ib[d]=0;cb[d]=0;});
+    dir.forEach(r=>{if(ib[r.date]!=null){ib[r.date]+=r.spend;cb[r.date]+=r.conv;}});
+    const iA=days.map(d=>ib[d]),cvA=days.map(d=>cb[d]),ccA=days.map((d,i)=>cvA[i]?iA[i]/cvA[i]:null);
+    _sheetCharts.bar=new Chart(barEl,{data:{labels,datasets:[{type:'bar',label:'Investimento',data:iA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},{type:'bar',label:'Conversas',data:cvA,backgroundColor:'#c9b3f0',yAxisID:'y1',order:3},{type:'line',label:'Custo/Conversa',data:ccA,borderColor:'#7b2ff7',backgroundColor:'#7b2ff7',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}]},options:shBarOpts()});
+    const be={};dir.forEach(r=>{be[r.expert]=(be[r.expert]||0)+r.conv;});const ent=Object.entries(be).sort((a,b)=>b[1]-a[1]);
+    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:ent.map(e=>e[0]),datasets:[{data:ent.map(e=>e[1]),backgroundColor:['#ff6a00','#7b2ff7','#c9b3f0','#ffb27a','#5a2ca0'],borderColor:'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  }
+}
+function shBarOpts(){return {maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top'}},scales:{y:{position:'left',ticks:{callback:v=>'R$'+v}},y1:{position:'right',grid:{drawOnChartArea:false}}}};}
 function renderDashboard(A){
   if(currentFunnel().backend) return renderBackendView(A); // backend não tem mídia: visão própria
   if(!A.rows.length){
