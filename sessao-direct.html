@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard de Tráfego · iniciAmazon</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{--bg:#0c0c0e;--card:#16161a;--card2:#1c1c22;--bd:#2a2a30;--ora:#ff6a00;--ora2:#ff8c33;--txt:#ededed;--mut:#8b8b93;--grn:#2ecc71;--red:#ff5252;--wht:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px}
+.wrap{max-width:1500px;margin:0 auto;padding:18px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}
+h1{font-size:20px;margin:0}
+h2{font-size:15px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+h2::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ora)}
+.mut{color:var(--mut);font-size:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.between{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.chip{background:var(--card2);border:1px solid var(--bd);color:var(--txt);border-radius:8px;padding:7px 13px;cursor:pointer;font-size:13px;font-weight:600;transition:.12s}
+.chip:hover{border-color:var(--ora)}
+.chip.on{background:var(--ora);border-color:var(--ora);color:#0c0c0e}
+.chip.big{padding:9px 18px;font-size:14px}
+.seg{display:inline-flex;background:var(--card2);border:1px solid var(--bd);border-radius:9px;overflow:hidden}
+.seg button{background:transparent;border:none;color:var(--mut);padding:8px 16px;cursor:pointer;font-size:13px;font-weight:700}
+.seg button.on{background:var(--ora);color:#0c0c0e}
+input[type=text],input[type=date]{background:var(--card2);border:1px solid var(--bd);color:var(--txt);border-radius:8px;padding:8px 10px;font-size:13px}
+input[type=date]{color-scheme:dark}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:var(--card2);border:1px solid var(--bd);border-left:3px solid var(--ora);border-radius:10px;padding:13px 15px}
+.kpi .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.4px;font-weight:700}
+.kpi .v{font-size:26px;font-weight:800;margin-top:4px;line-height:1.1}
+.kpi .s{font-size:11px;color:var(--mut);margin-top:3px}
+.kpi.good{border-left-color:var(--grn)}
+.grid2{display:grid;grid-template-columns:1.6fr 1fr;gap:16px}
+@media(max-width:900px){.grid2{grid-template-columns:1fr}}
+table{width:100%;border-collapse:collapse}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--bd);font-size:12.5px;white-space:nowrap}
+th{color:var(--mut);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;cursor:default}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr:hover{background:#ffffff08}
+.tbl-wrap{overflow-x:auto}
+.ora{color:var(--ora2)}
+.grn{color:var(--grn)}.red{color:var(--red)}
+.tag{display:inline-block;font-size:10px;font-weight:800;padding:2px 8px;border-radius:5px;text-transform:uppercase;letter-spacing:.3px}
+.tag.esc{background:#123d22;color:#4ade80}.tag.at{background:#3d2f12;color:#fbbf24}.tag.cut{background:#3d1616;color:#f87171}.tag.res{background:#3d2712;color:var(--ora2)}
+.ins{display:flex;gap:10px;align-items:baseline;padding:9px 12px;border:1px solid var(--bd);border-radius:9px;margin-bottom:8px;font-size:13px}
+.ins b{color:var(--wht)}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--mut)}
+.drill{cursor:pointer;color:var(--ora2);font-weight:600}
+.drill:hover{text-decoration:underline}
+.empty{color:var(--mut);text-align:center;padding:30px;font-style:italic}
+.load{display:inline-block;width:14px;height:14px;border:2px solid var(--bd);border-top-color:var(--ora);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.foot{color:var(--mut);font-size:11px;text-align:center;padding:8px 0 20px}
+.crumb{color:var(--mut);font-size:12px;margin-bottom:8px}
+.crumb a{color:var(--ora2);cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="between">
+      <div>
+        <h1>Dashboard de Tráfego · <span class="ora" id="secTitle">Sessão Estratégica</span></h1>
+        <div class="mut" id="dataInfo" style="margin-top:5px">carregando…</div>
+      </div>
+      <div class="seg" id="secToggle">
+        <button data-sec="sessao" class="on">SESSÃO</button>
+        <button data-sec="direct">DIRECT</button>
+      </div>
+    </div>
+    <div class="row" id="tabs" style="margin-top:14px"></div>
+  </div>
+
+  <div class="card">
+    <div class="between">
+      <div class="row">
+        <span class="mut" style="margin-right:4px">Período</span>
+        <div class="row" id="periods"></div>
+      </div>
+      <div class="row">
+        <span class="mut">De</span><input type="date" id="dSince"><span class="mut">Até</span><input type="date" id="dUntil">
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <span class="mut" style="margin-right:4px">Filtrar por ID</span>
+      <input type="text" id="fCamp" placeholder="ID Campanha" style="width:150px">
+      <input type="text" id="fAdset" placeholder="ID Conjunto" style="width:150px">
+      <input type="text" id="fAd" placeholder="ID Anúncio" style="width:150px">
+      <button class="chip" id="clearIds">Limpar IDs</button>
+    </div>
+  </div>
+
+  <div id="app"><div class="card"><div class="empty"><span class="load"></span> Carregando planilha…</div></div></div>
+  <div class="foot" id="foot"></div>
+</div>
+
+<script>
+const SHEET_ID='1fafPK17RgaKcYDoF1tGwaArOR1xUy_q2x_wVaQAQSvM';
+const TABS={formulario:'0',paginas:'1149544245',investimento:'609047758',funil_direct:'1714865460',campanhas_direct:'1772428914'};
+const Q_VALOR='Quanto você tem disponível no mês para investir no seu negócio de Amazon?';
+const NOT_OPP=new Set(['até 3.000,00 reais','até r$ 3.000','até r$3.000','não tenho como iniciar um negócio hoje.','']);
+
+// ---------- parsing (porta do build.py) ----------
+function csvParse(t){const rows=[];let row=[],f='',q=false;for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++;}else q=false;}else f+=c;}else{if(c==='"')q=true;else if(c===','){row.push(f);f='';}else if(c==='\n'){row.push(f);rows.push(row);row=[];f='';}else if(c==='\r'){}else f+=c;}}if(f.length||row.length){row.push(f);rows.push(row);}if(!rows.length)return[];const h=rows[0];return rows.slice(1).filter(r=>r.length>1||(r[0]||'').trim()).map(r=>{const o={};h.forEach((hh,i)=>o[hh]=r[i]!=null?r[i]:'');return o;});}
+function num(v){if(v==null)return 0;let s=String(v).trim();if(!s)return 0;s=s.replace('R$','').replace(/ /g,'').replace(/ /g,'').trim();if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');const n=parseFloat(s);return isNaN(n)?0:n;}
+function cleanName(n){if(!n)return'';return String(n).replace(/\s*[—–-]+\s*C[oó]pia/ig,'').replace(/\s*\(\d+\)\s*$/,'').trim();}
+function stripId(v){return v?String(v).split(':').pop().trim():'';}
+function trailId(v){if(!v)return'';const m=String(v).trim().match(/-(\d{6,})\s*$/);return m?m[1]:'';}
+function nameBeforeId(v){return v?String(v).trim().replace(/-\d{6,}\s*$/,'').trim():'';}
+function isoDate(v){if(!v)return'';let s=String(v).trim();if(!s)return'';if(s.includes('T'))s=s.split('T')[0];let m;if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/)))return `${m[1]}-${m[2]}-${m[3]}`;if((m=s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/)))return `${m[3]}-${m[2]}-${m[1]}`;if((m=s.match(/^(\d{4})\/(\d{2})\/(\d{2})$/)))return `${m[1]}-${m[2]}-${m[3]}`;return'';}
+function classFunnel(cn){const n=(cn||'').toUpperCase();if(n.includes('FLP')||n.includes('FUNIL_VSL'))return'FLP';if(n.includes('CARTA')||n.includes('CONSULTORIA_LP')||n.includes('FUNIL_CARTA'))return'CARTA';return'NATIVO';}
+function classExpert(cn){const n=(cn||'').toUpperCase();if(n.includes('COELHO'))return'Coelho';if(n.includes('TOME')||n.includes('TOMÉ'))return'Tomé';if(n.includes('MARCAO')||n.includes('MARCÃO'))return'Marcão';if(n.includes('NATH'))return'Nath';return'Outros';}
+function isOpp(a){a=(a||'').trim().toLowerCase();if(!a||NOT_OPP.has(a))return false;if(a.startsWith('<test lead'))return false;return true;}
+async function getTab(gid){const r=await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`);return csvParse(await r.text());}
+
+// ---------- state ----------
+const S={sec:'sessao',tab:'geral',period:'7d',since:'',until:'',fCamp:'',fAdset:'',fAd:'',level:'campanha',drillCamp:null,drillCampName:'',drillAdset:null,drillAdsetName:''};
+let DATA=null, charts={};
+
+async function load(){
+  try{
+    const [inv,form,pag,cdir,fdir]=await Promise.all([getTab(TABS.investimento),getTab(TABS.formulario),getTab(TABS.paginas),getTab(TABS.campanhas_direct),getTab(TABS.funil_direct)]);
+    const invest=inv.map(r=>{const cn=r['Campaign Name']||'';const fn=classFunnel(cn);return{date:isoDate(r['Date']),funnel:fn,campaign:cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:cleanName(r['Adset Name']||''),adset_id:(r['Adset ID']||'').trim(),ad:cleanName(r['Ad Name']||''),ad_id:(r['Ad ID']||'').trim(),spend:num(r['Spend (Cost, Amount Spent)']),impr:num(r['Impressions']),clicks:num(r['Action Link Clicks']),pv:fn!=='NATIVO'?num(r['Action Landing Page View']):0};});
+    const leads=[];
+    form.forEach(r=>{const cn=r['campaign_name']||'';leads.push({date:isoDate(r['created_time']),funnel:cn?classFunnel(cn):'NATIVO',campaign:cleanName(cn)||'(sem campanha)',campaign_id:stripId(r['campaign_id']),adset:cleanName(r['adset_name']||''),adset_id:stripId(r['adset_id']),ad:cleanName(r['ad_name']||''),ad_id:stripId(r['ad_id']),opp:isOpp(r[Q_VALOR])});});
+    pag.forEach(r=>{const uc=r['utm_campaing']||'';const cn=nameBeforeId(uc);leads.push({date:isoDate(r['DATA']),funnel:classFunnel(cn),campaign:cleanName(cn)||'(sem campanha)',campaign_id:trailId(uc),adset:cleanName(nameBeforeId(r['utm_term']||'')),adset_id:trailId(r['utm_term']||''),ad:cleanName(nameBeforeId(r['utm_content']||'')),ad_id:trailId(r['utm_content']||''),opp:isOpp(r['valor_disp'])});});
+    const direct=cdir.map(r=>{const cn=r['Campaign Name']||'';return{date:isoDate(r['Date']),expert:classExpert(cn),campaign:cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:cleanName(r['Adset Name']||''),adset_id:(r['Adset ID']||'').trim(),ad:cleanName(r['Ad Name']||''),ad_id:(r['Ad ID']||'').trim(),spend:num(r['Spend (Cost, Amount Spent)']),impr:num(r['Impressions']),clicks:num(r['Action Link Clicks']),conv:num(r['Action Messaging Conversations Started (Onsite Conversion)'])};});
+    const dts=[...invest,...leads,...direct].map(x=>x.date).filter(Boolean).sort();
+    DATA={maxDate:dts.length?dts[dts.length-1]:todayStr(),genAt:new Date().toLocaleString('pt-BR'),invest,leads,direct};
+    // default custom dates
+    const w=win(); S.since=w.since; S.until=w.until;
+    document.getElementById('dSince').value=w.since; document.getElementById('dUntil').value=w.until;
+    render();
+  }catch(e){ document.getElementById('app').innerHTML=`<div class="card"><div class="empty">Erro ao carregar a planilha: ${esc(String(e))}<br><br>Se você abriu o arquivo por file://, publique no GitHub Pages ou rode um servidor — o navegador bloqueia o acesso à planilha por CORS fora de HTTP.</div></div>`; }
+}
+function todayStr(){return new Date().toISOString().slice(0,10);}
+function addD(s,n){const d=new Date(s+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function win(){const md=(DATA&&DATA.maxDate)||todayStr();const map={today:1,'2d':2,'3d':3,'5d':5,'7d':7,'14d':14,'30d':30};if(S.period==='free'&&S.since&&S.until)return{since:S.since,until:S.until};const n=map[S.period]||7;return{since:addD(md,-(n-1)),until:md};}
+
+// ---------- helpers ----------
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function money(v){return 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function money0(v){return 'R$ '+Math.round(v||0).toLocaleString('pt-BR');}
+function int(v){return Math.round(v||0).toLocaleString('pt-BR');}
+function pct(v){return (v||0).toFixed(2)+'%';}
+function inWin(d,w){return d&&d>=w.since&&d<=w.until;}
+function passId(r){return (!S.fCamp||(r.campaign_id||'').includes(S.fCamp))&&(!S.fAdset||(r.adset_id||'').includes(S.fAdset))&&(!S.fAd||(r.ad_id||'').includes(S.fAd));}
+
+// filtra por período, aba (funil/expert) e IDs
+function scope(){
+  const w=win();
+  if(S.sec==='sessao'){
+    const ft=S.tab==='geral'?null:S.tab;
+    const inv=DATA.invest.filter(r=>inWin(r.date,w)&&(!ft||r.funnel===ft)&&passId(r));
+    const lds=DATA.leads.filter(r=>inWin(r.date,w)&&(!ft||r.funnel===ft)&&passId(r));
+    return {inv,lds,w};
+  }else{
+    const et=S.tab==='geral'?null:S.tab;
+    const dir=DATA.direct.filter(r=>inWin(r.date,w)&&(!et||r.expert===et)&&passId(r));
+    return {dir,w};
+  }
+}
+
+// ---------- render root ----------
+function render(){
+  if(!DATA)return;
+  document.getElementById('secTitle').textContent=S.sec==='sessao'?'Sessão Estratégica':'Direct';
+  const w=win();
+  document.getElementById('dataInfo').innerHTML=`Dados até <b>${DATA.maxDate}</b> · atualizado ${esc(DATA.genAt)} · período ${w.since} → ${w.until}`;
+  document.getElementById('foot').innerHTML=`iniciAmazon · Dashboard ao vivo · fonte: planilha do Google (atualiza a cada carregamento) · gerado ${esc(DATA.genAt)}`;
+  // tabs
+  const tabs = S.sec==='sessao'
+    ? [['geral','Visão Geral'],['NATIVO','Nativo'],['CARTA','Carta / Consultoria'],['FLP','FLP (VSL)']]
+    : [['geral','Visão Geral'],['Tomé','Tomé'],['Coelho','Coelho'],['Marcão','Marcão'],['Nath','Nath']];
+  document.getElementById('tabs').innerHTML=tabs.map(([k,l])=>`<button class="chip ${S.tab===k?'on':''}" onclick="setTab('${k}')">${l}</button>`).join('');
+  // section toggle active
+  [...document.querySelectorAll('#secToggle button')].forEach(b=>b.classList.toggle('on',b.dataset.sec===S.sec));
+  document.getElementById('app').innerHTML = S.sec==='sessao'?renderSessao():renderDirect();
+  drawCharts();
+}
+function setTab(k){S.tab=k;S.drillCamp=null;S.drillAdset=null;S.level='campanha';render();}
+
+// ---------- SESSÃO ----------
+function renderSessao(){
+  const {inv,lds}=scope();
+  const spend=sum(inv,'spend'),impr=sum(inv,'impr'),clicks=sum(inv,'clicks');
+  const leads=lds.length,opp=lds.filter(r=>r.opp).length;
+  const cpl=leads?spend/leads:0,cpo=opp?spend/opp:0,ctr=impr?clicks/impr*100:0,cpc=clicks?spend/clicks:0;
+  const kpis=`<div class="card"><div class="kpis">
+    ${kpi('Investimento',money(spend),'gasto em mídia')}
+    ${kpi('Leads',int(leads),'')}
+    ${kpi('CPL',money(cpl),'custo por lead')}
+    ${kpi('Oportunidades',int(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'',1)}
+    ${kpi('CPO',money(cpo),'custo por oportunidade')}
+    ${kpi('CTR',pct(ctr),'')}
+    ${kpi('CPC',money(cpc),'')}
+    ${kpi('Impressões',int(impr),'')}
+  </div></div>`;
+  const chartCard=`<div class="grid2">
+    <div class="card"><h2>Investimento &amp; Oportunidade (barras) · CPO (linha)</h2><div style="height:300px"><canvas id="chBar"></canvas></div></div>
+    <div class="card"><h2>Oportunidades por funil</h2><div style="height:300px"><canvas id="chDonut"></canvas></div></div>
+  </div>`;
+  const ins=insightsSessao(inv,lds,spend,opp,leads,cpo,cpl);
+  const pubs=rankName(inv,lds,'adset','sessao');
+  const ads=rankName(inv,lds,'ad','sessao');
+  const rankCard=`<div class="grid2">
+    ${rankTableS('Melhores Públicos (compilado)',pubs)}
+    ${rankTableS('Melhores Anúncios (compilado)',ads)}
+  </div>`;
+  return kpis+chartCard+ins+rankCard+detailCard();
+}
+function kpi(l,v,s,good){return `<div class="kpi ${good?'good':''}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s||'&nbsp;'}</div></div>`;}
+function sum(a,k){return a.reduce((s,r)=>s+(r[k]||0),0);}
+
+function insightsSessao(inv,lds,spend,opp,leads,cpo,cpl){
+  const rows=[];
+  rows.push(`<div class="ins"><span class="tag res">Resumo</span><div>Investimento de <b>${money(spend)}</b> gerou <b>${int(opp)}</b> oportunidades — CPO médio <b>${money(cpo)}</b> · ${int(leads)} leads (CPL ${money(cpl)}).</div></div>`);
+  // por funil
+  const bf={};['NATIVO','CARTA','FLP'].forEach(f=>bf[f]={f,spend:0,opp:0});
+  inv.forEach(r=>{(bf[r.funnel]||bf.NATIVO).spend+=r.spend;});
+  lds.forEach(r=>{if(r.opp)(bf[r.funnel]||bf.NATIVO).opp++;});
+  const fv=Object.values(bf).filter(x=>x.opp>=1).map(x=>({...x,cpo:x.spend/x.opp}));
+  if(fv.length){const best=fv.slice().sort((a,b)=>a.cpo-b.cpo)[0],worst=fv.slice().sort((a,b)=>b.cpo-a.cpo)[0];
+    const nm={NATIVO:'Nativo',CARTA:'Carta/Consultoria',FLP:'FLP (VSL)'};
+    rows.push(`<div class="ins"><span class="tag res">Insight</span><div>Funil mais eficiente: <b>${nm[best.f]}</b> — CPO ${money(best.cpo)} com ${best.opp} oport.</div></div>`);
+    if(worst.f!==best.f)rows.push(`<div class="ins"><span class="tag res">Insight</span><div>Funil mais caro: <b>${nm[worst.f]}</b> — CPO ${money(worst.cpo)}.</div></div>`);
+  }
+  // por campanha
+  const camps=aggById(inv,lds,'campaign_id','campaign').filter(c=>c.spend>=20);
+  const withOpp=camps.filter(c=>c.opp>=1);
+  const avgCpo=cpo;
+  withOpp.filter(c=>c.opp>=2&&c.cpo<avgCpo).sort((a,b)=>a.cpo-b.cpo).slice(0,3).forEach(c=>{
+    rows.push(`<div class="ins"><span class="tag esc">Escalar</span><div><b>${esc(c.name)}</b> — CPO ${money(c.cpo)} (${money(avgCpo-c.cpo)} abaixo da média), ${c.opp} oport. (${money(c.spend)} investidos).</div></div>`);
+  });
+  withOpp.filter(c=>c.cpo>avgCpo*2).sort((a,b)=>b.cpo-a.cpo).slice(0,2).forEach(c=>{
+    rows.push(`<div class="ins"><span class="tag at">Atenção</span><div><b>${esc(c.name)}</b> — CPO ${money(c.cpo)} (${(c.cpo/avgCpo).toFixed(1)}x a média).</div></div>`);
+  });
+  camps.filter(c=>c.opp===0&&c.spend>=100).sort((a,b)=>b.spend-a.spend).slice(0,3).forEach(c=>{
+    rows.push(`<div class="ins"><span class="tag cut">Cortar</span><div><b>${esc(c.name)}</b> gastou ${money(c.spend)} sem gerar oportunidade (${c.leads} leads).</div></div>`);
+  });
+  return `<div class="card"><h2>Análise &amp; Insights · Growth</h2>${rows.join('')}</div>`;
+}
+
+// ---------- DIRECT ----------
+function renderDirect(){
+  const {dir}=scope();
+  const spend=sum(dir,'spend'),impr=sum(dir,'impr'),clicks=sum(dir,'clicks'),conv=sum(dir,'conv');
+  const cc=conv?spend/conv:0,ctr=impr?clicks/impr*100:0,cpc=clicks?spend/clicks:0;
+  const kpis=`<div class="card"><div class="kpis">
+    ${kpi('Investimento',money(spend),'gasto em mídia')}
+    ${kpi('Conversas',int(conv),'mensagens iniciadas',1)}
+    ${kpi('Custo/Conversa',money(cc),'')}
+    ${kpi('CTR',pct(ctr),'')}
+    ${kpi('CPC',money(cpc),'')}
+    ${kpi('Impressões',int(impr),'')}
+    ${kpi('Cliques',int(clicks),'')}
+  </div></div>`;
+  const chartCard=`<div class="grid2">
+    <div class="card"><h2>Investimento &amp; Conversas (barras) · Custo/Conversa (linha)</h2><div style="height:300px"><canvas id="chBar"></canvas></div></div>
+    <div class="card"><h2>Conversas por expert</h2><div style="height:300px"><canvas id="chDonut"></canvas></div></div>
+  </div>`;
+  // insights direct
+  const rows=[`<div class="ins"><span class="tag res">Resumo</span><div>Investimento de <b>${money(spend)}</b> gerou <b>${int(conv)}</b> conversas — custo médio <b>${money(cc)}</b>.</div></div>`];
+  const be={};dir.forEach(r=>{(be[r.expert]=be[r.expert]||{e:r.expert,spend:0,conv:0}).spend+=r.spend;be[r.expert].conv+=r.conv;});
+  const ev=Object.values(be).filter(x=>x.conv>=1).map(x=>({...x,cc:x.spend/x.conv}));
+  if(ev.length){const best=ev.slice().sort((a,b)=>a.cc-b.cc)[0];rows.push(`<div class="ins"><span class="tag res">Insight</span><div>Expert mais eficiente: <b>${best.e}</b> — ${money(best.cc)}/conversa (${best.conv} conversas).</div></div>`);}
+  const camps=aggByIdDirect(dir).filter(c=>c.spend>=20);
+  camps.filter(c=>c.conv>=3&&c.cc<cc).sort((a,b)=>a.cc-b.cc).slice(0,3).forEach(c=>rows.push(`<div class="ins"><span class="tag esc">Escalar</span><div><b>${esc(c.name)}</b> — ${money(c.cc)}/conversa, ${c.conv} conversas (${money(c.spend)}).</div></div>`));
+  camps.filter(c=>c.conv===0&&c.spend>=100).sort((a,b)=>b.spend-a.spend).slice(0,3).forEach(c=>rows.push(`<div class="ins"><span class="tag cut">Cortar</span><div><b>${esc(c.name)}</b> gastou ${money(c.spend)} sem conversas.</div></div>`));
+  const ins=`<div class="card"><h2>Análise &amp; Insights · Growth</h2>${rows.join('')}</div>`;
+  const pubs=rankNameDirect(dir,'adset'),ads=rankNameDirect(dir,'ad');
+  const rankCard=`<div class="grid2">${rankTableD('Melhores Públicos (compilado)',pubs)}${rankTableD('Melhores Anúncios (compilado)',ads)}</div>`;
+  return kpis+chartCard+ins+rankCard+detailCard();
+}
+
+// ---------- agregações ----------
+function aggById(inv,lds,idKey,nameKey){
+  const m={};const g=(k,name)=>m[k]||(m[k]={key:k,id:'',name:name||'(sem nome)',spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0});
+  inv.forEach(r=>{const id=r[idKey]||'';const k=id||('n:'+r[nameKey]);const x=g(k,r[nameKey]);if(id&&!x.id)x.id=id;x.spend+=r.spend;x.impr+=r.impr;x.clicks+=r.clicks;x.pv+=r.pv;});
+  lds.forEach(r=>{const id=r[idKey]||'';const k=id||('n:'+r[nameKey]);const x=g(k,r[nameKey]);if(id&&!x.id)x.id=id;x.leads++;if(r.opp)x.opp++;});
+  return Object.values(m).map(x=>({...x,cpo:x.opp?x.spend/x.opp:null,cpl:x.leads?x.spend/x.leads:null,ctr:x.impr?x.clicks/x.impr*100:0,cpc:x.clicks?x.spend/x.clicks:0}));
+}
+function aggByIdDirect(dir,idKey='campaign_id',nameKey='campaign'){
+  const m={};const g=(k,name)=>m[k]||(m[k]={key:k,id:'',name:name||'(sem nome)',spend:0,impr:0,clicks:0,conv:0});
+  dir.forEach(r=>{const id=r[idKey]||'';const k=id||('n:'+r[nameKey]);const x=g(k,r[nameKey]);if(id&&!x.id)x.id=id;x.spend+=r.spend;x.impr+=r.impr;x.clicks+=r.clicks;x.conv+=r.conv;});
+  return Object.values(m).map(x=>({...x,cc:x.conv?x.spend/x.conv:null,ctr:x.impr?x.clicks/x.impr*100:0,cpc:x.clicks?x.spend/x.clicks:0}));
+}
+// compilado por NOME limpo
+function rankName(inv,lds,dim,sec){
+  const nk=dim,m={};const g=(n)=>m[n]||(m[n]={name:n,spend:0,leads:0,opp:0});
+  inv.forEach(r=>{const n=r[nk]||'(sem nome)';g(n).spend+=r.spend;});
+  lds.forEach(r=>{const n=r[nk]||'(sem nome)';const x=g(n);x.leads++;if(r.opp)x.opp++;});
+  return Object.values(m).filter(x=>x.opp>=1&&x.spend>=20).map(x=>({...x,cpo:x.spend/x.opp,cpl:x.leads?x.spend/x.leads:0})).sort((a,b)=>a.cpo-b.cpo).slice(0,7);
+}
+function rankNameDirect(dir,dim){
+  const m={};const g=(n)=>m[n]||(m[n]={name:n,spend:0,conv:0});
+  dir.forEach(r=>{const n=r[dim]||'(sem nome)';g(n).spend+=r.spend;m[n].conv+=r.conv;});
+  return Object.values(m).filter(x=>x.conv>=1&&x.spend>=20).map(x=>({...x,cc:x.spend/x.conv})).sort((a,b)=>a.cc-b.cc).slice(0,7);
+}
+
+function rankTableS(title,rows){
+  return `<div class="card"><h2>${title}</h2><div class="tbl-wrap"><table><thead><tr><th>#</th><th>Nome</th><th class="num">Invest.</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Leads</th><th class="num">CPL</th></tr></thead><tbody>
+  ${rows.length?rows.map((r,i)=>`<tr><td class="ora">${i+1}º</td><td title="${esc(r.name)}">${esc(r.name.slice(0,34))}${r.name.length>34?'…':''}</td><td class="num">${money(r.spend)}</td><td class="num">${int(r.opp)}</td><td class="num ora">${money(r.cpo)}</td><td class="num">${int(r.leads)}</td><td class="num">${money(r.cpl)}</td></tr>`).join(''):`<tr><td colspan="7" class="empty">Sem dados no período.</td></tr>`}
+  </tbody></table></div></div>`;
+}
+function rankTableD(title,rows){
+  return `<div class="card"><h2>${title}</h2><div class="tbl-wrap"><table><thead><tr><th>#</th><th>Nome</th><th class="num">Invest.</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th></tr></thead><tbody>
+  ${rows.length?rows.map((r,i)=>`<tr><td class="ora">${i+1}º</td><td title="${esc(r.name)}">${esc(r.name.slice(0,40))}${r.name.length>40?'…':''}</td><td class="num">${money(r.spend)}</td><td class="num">${int(r.conv)}</td><td class="num ora">${money(r.cc)}</td></tr>`).join(''):`<tr><td colspan="5" class="empty">Sem dados no período.</td></tr>`}
+  </tbody></table></div></div>`;
+}
+
+// ---------- Detalhamento (drill Campanha → Conjunto → Anúncio) ----------
+function detailCard(){
+  const lvls=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']];
+  const seg=`<div class="seg">${lvls.map(([k,l])=>`<button class="${S.level===k?'on':''}" onclick="setLevel('${k}')">${l}</button>`).join('')}</div>`;
+  let crumb='';
+  if(S.level!=='campanha'&&(S.drillCamp||S.drillAdset)){
+    const parts=['<a onclick="clearDrill()">Todas</a>'];
+    if(S.drillCamp)parts.push(`<a onclick="upTo('conjunto')">${esc((S.drillCampName||'').slice(0,40))}</a>`);
+    if(S.drillAdset&&S.level==='anuncio')parts.push(esc((S.drillAdsetName||'').slice(0,40)));
+    crumb=`<div class="crumb">${parts.join(' › ')}</div>`;
+  }
+  const body = S.sec==='sessao'?detailSessao():detailDirect();
+  return `<div class="card"><div class="between"><h2>Detalhamento</h2>${seg}</div>${crumb}${body}</div>`;
+}
+function detailSessao(){
+  const {inv,lds}=scope();
+  let idKey='campaign_id',nameKey='campaign',i=inv,l=lds;
+  if(S.level==='conjunto'){idKey='adset_id';nameKey='adset';if(S.drillCamp){i=i.filter(r=>r.campaign_id===S.drillCamp);l=l.filter(r=>r.campaign_id===S.drillCamp);}}
+  if(S.level==='anuncio'){idKey='ad_id';nameKey='ad';if(S.drillCamp){i=i.filter(r=>r.campaign_id===S.drillCamp);l=l.filter(r=>r.campaign_id===S.drillCamp);}if(S.drillAdset){i=i.filter(r=>r.adset_id===S.drillAdset);l=l.filter(r=>r.adset_id===S.drillAdset);}}
+  let rows=aggById(i,l,idKey,nameKey).sort((a,b)=>b.spend-a.spend);
+  const T={spend:sum(rows,'spend'),leads:sum(rows,'leads'),opp:sum(rows,'opp'),impr:sum(rows,'impr'),clicks:sum(rows,'clicks')};
+  const canDrill=S.level!=='anuncio';
+  const nameCell=(r)=>{
+    const nm=esc(r.name.slice(0,52))+(r.name.length>52?'…':'');
+    if(canDrill&&r.id)return `<span class="drill" onclick="drill('${S.level}','${esc(r.id)}','${esc(r.name).replace(/'/g,"\\'")}')">${nm} ›</span>`;
+    return nm;
+  };
+  return `<div class="tbl-wrap"><table><thead><tr><th>${S.level==='campanha'?'Campanha':S.level==='conjunto'?'Conjunto':'Anúncio'}</th><th>ID</th><th class="num">Investimento ▾</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr><td>${nameCell(r)}</td><td class="mono">${esc(r.id||'—')}</td><td class="num">${money(r.spend)}</td><td class="num">${int(r.opp)}</td><td class="num ora">${r.opp?money(r.cpo):'—'}</td><td class="num">${int(r.leads)}</td><td class="num">${r.leads?money(r.cpl):'—'}</td><td class="num">${pct(r.ctr)}</td><td class="num">${money(r.cpc)}</td><td class="num">${int(r.impr)}</td></tr>`).join(''):`<tr><td colspan="10" class="empty">Sem dados no período/filtro.</td></tr>`}
+  </tbody><tfoot><tr style="border-top:2px solid var(--ora)"><td><b>TOTAL (${rows.length})</b></td><td></td><td class="num"><b>${money(T.spend)}</b></td><td class="num"><b>${int(T.opp)}</b></td><td class="num ora"><b>${T.opp?money(T.spend/T.opp):'—'}</b></td><td class="num"><b>${int(T.leads)}</b></td><td class="num"><b>${T.leads?money(T.spend/T.leads):'—'}</b></td><td class="num"><b>${T.impr?pct(T.clicks/T.impr*100):'—'}</b></td><td class="num"><b>${T.clicks?money(T.spend/T.clicks):'—'}</b></td><td class="num"><b>${int(T.impr)}</b></td></tr></tfoot></table></div>`;
+}
+function detailDirect(){
+  const {dir}=scope();
+  let idKey='campaign_id',nameKey='campaign',d=dir;
+  if(S.level==='conjunto'){idKey='adset_id';nameKey='adset';if(S.drillCamp)d=d.filter(r=>r.campaign_id===S.drillCamp);}
+  if(S.level==='anuncio'){idKey='ad_id';nameKey='ad';if(S.drillCamp)d=d.filter(r=>r.campaign_id===S.drillCamp);if(S.drillAdset)d=d.filter(r=>r.adset_id===S.drillAdset);}
+  let rows=aggByIdDirect(d,idKey,nameKey).sort((a,b)=>b.spend-a.spend);
+  const T={spend:sum(rows,'spend'),conv:sum(rows,'conv'),impr:sum(rows,'impr'),clicks:sum(rows,'clicks')};
+  const canDrill=S.level!=='anuncio';
+  const nameCell=(r)=>{const nm=esc(r.name.slice(0,52))+(r.name.length>52?'…':'');if(canDrill&&r.id)return `<span class="drill" onclick="drill('${S.level}','${esc(r.id)}','${esc(r.name).replace(/'/g,"\\'")}')">${nm} ›</span>`;return nm;};
+  return `<div class="tbl-wrap"><table><thead><tr><th>${S.level==='campanha'?'Campanha':S.level==='conjunto'?'Conjunto':'Anúncio'}</th><th>ID</th><th class="num">Investimento ▾</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr><td>${nameCell(r)}</td><td class="mono">${esc(r.id||'—')}</td><td class="num">${money(r.spend)}</td><td class="num">${int(r.conv)}</td><td class="num ora">${r.conv?money(r.cc):'—'}</td><td class="num">${pct(r.ctr)}</td><td class="num">${money(r.cpc)}</td><td class="num">${int(r.impr)}</td></tr>`).join(''):`<tr><td colspan="8" class="empty">Sem dados no período/filtro.</td></tr>`}
+  </tbody><tfoot><tr style="border-top:2px solid var(--ora)"><td><b>TOTAL (${rows.length})</b></td><td></td><td class="num"><b>${money(T.spend)}</b></td><td class="num"><b>${int(T.conv)}</b></td><td class="num ora"><b>${T.conv?money(T.spend/T.conv):'—'}</b></td><td class="num"><b>${T.impr?pct(T.clicks/T.impr*100):'—'}</b></td><td class="num"><b>${T.clicks?money(T.spend/T.clicks):'—'}</b></td><td class="num"><b>${int(T.impr)}</b></td></tr></tfoot></table></div>`;
+}
+function setLevel(k){S.level=k;if(k==='campanha'){S.drillCamp=null;S.drillAdset=null;}if(k==='conjunto')S.drillAdset=null;render();}
+function drill(fromLevel,id,name){
+  if(fromLevel==='campanha'){S.drillCamp=id;S.drillCampName=name;S.level='conjunto';}
+  else if(fromLevel==='conjunto'){S.drillAdset=id;S.drillAdsetName=name;S.level='anuncio';}
+  render();
+}
+function clearDrill(){S.drillCamp=null;S.drillAdset=null;S.level='campanha';render();}
+function upTo(lvl){if(lvl==='conjunto'){S.drillAdset=null;S.level='conjunto';}render();}
+
+// ---------- charts ----------
+function drawCharts(){
+  if(typeof Chart==='undefined')return;
+  Object.values(charts).forEach(c=>{try{c.destroy();}catch(e){}});charts={};
+  const {w}=(()=>{const w=win();return {w};})();
+  const days=[];for(let d=w.since;d<=w.until;d=addD(d,1))days.push(d);
+  const labels=days.map(d=>d.slice(8)+'/'+d.slice(5,7));
+  const barEl=document.getElementById('chBar'),dnEl=document.getElementById('chDonut');
+  Chart.defaults.color='#8b8b93';Chart.defaults.font.size=11;
+  if(S.sec==='sessao'){
+    const {inv,lds}=scope();
+    const invByD={},oppByD={};days.forEach(d=>{invByD[d]=0;oppByD[d]=0;});
+    inv.forEach(r=>{if(invByD[r.date]!=null)invByD[r.date]+=r.spend;});
+    lds.forEach(r=>{if(r.opp&&oppByD[r.date]!=null)oppByD[r.date]++;});
+    const invA=days.map(d=>invByD[d]),oppA=days.map(d=>oppByD[d]),cpoA=days.map((d,i)=>oppA[i]?invA[i]/oppA[i]:null);
+    if(barEl)charts.bar=new Chart(barEl,{data:{labels,datasets:[
+      {type:'bar',label:'Investimento',data:invA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},
+      {type:'bar',label:'Oportunidade',data:oppA,backgroundColor:'#ffb27a',yAxisID:'y1',order:3},
+      {type:'line',label:'CPO',data:cpoA,borderColor:'#fff',backgroundColor:'#fff',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}
+    ]},options:barOpts()});
+    // donut opp por funil
+    const bf={NATIVO:0,CARTA:0,FLP:0};lds.forEach(r=>{if(r.opp)bf[r.funnel]=(bf[r.funnel]||0)+1;});
+    if(dnEl)charts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:['Nativo','Carta/Consult.','FLP'],datasets:[{data:[bf.NATIVO,bf.CARTA,bf.FLP],backgroundColor:['#ff6a00','#ffb27a','#a34300'],borderColor:'#16161a',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  }else{
+    const {dir}=scope();
+    const invByD={},cvByD={};days.forEach(d=>{invByD[d]=0;cvByD[d]=0;});
+    dir.forEach(r=>{if(invByD[r.date]!=null){invByD[r.date]+=r.spend;cvByD[r.date]+=r.conv;}});
+    const invA=days.map(d=>invByD[d]),cvA=days.map(d=>cvByD[d]),ccA=days.map((d,i)=>cvA[i]?invA[i]/cvA[i]:null);
+    if(barEl)charts.bar=new Chart(barEl,{data:{labels,datasets:[
+      {type:'bar',label:'Investimento',data:invA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},
+      {type:'bar',label:'Conversas',data:cvA,backgroundColor:'#ffb27a',yAxisID:'y1',order:3},
+      {type:'line',label:'Custo/Conversa',data:ccA,borderColor:'#fff',backgroundColor:'#fff',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}
+    ]},options:barOpts()});
+    const be={};dir.forEach(r=>{be[r.expert]=(be[r.expert]||0)+r.conv;});
+    const ent=Object.entries(be).sort((a,b)=>b[1]-a[1]);
+    if(dnEl)charts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:ent.map(e=>e[0]),datasets:[{data:ent.map(e=>e[1]),backgroundColor:['#ff6a00','#ffb27a','#a34300','#ffd9bf','#803400'],borderColor:'#16161a',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+  }
+}
+function barOpts(){return {maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top'}},scales:{
+  y:{position:'left',grid:{color:'#26262c'},ticks:{callback:v=>'R$'+v}},
+  y1:{position:'right',grid:{drawOnChartArea:false}},
+  x:{grid:{color:'#1c1c22'}}
+}};}
+
+// ---------- eventos ----------
+const PERIODS=[['today','Hoje'],['2d','Ontem+Hoje'],['3d','3 dias'],['5d','5 dias'],['7d','7 dias'],['14d','14 dias'],['30d','30 dias'],['free','Livre']];
+document.getElementById('periods').innerHTML=PERIODS.map(([k,l])=>`<button class="chip" data-p="${k}">${l}</button>`).join('');
+function syncPeriodChips(){[...document.querySelectorAll('#periods .chip')].forEach(b=>b.classList.toggle('on',b.dataset.p===S.period));}
+document.getElementById('periods').addEventListener('click',e=>{const b=e.target.closest('[data-p]');if(!b)return;S.period=b.dataset.p;if(S.period!=='free'){const w=win();S.since=w.since;S.until=w.until;document.getElementById('dSince').value=w.since;document.getElementById('dUntil').value=w.until;}syncPeriodChips();render();});
+document.getElementById('secToggle').addEventListener('click',e=>{const b=e.target.closest('[data-sec]');if(!b)return;S.sec=b.dataset.sec;S.tab='geral';S.level='campanha';S.drillCamp=null;S.drillAdset=null;render();});
+document.getElementById('dSince').addEventListener('change',e=>{S.since=e.target.value;S.period='free';syncPeriodChips();render();});
+document.getElementById('dUntil').addEventListener('change',e=>{S.until=e.target.value;S.period='free';syncPeriodChips();render();});
+function bindId(id,key){document.getElementById(id).addEventListener('input',e=>{S[key]=e.target.value.trim();render();});}
+bindId('fCamp','fCamp');bindId('fAdset','fAdset');bindId('fAd','fAd');
+document.getElementById('clearIds').addEventListener('click',()=>{S.fCamp=S.fAdset=S.fAd='';document.getElementById('fCamp').value='';document.getElementById('fAdset').value='';document.getElementById('fAd').value='';render();});
+
+syncPeriodChips();
+load();
+</script>
+</body>
+</html>
