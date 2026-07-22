@@ -104,8 +104,13 @@ const FUNNELS = [
   {key:'TOME',    label:'Tomé',     match:'TOME',     emoji:'👨'},
   {key:'COELHO',  label:'Coelho',   match:'COELHO',   emoji:'🐰'},
   {key:'BACKEND', label:'Backend',  match:'mentoria', emoji:'💼', backend:true}, // Consultorias & Mentorias (sem mídia paga)
+  {key:'SESSAO',  label:'Sessão Estratégica', match:'', emoji:'🎯', sheet:'sessao'}, // funil de lead (planilha Google): Oportunidade/CPO
+  {key:'DIRECT',  label:'Direct',   match:'',         emoji:'💬', sheet:'direct'},    // funil de mensagem (planilha Google): Conversas/Custo
   {key:'ALL',     label:'Todos',    match:'',         emoji:'🌐'}
 ];
+// Planilha do Google (Sessão Estratégica + Direct) — mesma fonte do Dashboard iniciAmazon
+const SHEET_ID='1fafPK17RgaKcYDoF1tGwaArOR1xUy_q2x_wVaQAQSvM';
+const SHEET_TABS={formulario:'0',paginas:'1149544245',investimento:'609047758',funil_direct:'1714865460',campanhas_direct:'1772428914'};
 
 // ── Estado ──────────────────────────────────────────────────────────────────
 let S = loadState() || {};
@@ -155,11 +160,13 @@ S._crossoverTipos = null; // breakdown por tipo (Mentoria x Consultoria): taxa, 
 S._crossoverLoading = false;
 S._crossoverCAC = null;   // custo real (gasto Meta) por campanha de origem, carregado sob demanda
 S._crossoverCACLoading = false;
+S._sheet = null;          // dados da planilha do Google (Sessão Estratégica + Direct)
+S._sheetLoading = false;
 S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compradores (funil Nathalia)
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _refData:null, _refLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _refLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -652,6 +659,58 @@ async function fetchPesquisa(){
 }
 function reloadPesquisa(){ S._pesquisa=null; fetchPesquisa(); }
 
+// ── Sessão Estratégica + Direct (planilha do Google, ao vivo) ────────────────
+function _csvParse(text){
+  const rows=[]; let row=[], field='', q=false;
+  for(let i=0;i<text.length;i++){ const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){ field+='"'; i++; } else q=false; } else field+=c; }
+    else { if(c==='"') q=true; else if(c===','){ row.push(field); field=''; } else if(c==='\n'){ row.push(field); rows.push(row); row=[]; field=''; } else if(c==='\r'){} else field+=c; }
+  }
+  if(field.length||row.length){ row.push(field); rows.push(row); }
+  if(!rows.length) return [];
+  const hdr=rows[0]; return rows.slice(1).filter(r=>r.length>1||(r[0]||'').trim()).map(r=>{ const o={}; hdr.forEach((h,i)=>o[h]=r[i]!=null?r[i]:''); return o; });
+}
+function _num(v){ if(v==null) return 0; let s=String(v).trim(); if(!s) return 0; s=s.replace('R$','').replace(/ /g,'').trim(); if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); const n=parseFloat(s); return isNaN(n)?0:n; }
+function _cleanName(n){ if(!n) return ''; n=String(n).replace(/\s*[—–-]+\s*C[oó]pia/ig,'').replace(/\s*\(\d+\)\s*$/,''); return n.trim(); }
+function _stripId(v){ return v?String(v).split(':').pop().trim():''; }
+function _trailId(v){ if(!v) return ''; const m=String(v).trim().match(/-(\d{6,})\s*$/); return m?m[1]:''; }
+function _nameBeforeId(v){ return v?String(v).trim().replace(/-\d{6,}\s*$/,'').trim():''; }
+function _isoDate(v){ if(!v) return ''; let s=String(v).trim(); if(!s) return ''; if(s.includes('T')) s=s.split('T')[0]; let m; if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return `${m[1]}-${m[2]}-${m[3]}`; if((m=s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/))) return `${m[3]}-${m[2]}-${m[1]}`; if((m=s.match(/^(\d{4})\/(\d{2})\/(\d{2})$/))) return `${m[1]}-${m[2]}-${m[3]}`; return ''; }
+function _classFunnel(cn){ const n=(cn||'').toUpperCase(); if(n.includes('FLP')||n.includes('FUNIL_VSL')) return 'FLP'; if(n.includes('CARTA')||n.includes('CONSULTORIA_LP')||n.includes('FUNIL_CARTA')) return 'CARTA'; return 'NATIVO'; }
+function _classExpert(cn){ const n=(cn||'').toUpperCase(); if(n.includes('COELHO')) return 'Coelho'; if(n.includes('TOME')||n.includes('TOMÉ')) return 'Tomé'; if(n.includes('MARCAO')||n.includes('MARCÃO')) return 'Marcão'; if(n.includes('NATH')) return 'Nath'; return 'Outros'; }
+const _NOTOPP=new Set(['até 3.000,00 reais','até r$ 3.000','até r$3.000','não tenho como iniciar um negócio hoje.','']);
+function _isOpp(a){ a=(a||'').trim().toLowerCase(); if(!a||_NOTOPP.has(a)) return false; if(a.startsWith('<test lead')) return false; return true; }
+async function fetchSheet(gid){ const r=await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`); return _csvParse(await r.text()); }
+async function fetchSheetData(){
+  if(S._sheetLoading) return; S._sheetLoading=true; render();
+  try{
+    const [inv,form,pag,cdir,fdir]=await Promise.all([
+      fetchSheet(SHEET_TABS.investimento),fetchSheet(SHEET_TABS.formulario),fetchSheet(SHEET_TABS.paginas),
+      fetchSheet(SHEET_TABS.campanhas_direct),fetchSheet(SHEET_TABS.funil_direct)]);
+    const invest=inv.map(r=>{const cn=r['Campaign Name']||'';const fn=_classFunnel(cn);return {date:_isoDate(r['Date']),funnel:fn,campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),ad:_cleanName(r['Ad Name']||''),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),pv:fn!=='NATIVO'?_num(r['Action Landing Page View']):0};});
+    const qv='Quanto você tem disponível no mês para investir no seu negócio de Amazon?';
+    const leads=[];
+    form.forEach(r=>{const cn=r['campaign_name']||'';leads.push({date:_isoDate(r['created_time']),funnel:cn?_classFunnel(cn):'NATIVO',campaign:_cleanName(cn)||'(sem campanha)',opp:_isOpp(r[qv])});});
+    pag.forEach(r=>{const uc=r['utm_campaing']||'';const cn=_nameBeforeId(uc);leads.push({date:_isoDate(r['DATA']),funnel:_classFunnel(cn),campaign:_cleanName(cn)||'(sem campanha)',opp:_isOpp(r['valor_disp'])});});
+    const direct=cdir.map(r=>{const cn=r['Campaign Name']||'';return {date:_isoDate(r['Date']),expert:_classExpert(cn),campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),ad:_cleanName(r['Ad Name']||''),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])};});
+    const directDaily=fdir.map(r=>({date:_isoDate(r['Date']),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Inline Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])}));
+    const dts=[...invest,...leads,...direct].map(x=>x.date).filter(Boolean).sort();
+    S._sheet={maxDate:dts.length?dts[dts.length-1]:brToday(),invest,leads,direct,directDaily};
+  }catch(e){ console.warn('[Sheet] erro',e); S._sheet={error:String(e)}; }
+  S._sheetLoading=false; render();
+}
+function reloadSheet(){ S._sheet=null; fetchSheetData(); }
+// janela de datas (inclusiva) relativa ao maxDate da planilha
+function sheetWindow(){
+  const md=(S._sheet&&S._sheet.maxDate)||brToday();
+  if(S.period==='custom'){ const r=customRange(); return {since:r.since,until:r.until}; }
+  if(S.period==='today') return {since:md,until:md};
+  if(S.period==='yesterday'){ const y=addDaysStr(md,-1); return {since:y,until:y}; }
+  if(S.period==='this_month') return {since:md.slice(0,8)+'01',until:md};
+  const n={last_3d:3,last_7d:7,last_14d:14,last_30d:30}[S.period]||7;
+  return {since:addDaysStr(md,-(n-1)),until:md};
+}
+
 // ── Receita (Supabase) ──────────────────────────────────────────────────────
 function periodRange(period){
   const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
@@ -816,7 +875,9 @@ function render(){
   const _tops=[...document.querySelectorAll('.tbl-wrap')].map(el=>({t:el.scrollTop,l:el.scrollLeft}));
   if(!S.connected){ root.innerHTML=renderConnect(); return; }
   const A=analyze();
-  root.innerHTML = renderControls(A) + (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : (S.view==='criativos' ? renderTopAdsAudiences(A) : renderDashboard(A)));
+  const _body = (S.view!=='criativos' && currentFunnel().sheet) ? renderSheetView()
+    : (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : (S.view==='criativos' ? renderTopAdsAudiences(A) : renderDashboard(A)));
+  root.innerHTML = renderControls(A) + _body;
   window.scrollTo(_sx,_sy);
   [...document.querySelectorAll('.tbl-wrap')].forEach((el,i)=>{ if(_tops[i]){ el.scrollTop=_tops[i].t; el.scrollLeft=_tops[i].l; } });
   renderBulkBar();
@@ -882,7 +943,7 @@ function renderControls(A){
       <input type="date" value="${esc(S.customUntil)}" max="${brToday()}" onchange="setCustomDate('until',this.value)" style="width:140px;padding:6px 8px;${S.period==='custom'?'border-color:#7b2ff7':''}">
       ${S.period==='custom'?`<span class="chip active" style="cursor:default">📅 ${A.days} dia(s)</span>`:''}
     </div>
-    ${currentFunnel().backend ? '' : `<div class="row" style="gap:16px;align-items:flex-end">
+    ${(currentFunnel().backend||currentFunnel().sheet) ? '' : `<div class="row" style="gap:16px;align-items:flex-end">
       <div><label>Refinar (opcional)</label><input style="width:160px" value="${esc(S.nameContains)}" onchange="setCfg('nameContains',this.value)" placeholder="ex: CBO, 07.07"></div>
       <div><label>CPA alvo (front)</label><input style="width:130px" value="${esc(S.cpaAlvo)}" onchange="setCfg('cpaAlvo',this.value)" placeholder="média: ${fmtMoney0(A.blendedCPA)}"></div>
       <div><label>ROAS alvo</label><input style="width:90px" value="${esc(S.roasAlvo)}" onchange="setCfg('roasAlvo',this.value)"></div>
@@ -893,6 +954,82 @@ function renderControls(A){
   </div>`;
 }
 
+// ── Views da planilha (Sessão / Direct) ─────────────────────────────────────
+function renderSheetView(){
+  const f=currentFunnel();
+  const head=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start">
+    <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">funil ${f.sheet==='sessao'?'de lead — Oportunidade & CPO':'de mensagem — Conversas & Custo'} · fonte: planilha do Google (ao vivo)</span></h2>
+    ${S._sheet&&S._sheet.maxDate?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(S._sheet.maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}</div>
+    <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="reloadSheet()">↻ Atualizar planilha</button></div>`;
+  if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty"><span class="loading"></span> Carregando planilha…</div></div>`; }
+  if(S._sheet.error){ return head+`<div class="empty">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
+  return head+(f.sheet==='sessao'?renderSessao():renderDirect())+`</div>`;
+}
+function _inWin(d,w){ return d && d>=w.since && d<=w.until; }
+function renderSessao(){
+  const w=sheetWindow();
+  const inv=S._sheet.invest.filter(r=>_inWin(r.date,w));
+  const lds=S._sheet.leads.filter(r=>_inWin(r.date,w));
+  const spend=inv.reduce((s,r)=>s+r.spend,0), impr=inv.reduce((s,r)=>s+r.impr,0), clicks=inv.reduce((s,r)=>s+r.clicks,0), pv=inv.reduce((s,r)=>s+r.pv,0);
+  const leads=lds.length, opp=lds.filter(r=>r.opp).length;
+  const cpl=leads?spend/leads:0, cpo=opp?spend/opp:0, ctr=impr?clicks/impr*100:0, cpc=clicks?spend/clicks:0;
+  const kpi=(l,v,s,cls='')=>`<div class="kpi ${cls}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||''}</div></div>`;
+  const kpis=`<div class="kpis">
+    ${kpi('Investimento',fmtMoney0(spend),'gasto em mídia')}
+    ${kpi('Leads',fmtNum(leads),'CPL '+fmtMoney0(cpl))}
+    ${kpi('Oportunidades',fmtNum(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'','good')}
+    ${kpi('CPO',fmtMoney0(cpo),'custo por oportunidade')}
+    ${kpi('Impressões',fmtNum(impr),'CTR '+ctr.toFixed(2)+'%')}
+    ${kpi('Cliques',fmtNum(clicks),'CPC '+fmtMoney0(cpc))}
+  </div>`;
+  // por funil
+  const byF={}; ['NATIVO','CARTA','FLP'].forEach(k=>byF[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0});
+  inv.forEach(r=>{const g=byF[r.funnel]||byF['NATIVO'];g.spend+=r.spend;g.impr+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;});
+  lds.forEach(r=>{const g=byF[r.funnel]||byF['NATIVO'];g.leads++;if(r.opp)g.opp++;});
+  const fRow=g=>{const cpl=g.leads?g.spend/g.leads:0,cpo=g.opp?g.spend/g.opp:0,lp=g.funnel!=='NATIVO';return `<tr>
+    <td style="text-align:left;font-weight:600">${g.k}</td><td class="num">${fmtMoney0(g.spend)}</td><td class="num">${fmtNum(g.leads)}</td>
+    <td class="num">${fmtMoney0(cpl)}</td><td class="num" style="font-weight:700">${fmtNum(g.opp)}</td><td class="num" style="color:#137333;font-weight:700">${g.opp?fmtMoney0(cpo):'—'}</td>
+    <td class="num">${g.k!=='NATIVO'?fmtNum(g.pv):'—'}</td><td class="num">${g.k!=='NATIVO'&&g.pv?(g.leads/g.pv*100).toFixed(0)+'%':'—'}</td></tr>`;};
+  const tblF=`<div style="margin-top:14px"><b>Por funil</b><div style="overflow-x:auto"><table class="dim-tbl" style="margin-top:4px;font-size:12px"><thead><tr>
+    <th style="text-align:left">Funil</th><th>Investimento</th><th>Leads</th><th>CPL</th><th>Oport.</th><th>CPO</th><th>Pageviews</th><th>Tx conv LP</th></tr></thead><tbody>
+    ${['NATIVO','CARTA','FLP'].map(k=>fRow(byF[k])).join('')}</tbody></table></div><div class="mini" style="margin-top:4px">Pageviews e Tx. conv LP só valem para Carta e FLP (no Nativo o pageview da planilha vem errado). <b>Oportunidade</b> = lead que respondeu o valor de investimento e não é "até R$3.000" nem "não tenho como iniciar".</div></div>`;
+  // top campanhas por CPO
+  const byC={}; inv.forEach(r=>{const k=r.campaign||'(sem campanha)';(byC[k]=byC[k]||{k,spend:0,leads:0,opp:0,funnel:r.funnel}).spend+=r.spend;});
+  lds.forEach(r=>{const k=r.campaign||'(sem campanha)';const g=(byC[k]=byC[k]||{k,spend:0,leads:0,opp:0,funnel:r.funnel});g.leads++;if(r.opp)g.opp++;});
+  const camps=Object.values(byC).filter(c=>c.opp>=1&&c.spend>=20).map(c=>({...c,cpo:c.spend/c.opp})).sort((a,b)=>a.cpo-b.cpo).slice(0,10);
+  const tblC=camps.length?`<div style="margin-top:14px"><b>Melhores campanhas (por CPO)</b><div style="overflow-x:auto"><table class="dim-tbl" style="margin-top:4px;font-size:12px"><thead><tr>
+    <th style="text-align:left">Campanha</th><th>Funil</th><th>Investimento</th><th>Leads</th><th>Oport.</th><th>CPO</th></tr></thead><tbody>
+    ${camps.map(c=>`<tr><td style="text-align:left;max-width:380px">${esc(c.k)}</td><td>${c.funnel}</td><td class="num">${fmtMoney0(c.spend)}</td><td class="num">${fmtNum(c.leads)}</td><td class="num">${fmtNum(c.opp)}</td><td class="num" style="color:#137333;font-weight:700">${fmtMoney0(c.cpo)}</td></tr>`).join('')}
+    </tbody></table></div></div>`:'';
+  return kpis+tblF+tblC;
+}
+function renderDirect(){
+  const w=sheetWindow();
+  const dr=S._sheet.direct.filter(r=>_inWin(r.date,w));
+  const spend=dr.reduce((s,r)=>s+r.spend,0), impr=dr.reduce((s,r)=>s+r.impr,0), clicks=dr.reduce((s,r)=>s+r.clicks,0), conv=dr.reduce((s,r)=>s+r.conv,0);
+  const cc=conv?spend/conv:0, ctr=impr?clicks/impr*100:0, cpc=clicks?spend/clicks:0;
+  const kpi=(l,v,s,cls='')=>`<div class="kpi ${cls}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||''}</div></div>`;
+  const kpis=`<div class="kpis">
+    ${kpi('Investimento',fmtMoney0(spend),'gasto em mídia')}
+    ${kpi('Conversas',fmtNum(conv),'mensagens iniciadas','good')}
+    ${kpi('Custo/Conversa',fmtMoney0(cc),'por conversa iniciada')}
+    ${kpi('Impressões',fmtNum(impr),'CTR '+ctr.toFixed(2)+'%')}
+    ${kpi('Cliques',fmtNum(clicks),'CPC '+fmtMoney0(cpc))}
+  </div>`;
+  const byE={}; dr.forEach(r=>{const g=(byE[r.expert]=byE[r.expert]||{k:r.expert,spend:0,conv:0,impr:0,clicks:0});g.spend+=r.spend;g.conv+=r.conv;g.impr+=r.impr;g.clicks+=r.clicks;});
+  const experts=Object.values(byE).sort((a,b)=>b.spend-a.spend);
+  const tblE=experts.length?`<div style="margin-top:14px"><b>Por expert</b><div style="overflow-x:auto"><table class="dim-tbl" style="margin-top:4px;font-size:12px"><thead><tr>
+    <th style="text-align:left">Expert</th><th>Investimento</th><th>Conversas</th><th>Custo/Conversa</th><th>CTR</th></tr></thead><tbody>
+    ${experts.map(g=>`<tr><td style="text-align:left;font-weight:600">${g.k}</td><td class="num">${fmtMoney0(g.spend)}</td><td class="num" style="font-weight:700">${fmtNum(g.conv)}</td><td class="num" style="color:#137333;font-weight:700">${g.conv?fmtMoney0(g.spend/g.conv):'—'}</td><td class="num">${g.impr?(g.clicks/g.impr*100).toFixed(2)+'%':'—'}</td></tr>`).join('')}
+    </tbody></table></div></div>`:'';
+  const byC={}; dr.forEach(r=>{const k=r.campaign||'(sem campanha)';const g=(byC[k]=byC[k]||{k,spend:0,conv:0,expert:r.expert});g.spend+=r.spend;g.conv+=r.conv;});
+  const camps=Object.values(byC).filter(c=>c.conv>=1&&c.spend>=20).map(c=>({...c,cc:c.spend/c.conv})).sort((a,b)=>a.cc-b.cc).slice(0,10);
+  const tblC=camps.length?`<div style="margin-top:14px"><b>Melhores campanhas (por custo/conversa)</b><div style="overflow-x:auto"><table class="dim-tbl" style="margin-top:4px;font-size:12px"><thead><tr>
+    <th style="text-align:left">Campanha</th><th>Expert</th><th>Investimento</th><th>Conversas</th><th>Custo/Conversa</th></tr></thead><tbody>
+    ${camps.map(c=>`<tr><td style="text-align:left;max-width:380px">${esc(c.k)}</td><td>${c.expert}</td><td class="num">${fmtMoney0(c.spend)}</td><td class="num">${fmtNum(c.conv)}</td><td class="num" style="color:#137333;font-weight:700">${fmtMoney0(c.cc)}</td></tr>`).join('')}
+    </tbody></table></div></div>`:'';
+  return kpis+tblE+tblC;
+}
 function renderDashboard(A){
   if(currentFunnel().backend) return renderBackendView(A); // backend não tem mídia: visão própria
   if(!A.rows.length){
@@ -2144,7 +2281,7 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); refreshData(); }
+function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); if(S.view!=='criativos'&&currentFunnel().sheet){ render(); } else { refreshData(); } }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
