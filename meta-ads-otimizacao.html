@@ -90,6 +90,52 @@ summary{cursor:pointer;font-weight:600;color:#7b2ff7;font-size:13px}
 .rk-esc{background:#e6f7ec;color:#137333}.rk-at{background:#fdf3e0;color:#b26a00}.rk-cut{background:#fdeeee;color:#c5221f}.rk-res{background:#f3eefe;color:#7b2ff7}
 .ins-row{padding:8px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:7px;font-size:13px;line-height:1.5}
 .ins-row .rk-tag{margin-right:6px}
+/* ── Modo escuro ─────────────────────────────────────────────── */
+body.dark{background:#0f0f14;color:#e6e6ec}
+body.dark .card{background:#1b1b23;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+body.dark h1{color:#a97bff}
+body.dark h2{color:#e6e6ec}
+body.dark h3{color:#b9b9c4}
+body.dark .sub,body.dark .mini,body.dark .kpi .k-s{color:#9a9aa6}
+body.dark .btn-gray{background:#2c2c38;color:#e6e6ec}body.dark .btn-gray:not(:disabled):hover{background:#3a3a48}
+body.dark label{color:#9a9aa6}
+body.dark input,body.dark select{background:#22222c;border-color:#38384a;color:#e6e6ec}
+body.dark input::placeholder{color:#6b6b78}
+body.dark .chip{background:#26262f;color:#d6d6de}
+body.dark .chip:hover{background:#32323d}
+body.dark .chip.active{background:#7b2ff7;color:#fff}
+body.dark th,body.dark td{border-bottom-color:#2c2c38}
+body.dark th{background:#20202a;color:#9a9aa6}
+body.dark tr.total{background:#2a2340}
+body.dark tbody tr:hover{background:#ffffff08}
+body.dark .tbl-wrap{border-color:#2c2c38}
+body.dark .empty{color:#8a8a96}
+body.dark .info-box{background:#16263d;color:#7ab0f5}
+body.dark .warn-box{background:#3a2e12;color:#e0a94a}
+body.dark .err-box{background:#3a1a18;color:#f0837a}
+body.dark .token-item{background:#22222c}
+body.dark .kpi{background:#22222c;border-color:#33333f}
+body.dark .kpi .k-l{color:#9a9aa6}
+body.dark .kpi.danger{background:#331a1a;border-color:#5a2626}
+body.dark .kpi.good{background:#17301f;border-color:#245036}
+body.dark .item{border-color:#2c2c38}
+body.dark .item.bom{background:#17301f;border-color:#245036}
+body.dark .item.ruim{background:#331a1a;border-color:#5a2626}
+body.dark .item.observar{background:#332d16;border-color:#544a1f}
+body.dark .item .i-reason{color:#b9b9c4}
+body.dark .item .i-sub{color:#8a8a96}
+body.dark .act{background:#22202c;border-left-color:#a97bff}
+body.dark .act b{color:#a97bff}
+body.dark .pill{background:#2c2c38;color:#b9b9c4}
+body.dark .subtab{background:#2a2340;border-color:#3d3358;color:#c4adf0}
+body.dark .subtab.on{background:#7b2ff7;border-color:#7b2ff7;color:#fff}
+body.dark .drill{color:#a97bff}
+body.dark .ins-row{border-color:#2c2c38}
+body.dark .rk-esc{background:#17301f;color:#5fd88a}body.dark .rk-at{background:#332d16;color:#e0a94a}body.dark .rk-cut{background:#331a1a;color:#f0837a}body.dark .rk-res{background:#2a2340;color:#c4adf0}
+body.dark summary{color:#a97bff}
+body.dark .b-novo{background:#2c2c38;color:#b9b9c4}
+body.dark .theme-tgl{background:#2c2c38;color:#ffd76a}
+.theme-tgl{background:#e4e6eb;color:#7b4a00;padding:8px 12px;border:none;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -230,6 +276,7 @@ function matchFunnel(name){
 }
 function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; const _f=FUNNELS.find(f=>f.key===k); if(_f&&!_f.sheet) S.lastPerp=k; saveState(); render(); }
 function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
+function toggleDark(){ S.darkMode=!S.darkMode; document.body.classList.toggle('dark',S.darkMode); saveState(); render(); }
 function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
 // ── Seleção em massa ─────────────────────────────────────────────────────────
@@ -927,7 +974,7 @@ function renderBulkBar(){
       </span>
       <span style="display:inline-flex;align-items:center;gap:4px">
         <select id="bulk-red-pct" style="width:auto;padding:3px 6px;font-size:12px;border-radius:4px;border:1px solid #555;background:#2d2a5e;color:#fff">
-          <option value="0.85">-15%</option><option value="0.8">-20%</option><option value="0.7" selected>-30%</option><option value="0.5">-50%</option>
+          <option value="0.85">-15%</option><option value="0.8">-20%</option><option value="0.7" selected>-30%</option><option value="0.5">-50%</option><option value="0.3">-70%</option>
         </select>
         <button class="btn btn-sm" style="background:#f59e0b;color:#000;padding:4px 12px;border-radius:6px" onclick="execBulk('REDUZIR',parseFloat(document.getElementById('bulk-red-pct').value))">Reduzir</button>
       </span>
@@ -950,6 +997,7 @@ function renderControls(A){
     <div class="row" style="justify-content:space-between">
       <div class="connected"><span class="dot"></span> Conectado · ${S.accounts.length} conta(s) ${S.lastRefresh?`· <span class="mini">atualizado ${S.lastRefresh.toLocaleTimeString('pt-BR')}</span>`:''}</div>
       <div class="row">
+        <button class="theme-tgl" onclick="toggleDark()" title="Alternar modo claro/escuro">${S.darkMode?'☀️':'🌙'}</button>
         <button class="btn btn-gray" onclick="refreshData()" ${S.refreshing?'disabled':''}>${S.refreshing?'<span class="loading"></span> ':''}Atualizar</button>
         <button class="btn btn-gray" onclick="disconnect()">Desconectar</button>
       </div>
@@ -1218,20 +1266,22 @@ function drawSheetCharts(){
   const barEl=document.getElementById('shBar'),dnEl=document.getElementById('shDonut');
   if(!barEl)return;
   Chart.defaults.font.size=11;
+  Chart.defaults.color=S.darkMode?'#b9b9c4':'#666';
+  Chart.defaults.borderColor=S.darkMode?'#2c2c38':'#e6e6e6';
   if(currentFunnel().sheet==='sessao'){
     const {inv,lds}=sheetScope(),ib={},ob={};days.forEach(d=>{ib[d]=0;ob[d]=0;});
     inv.forEach(r=>{if(ib[r.date]!=null)ib[r.date]+=r.spend;});lds.forEach(r=>{if(r.opp&&ob[r.date]!=null)ob[r.date]++;});
     const iA=days.map(d=>ib[d]),oA=days.map(d=>ob[d]),cA=days.map((d,i)=>oA[i]?iA[i]/oA[i]:null);
     _sheetCharts.bar=new Chart(barEl,{data:{labels,datasets:[{type:'bar',label:'Investimento',data:iA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},{type:'bar',label:'Oportunidade',data:oA,backgroundColor:'#c9b3f0',yAxisID:'y1',order:3},{type:'line',label:'CPO',data:cA,borderColor:'#7b2ff7',backgroundColor:'#7b2ff7',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}]},options:shBarOpts()});
     const bf={NATIVO:0,CARTA:0,FLP:0};lds.forEach(r=>{if(r.opp)bf[r.funnel]=(bf[r.funnel]||0)+1;});
-    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:['Nativo','Carta/Consult.','FLP'],datasets:[{data:[bf.NATIVO,bf.CARTA,bf.FLP],backgroundColor:['#ff6a00','#c9b3f0','#7b2ff7'],borderColor:'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:['Nativo','Carta/Consult.','FLP'],datasets:[{data:[bf.NATIVO,bf.CARTA,bf.FLP],backgroundColor:['#ff6a00','#c9b3f0','#7b2ff7'],borderColor:S.darkMode?'#1b1b23':'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
   }else{
     const {dir}=sheetScope(),ib={},cb={};days.forEach(d=>{ib[d]=0;cb[d]=0;});
     dir.forEach(r=>{if(ib[r.date]!=null){ib[r.date]+=r.spend;cb[r.date]+=r.conv;}});
     const iA=days.map(d=>ib[d]),cvA=days.map(d=>cb[d]),ccA=days.map((d,i)=>cvA[i]?iA[i]/cvA[i]:null);
     _sheetCharts.bar=new Chart(barEl,{data:{labels,datasets:[{type:'bar',label:'Investimento',data:iA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},{type:'bar',label:'Conversas',data:cvA,backgroundColor:'#c9b3f0',yAxisID:'y1',order:3},{type:'line',label:'Custo/Conversa',data:ccA,borderColor:'#7b2ff7',backgroundColor:'#7b2ff7',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}]},options:shBarOpts()});
     const be={};dir.forEach(r=>{be[r.expert]=(be[r.expert]||0)+r.conv;});const ent=Object.entries(be).sort((a,b)=>b[1]-a[1]);
-    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:ent.map(e=>e[0]),datasets:[{data:ent.map(e=>e[1]),backgroundColor:['#ff6a00','#7b2ff7','#c9b3f0','#ffb27a','#5a2ca0'],borderColor:'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:ent.map(e=>e[0]),datasets:[{data:ent.map(e=>e[1]),backgroundColor:['#ff6a00','#7b2ff7','#c9b3f0','#ffb27a','#5a2ca0'],borderColor:S.darkMode?'#1b1b23':'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
   }
 }
 function shBarOpts(){return {maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top'}},scales:{y:{position:'left',ticks:{callback:v=>'R$'+v}},y1:{position:'right',grid:{drawOnChartArea:false}}}};}
@@ -2160,7 +2210,7 @@ function renderComparativoCard(A){
         <button class="btn btn-red btn-sm" style="margin-top:4px;padding:3px 9px" onclick="execAcao('${c.id}')">Pausar</button>
         <div class="row" style="gap:4px;margin-top:4px;align-items:center;flex-wrap:nowrap">
           <select id="${selId}" style="padding:2px 3px;font-size:12px;width:auto">
-            <option value="0.7">reduzir 30%</option><option value="0.5">reduzir 50%</option><option value="0.3">reduzir 70%</option>
+            <option value="0.85">reduzir 15%</option><option value="0.8">reduzir 20%</option><option value="0.7">reduzir 30%</option><option value="0.5">reduzir 50%</option><option value="0.3">reduzir 70%</option>
           </select>
           <button class="btn btn-gray btn-sm" style="padding:3px 9px" title="Já rodou bem antes? Mantém no ar com orçamento menor em vez de pausar." onclick="execCustom('${c.id}','REDUZIR',parseFloat(document.getElementById('${selId}').value))">Manter reduzida</button>
         </div>
@@ -2497,6 +2547,7 @@ function setCustomDate(which, value){
 }
 function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
+if(S.darkMode) document.body.classList.add('dark');
 render();
 </script>
 </body>
