@@ -208,6 +208,19 @@ function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 // Funil: normaliza (sem acento, minúsculo) e casa nome da campanha com o funil + refino opcional
 function norm(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
 function currentFunnel(){ return FUNNELS.find(f=>f.key===S.funnel) || FUNNELS[0]; }
+// ── Iniciativas: Perpétuo (Nath/Tomé/Coelho/Backend) · Sessão · Direct ──────
+const INICIATIVAS=[['perpetuo','Perpétuo','🔁'],['sessao','Sessão','🎯'],['direct','Direct','💬']];
+function currentIniciativa(){
+  if(S.view==='criativos') return 'perpetuo';
+  const f=currentFunnel();
+  return f.sheet==='sessao'?'sessao':(f.sheet==='direct'?'direct':'perpetuo');
+}
+function setIniciativa(k){
+  if(k===currentIniciativa()) return;
+  if(k==='sessao'){ S.view='dash'; setFunnel('SESSAO'); }
+  else if(k==='direct'){ S.view='dash'; setFunnel('DIRECT'); }
+  else { const back=(S.lastPerp&&FUNNELS.some(f=>f.key===S.lastPerp&&!f.sheet))?S.lastPerp:'NATH'; S.view='dash'; setFunnel(back); }
+}
 function matchFunnel(name){
   const f=currentFunnel(), n=norm(name);
   if(f.match && !n.includes(norm(f.match))) return false;
@@ -215,7 +228,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; const _f=FUNNELS.find(f=>f.key===k); if(_f&&!_f.sheet) S.lastPerp=k; saveState(); render(); }
 function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=null; saveState(); render(); }
 function setSelCampaign(id){ S.selCampaign=id||''; S._intraday=null; saveState(); render(); }
@@ -942,12 +955,16 @@ function renderControls(A){
       </div>
     </div>
     <hr>
-    <div class="row" style="margin-bottom:12px;padding:8px 10px;background:#faf9ff;border-radius:10px">
-      <label style="margin:0 8px 0 0;color:#7b2ff7">Organização:</label>
-      ${FUNNELS.map(f=>`<button class="chip ${S.view!=='criativos'&&S.funnel===f.key?'active':''}" onclick="setView('dash');setFunnel('${f.key}')">${f.emoji} ${f.label}</button>`).join('')}
+    <div class="row" style="margin-bottom:8px;padding:8px 10px;background:#f2ecff;border-radius:10px;border:1px solid #e0d8f5">
+      <label style="margin:0 8px 0 0;color:#5a2ca0;font-weight:700">Iniciativa:</label>
+      ${INICIATIVAS.map(([k,l,e])=>`<button class="chip ${currentIniciativa()===k?'active':''}" onclick="setIniciativa('${k}')" style="font-weight:700${currentIniciativa()===k?';background:#5a2ca0;color:#fff':''}">${e} ${l}</button>`).join('')}
+    </div>
+    ${currentIniciativa()==='perpetuo'?`<div class="row" style="margin-bottom:12px;padding:8px 10px;background:#faf9ff;border-radius:10px">
+      <label style="margin:0 8px 0 0;color:#7b2ff7">Funil:</label>
+      ${FUNNELS.filter(f=>!f.sheet).map(f=>`<button class="chip ${S.view!=='criativos'&&S.funnel===f.key?'active':''}" onclick="setView('dash');setFunnel('${f.key}')">${f.emoji} ${f.label}</button>`).join('')}
       <span style="border-left:2px solid #e0d8f5;height:24px;margin:0 6px"></span>
       <button class="chip ${S.view==='criativos'?'active':''}" onclick="setView('criativos')" style="${S.view==='criativos'?'background:#7b2ff7;color:#fff':''}">🎨 Criativos</button>
-    </div>
+    </div>`:''}
     <div class="row" style="margin-bottom:12px">
       <label style="margin:0 6px 0 0">Período:</label>
       ${PERIODS.map(([k,l])=>`<button class="chip ${S.period===k?'active':''}" onclick="setPeriod('${k}')">${l}</button>`).join('')}
