@@ -231,7 +231,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -280,7 +280,7 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; const _f=FUNNELS.find(f=>f.key===k); if(_f&&!_f.sheet) S.lastPerp=k; saveState(); render(); }
+function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; const _f=FUNNELS.find(f=>f.key===k); if(_f&&!_f.sheet) S.lastPerp=k; saveState(); render(); if(_f&&!_f.sheet&&!_f.backend) refreshFunnelTotal(); }
 function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
 function toggleDark(){ S.darkMode=!S.darkMode; document.body.classList.toggle('dark',S.darkMode); saveState(); render(); }
 function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=null; saveState(); render(); }
@@ -833,6 +833,19 @@ function attachRevenue(rows){
   });
 }
 
+// Re-busca só a receita do funil selecionado (funnel_revenue é o único dado específico do funil).
+// Chamado ao trocar de funil, pois refreshData (que busca tudo) só roda em conectar/Atualizar/período.
+async function refreshFunnelTotal(){
+  if(!S.connected) return;
+  if(!S._rev){ await refreshData(); return; }
+  S._revFunilLoading=true; render();
+  try{
+    const {since,until}=periodRange(S.period);
+    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})});
+    if(r.ok){ const o=(await r.json())[0]||{}; S._rev.funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; }
+  }catch(_){}
+  S._revFunilLoading=false; render();
+}
 async function refreshData(){
   if(S.refreshing) return;
   S.refreshing=true; render();
@@ -1366,7 +1379,7 @@ function renderKPIs(A){
     <h2>Panorama · ${currentFunnel().emoji} ${esc(currentFunnel().label)} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
-      <div class="kpi"><div class="k-l">Receita do funil${temFunnel?' (Assiny)':''}</div><div class="k-v">${fmtMoney0(funnelReceita)}</div><div class="k-s">Meta ${fmtMoney0(T.receita)} · ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
+      <div class="kpi"><div class="k-l">Receita do funil${temFunnel?' (Assiny)':''}</div><div class="k-v">${S._revFunilLoading?'<span class="loading"></span>':fmtMoney0(funnelReceita)}</div><div class="k-s">Meta ${fmtMoney0(T.receita)} · ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
       <div class="kpi ${lucroKpiCls}"><div class="k-l">💰 Lucro</div><div class="k-v" style="color:${lucroColor}">${fmtMoney0(lucro)}</div><div class="k-s">margem ${margem!=null?margem.toFixed(0)+'%':'—'} · ${fmtMoney0(lucro/A.days)}/dia</div></div>
       <div class="kpi"><div class="k-l">Vendas front</div><div class="k-v">${fmtNum(T.front)}</div><div class="k-s">${fmtNum(T.total)} totais</div></div>
       <div class="kpi"><div class="k-l">CPA médio (front)</div><div class="k-v">${fmtMoney0(A.blendedCPA)}</div><div class="k-s">ticket ${fmtMoney0(T.front>0?T.receita/T.front:0)}</div></div>
