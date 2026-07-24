@@ -1988,7 +1988,7 @@ function renderCreativeAnalysis(ads){
 function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
-  let adsHtml; let usdRate=5.40; let _adsAnalysis=null;
+  let adsHtml; let usdRate=5.40; let _adsAnalysis=null; let ideiasHtml='';
   const _nathRef=_isNathCriativos()&&S._refData;
   if((S._topAdsLoading&&!_nathRef)||S._refLoading){ adsHtml=`<div class="empty"><span class="loading"></span> Carregando anúncios…</div>`; }
   else if(!_nathRef&&S._topAds==null){ adsHtml=`<button class="btn btn-purple" onclick="loadTopAds()">Carregar melhores anúncios</button>`; }
@@ -2198,6 +2198,55 @@ function renderTopAdsAudiences(A){
       const lbl=ca?'análise do criativo (diagnóstico + áudio/visual)':'diagnóstico de performance';
       return `<details style="margin-top:2px"><summary class="mini" style="cursor:pointer;color:#7b2ff7;font-weight:600">${ic} ${lbl} ${badge}</summary><div style="padding:8px 10px 4px 12px;border-left:2px solid #d8c9f5;margin-top:4px;font-size:12px;line-height:1.5;max-height:520px;overflow:auto">${deepDiag(a,ca)}${ca?`<div style="font-weight:700;margin:12px 0 4px;color:#5a2ca0">🎬 Análise de áudio & visual (completa)</div>${ca.html}`:''}</div></details>`;
     };
+    // ── Ideias de teste de comunicação (hipóteses de criativo) ──────────
+    (()=>{
+      const CA=(nm)=>(S._critAnalise||{})[nm]||{};
+      const I=[]; const rel=ads.filter(x=>x.spend>=3000);
+      const withV=rel.filter(x=>_vm[x.name]&&_vm[x.name].v3>=100);
+      // 1. Gancho vencedor + corpo vencedor
+      if(withV.length>=2){
+        const bh=withV.slice().sort((x,y)=>_vm[y.name].hook-_vm[x.name].hook)[0];
+        const bd=withV.slice().sort((x,y)=>_vm[y.name].hold-_vm[x.name].hold)[0];
+        if(bh.name!==bd.name){
+          const hk=CA(bh.name).hook;
+          I.push(`<b>Junte o melhor gancho com o melhor corpo.</b> "${esc(bh.name)}" tem o maior hook (${_pct(_vm[bh.name].hook)} param o dedo) e "${esc(bd.name)}" a maior retenção (${_pct(_vm[bd.name].hold,0)} seguram). Grave uma peça com a <b>abertura do primeiro</b> e o <b>desenvolvimento do segundo</b>.${hk?` Abertura a reaproveitar: <i>"${esc(hk.slice(0,110))}…"</i>`:''}`);
+        }
+      }
+      // 2. Trocar CTA perdedor pelo vencedor
+      if(bestCta&&worstCta&&bestCta.k!==worstCta.k){
+        const alvos=rel.filter(x=>CA(x.name).cta===worstCta.k).sort((x,y)=>y.spend-x.spend).slice(0,3);
+        if(alvos.length){
+          const verba=alvos.reduce((t,x)=>t+x.spend,0);
+          const ganho=((bestCta.roas/worstCta.roas-1)*100).toFixed(0);
+          I.push(`<b>Regrave só o fechamento trocando o CTA.</b> CTA de <b>${esc(bestCta.k)}</b> rende ROAS ${fmtRoas(bestCta.roas)} contra ${fmtRoas(worstCta.roas)} do <b>${esc(worstCta.k)}</b> (${ganho}% melhor). Comece por: ${alvos.map(x=>'<b>'+esc(x.name)+'</b>').join(', ')} — juntos ${fmtMoney0(verba)} rodando no CTA pior.`);
+        }
+      }
+      // 3. Levar ângulo vencedor para outro formato
+      const imgs=rel.filter(x=>CA(x.name).kind==='image');
+      if(imgs.length&&angRank.length){
+        const angImg=new Set(imgs.map(x=>CA(x.name).angle).filter(Boolean));
+        const falta=angRank.filter(x=>!angImg.has(x.k)).slice(0,2);
+        if(falta.length) I.push(`<b>Teste os ângulos vencedores em imagem estática.</b> Suas imagens hoje só exploram ${[...angImg].map(x=>'"'+esc(x)+'"').join(' e ')||'um ângulo só'}. Os ângulos ${falta.map(x=>`<b>"${esc(x.k)}"</b> (ROAS ${fmtRoas(x.roas)})`).join(' e ')} <b>nunca foram testados em estático</b>. Crie 2 estáticos de cada.`);
+      }
+      // 4. Clonar a estrutura do vencedor
+      const win=rel.filter(x=>x.front>=30&&x.roas!=null).sort((x,y)=>y.roas-x.roas)[0];
+      if(win) I.push(`<b>Clone a estrutura do vencedor.</b> "${esc(win.name)}" é o melhor ROAS com volume (${fmtRoas(win.roas)}, ${fmtNum(win.front)} vendas, CPA ${win.cpa!=null?fmtMoney0(win.cpa):'—'}). Produza <b>3 variações trocando um elemento por vez</b> (só o gancho / só a prova / só o CTA) para isolar o que sustenta o resultado.`);
+      // 5. Oportunidade x desconto (achado das imagens)
+      I.push(`<b>Liderar com oportunidade, não com desconto.</b> Entre as imagens, as que colocam a <b>oportunidade/alinhamento</b> como herói ("a Amazon está me pagando", "bolsa empresarial") batem as que colocam o <b>preço</b> como herói ("de R$1.147 por R$37"). Pegue os criativos que gritam desconto e refaça a headline vendendo a <b>vaga/oportunidade</b>, deixando o preço como selo pequeno.`);
+      // 6. Qualificar o lead (faixa)
+      const semCaixa=rel.filter(x=>{const r=(x.fa||0)+(x.fb||0)+(x.fc||0)+(x.fsem||0);return r>=30&&BM.ab&&((x.fa||0)+(x.fb||0))/r*100<=BM.ab*0.8;}).sort((x,y)=>y.spend-x.spend).slice(0,2);
+      if(semCaixa.length) I.push(`<b>Adicione uma linha que filtra quem não tem caixa.</b> ${semCaixa.map(x=>'<b>'+esc(x.name)+'</b>').join(' e ')} traz proporção de Faixa A+B abaixo da média — vende no front mas não sobe pro alto ticket. Teste incluir no roteiro algo como <i>"você vai precisar de um capital inicial para o estoque"</i> e meça se o CPA sobe pouco mas a faixa A+B melhora.`);
+      // 7. Consertar retenção
+      const quebra=withV.filter(x=>BM.hook&&BM.hold&&_vm[x.name].hook>=BM.hook*1.1&&_vm[x.name].hold<=BM.hold*0.8).sort((x,y)=>y.spend-x.spend).slice(0,2);
+      if(quebra.length) I.push(`<b>Corte o meio dos vídeos que prendem e depois perdem.</b> ${quebra.map(x=>`<b>${esc(x.name)}</b> (hook ${_pct(_vm[x.name].hook)} mas hold ${_pct(_vm[x.name].hold,0)})`).join(' e ')}: a abertura funciona, o desenvolvimento não. Teste uma versão <b>30–40% mais curta</b> adiantando a oferta.`);
+      // 8. Ângulo campeão sub-explorado
+      if(angRank.length>1){
+        const top1=angRank[0];
+        const gasto=_byAng[top1.k]?_byAng[top1.k].s:0, total=Object.values(_byAng).reduce((t,g)=>t+g.s,0);
+        if(total>0&&gasto/total<0.35) I.push(`<b>O ângulo campeão está sub-explorado.</b> "${esc(top1.k)}" tem o melhor ROAS (${fmtRoas(top1.roas)}) mas leva só ${(gasto/total*100).toFixed(0)}% da verba de criativo. Produza <b>4 a 6 peças novas nesse ângulo</b> antes de testar ângulo novo.`);
+      }
+      if(I.length) ideiasHtml=`<div class="card" style="margin-top:14px"><h3 style="margin:0 0 10px">🧪 Ideias de teste de comunicação <span class="mini" style="text-transform:none;font-weight:400">hipóteses geradas dos seus próprios dados — o que gravar/escrever a seguir</span></h3>${I.map(x=>`<div class="act">${x}</div>`).join('')}</div>`;
+    })();
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
         <div class="i-sub">${fmtMoney0(a.spend)} gasto · <b>${fmtMoney0(a.receita)} receita</b> · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
@@ -2247,6 +2296,7 @@ function renderTopAdsAudiences(A){
       </select>
     </div>
     ${adsHtml}
+    ${ideiasHtml}
     ${renderVideoAnalysis()}
     ${_nathRef&&_adsAnalysis?renderCreativeAnalysis(_adsAnalysis):''}
     <hr style="margin:16px 0">
