@@ -141,6 +141,7 @@ body.dark .theme-tgl{background:#2c2c38;color:#ffd76a}
 body.dark .init-bar{background:#211b33;border-color:#332a4d}
 body.dark .init-bar label{color:#b79bf0}
 body.dark .funil-bar{background:#1b1b23;border:1px solid #2c2c38}
+body.dark details div[style*="color:#5a2ca0"]{color:#b79bf0 !important}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
@@ -230,7 +231,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _refLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -619,6 +620,8 @@ async function fetchRefData(){
       }
     }catch(_){}
   }catch(e){ console.warn('[Ref] erro:', e); S._refData=null; }
+  // análise de criativos (áudio+visual) — não bloqueia o ref
+  try{ if(!S._critAnalise){ const ca=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/criativos-analise.json?v='+Date.now()); if(ca.ok) S._critAnalise=await ca.json(); } }catch(_){}
   S._refLoading=false; render();
 }
 
@@ -2048,12 +2051,19 @@ function renderTopAdsAudiences(A){
         `<div class="mini" style="margin-bottom:2px">${esc(a.name)} <span style="color:#999">[${a.cur}]</span> · ${a.n} ads · raw ${a.cur==='USD'?'US$':'R$'}${fmtNum(Math.round(a.raw))} · conv R$ ${fmtNum(Math.round(a.brl))}</div>`
       ).join('')}</div></details>`;
     };
+    const analiseLine=(g)=>{
+      const ca=(S._critAnalise||{})[g.name]; if(!ca) return '';
+      const ic=ca.kind==='image'?'🖼️':'🎬';
+      const badge=ca.kind==='image'?'<span class="mini" style="color:#7b2ff7">imagem</span>':'<span class="mini" style="color:#0891b2">vídeo</span>';
+      return `<details style="margin-top:2px"><summary class="mini" style="cursor:pointer;color:#7b2ff7;font-weight:600">${ic} análise do criativo (áudio + visual) ${badge}</summary><div style="padding:8px 10px 4px 12px;border-left:2px solid #d8c9f5;margin-top:4px;font-size:12px;line-height:1.5;max-height:420px;overflow:auto">${ca.html}</div></details>`;
+    };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
         <div class="i-sub">${fmtMoney0(a.spend)} gasto · <b>${fmtMoney0(a.receita)} receita</b> · ${a.front} front / ${a.total} tot · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · CTR ${fmtPct(a.ctr)}</div>
         ${faixaLine(a)}
         ${variantLine(a)}
         ${accLine(a)}
+        ${analiseLine(a)}
       </div>`).join('')
       : `<div class="empty">${q?'Nenhum anúncio encontrado para "'+esc(q)+'"':'Nenhum anúncio com venda no período para '+esc(currentFunnel().label)}.</div>`;
   }
