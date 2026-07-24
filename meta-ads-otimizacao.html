@@ -90,6 +90,8 @@ summary{cursor:pointer;font-weight:600;color:#7b2ff7;font-size:13px}
 .rk-esc{background:#e6f7ec;color:#137333}.rk-at{background:#fdf3e0;color:#b26a00}.rk-cut{background:#fdeeee;color:#c5221f}.rk-res{background:#f3eefe;color:#7b2ff7}
 .ins-row{padding:8px 12px;border:1px solid #eee;border-radius:8px;margin-bottom:7px;font-size:13px;line-height:1.5}
 .ins-row .rk-tag{margin-right:6px}
+.leitura-box{margin-top:6px;padding:8px 12px;border:1px solid #e0d8f5;border-radius:8px;background:#faf9ff;font-size:12px;line-height:1.55}
+body.dark .leitura-box{background:#211b33;border-color:#33294d}
 /* ── Modo escuro ─────────────────────────────────────────────── */
 body.dark{background:#0f0f14;color:#e6e6ec}
 body.dark .card{background:#1b1b23;box-shadow:0 1px 4px rgba(0,0,0,.4)}
@@ -2064,6 +2066,22 @@ function renderTopAdsAudiences(A){
         `<div class="mini" style="margin-bottom:2px">${esc(a.name)} <span style="color:#999">[${a.cur}]</span> · ${a.n} ads · raw ${a.cur==='USD'?'US$':'R$'}${fmtNum(Math.round(a.raw))} · conv R$ ${fmtNum(Math.round(a.brl))}</div>`
       ).join('')}</div></details>`;
     };
+    const leituraPerf=(a)=>{
+      const ca=(S._critAnalise||{})[a.name]||{};
+      const be=parseFloat(A.roasAlvo)||1, roas=a.roas;
+      const spendK=a.spend>=1000?('R$'+(a.spend/1000).toFixed(0)+'k'):fmtMoney0(a.spend);
+      const resp=(a.fa||0)+(a.fb||0)+(a.fc||0)+(a.fsem||0);
+      const abPct=resp>0?Math.round(((a.fa||0)+(a.fb||0))/resp*100):null;
+      let verd,cor,why;
+      if(roas==null){ verd='SEM DADO';cor='#888';why='sem receita atribuída no período'; }
+      else if(roas>=be){ verd='ESCALAR';cor='#137333';why=a.spend<50000?'no lucro e ainda com pouco gasto — tem espaço pra escalar':'no lucro, mantém/escala aos poucos'; }
+      else if(roas>=be*0.85){ verd='OBSERVAR';cor='#b26a00';why='perto do breakeven — deixar rodar e otimizar'; }
+      else { verd=a.spend>=100000?'CORTAR':'ATENÇÃO';cor='#c5221f';why=a.spend>=100000?'alto gasto com ROAS fraco — está drenando caixa':'ROAS abaixo do breakeven'; }
+      const p=[`ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b> (${spendK} gasto · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'}${abPct!=null?' · A+B '+abPct+'% entre respondentes':''})`];
+      if(ca.angle) p.push(`<b>${esc(ca.angle)}</b>${ca.angleWhy?' — '+esc(ca.angleWhy):''}`);
+      p.push(`<b style="color:${cor}">${verd}</b>: ${why}`);
+      return `<div class="leitura-box"><b>📈 Leitura de performance:</b> ${p.join('. ')}.</div>`;
+    };
     const analiseLine=(g)=>{
       const ca=(S._critAnalise||{})[g.name]; if(!ca) return '';
       const ic=ca.kind==='image'?'🖼️':'🎬';
@@ -2077,6 +2095,7 @@ function renderTopAdsAudiences(A){
         ${variantLine(a)}
         ${accLine(a)}
         ${analiseLine(a)}
+        ${leituraPerf(a)}
       </div>`).join('')
       : `<div class="empty">${q?'Nenhum anúncio encontrado para "'+esc(q)+'"':'Nenhum anúncio com venda no período para '+esc(currentFunnel().label)}.</div>`;
   }
