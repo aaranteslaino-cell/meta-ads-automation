@@ -2106,55 +2106,97 @@ function renderTopAdsAudiences(A){
     const ctaRank=Object.entries(_byCta).filter(([,g])=>g.s>=5000).map(([k,g])=>({k,roas:g.r/g.s})).sort((a,b)=>b.roas-a.roas);
     const bestCta=ctaRank[0]||null, worstCta=ctaRank.length>1?ctaRank[ctaRank.length-1]:null;
 
-    const sugestoes=(a)=>{
-      const ca=(S._critAnalise||{})[a.name]||{}, v=_vm[a.name];
-      const s=[];
+    // ── Diagnóstico profundo por criativo ────────────────────────────────
+    const _pct=(x,d=1)=>x==null?'—':x.toFixed(d)+'%';
+    const deepDiag=(a,ca)=>{
+      ca=ca||{}; const v=_vm[a.name];
+      const be=parseFloat(A.roasAlvo)||1;
+      const conv=a.clicks>0?a.front/a.clicks*100:null;
+      const ticket=a.front>0?a.receita/a.front:0;
+      const resp=(a.fa||0)+(a.fb||0)+(a.fc||0)+(a.fsem||0);
+      const ab=resp>0?((a.fa||0)+(a.fb||0))/resp*100:null;
+      const S_=[];
+
+      // 1) Funil do criativo
+      let funil='';
       if(v&&v.v3>=100){
-        const hookHi=BM.hook&&v.hook>=BM.hook*1.15, hookLo=BM.hook&&v.hook<=BM.hook*0.85;
-        const holdHi=BM.hold&&v.hold>=BM.hold*1.15, holdLo=BM.hold&&v.hold<=BM.hold*0.85;
-        if(hookHi&&holdLo) s.push(`<b>Gancho forte, corpo fraco.</b> Hook ${v.hook.toFixed(1)}% (mediana ${BM.hook.toFixed(1)}%) mas hold ${v.hold.toFixed(0)}% (mediana ${BM.hold.toFixed(0)}%): a abertura prende, o meio perde. <i>Reaproveite os 3 primeiros segundos em outro roteiro e refaça o corpo.</i>`);
-        else if(hookLo&&holdHi) s.push(`<b>Corpo bom, gancho fraco.</b> Hook ${v.hook.toFixed(1)}% abaixo da mediana (${BM.hook.toFixed(1)}%) mas hold ${v.hold.toFixed(0)}% acima: quem para assiste. <i>Troque só os 3 primeiros segundos — o vídeo já entrega.</i>`);
-        else if(hookHi&&holdHi) s.push(`<b>Gancho e retenção acima da média</b> (hook ${v.hook.toFixed(1)}% · hold ${v.hold.toFixed(0)}%). <i>É um vencedor de atenção: use este hook como base para novos criativos.</i>`);
-        else if(hookLo) s.push(`<b>Gancho fraco</b> (${v.hook.toFixed(1)}% vs mediana ${BM.hook.toFixed(1)}%): pouca gente para o dedo. <i>Teste uma abertura nova mantendo o resto.</i>`);
-        else if(holdLo) s.push(`<b>Retenção baixa</b> (hold ${v.hold.toFixed(0)}% vs ${BM.hold.toFixed(0)}%): perde quem parou. <i>Encurte o meio ou adiante a promessa.</i>`);
-        if(BM.ctrView&&v.ctrView>=BM.ctrView*1.3) s.push(`<b>CTA muito eficiente</b>: ${v.ctrView.toFixed(1)}% de cliques sobre quem assistiu (mediana ${BM.ctrView.toFixed(1)}%). <i>Replique esse CTA nos outros criativos.</i>`);
-        else if(BM.ctrView&&v.ctrView<=BM.ctrView*0.7) s.push(`<b>CTA fraco</b>: só ${v.ctrView.toFixed(1)}% clicam entre quem assiste (mediana ${BM.ctrView.toFixed(1)}%). <i>O vídeo entrega mas o fechamento não converte — teste outro CTA.</i>`);
+        funil=`<b>${fmtNum(a.imp)}</b> impressões → <b>${_pct(v.hook)}</b> pararam (3s) → <b>${_pct(v.hold,0)}</b> seguraram até o fim → <b>${_pct(v.r75,0)}</b> chegaram a 75% (proxy do CTA) → <b>${_pct(v.ctrView)}</b> clicaram → <b>${fmtNum(a.front)}</b> vendas`;
+      } else {
+        funil=`<b>${fmtNum(a.imp)}</b> impressões → <b>${_pct(a.ctr,2)}</b> CTR (${fmtNum(a.clicks)} cliques) → <b>${fmtNum(a.front)}</b> vendas${conv!=null?` (<b>${_pct(conv)}</b> dos cliques viram venda)`:''}`;
+      }
+      S_.push(`<div style="font-weight:700;margin:6px 0 2px;color:#5a2ca0">📊 Funil do criativo</div><div>${funil}</div>
+        <div class="mini" style="margin-top:2px">CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'} · ticket ${fmtMoney0(ticket)} · ROAS ${fmtRoas(a.roas)} (breakeven ${fmtRoas(be)}) · ${fmtMoney0(a.spend)} investidos em ${a.n} anúncio(s)</div>`);
+
+      // 2) Gargalo: compara cada etapa com a mediana da conta
+      const st=[];
+      if(v&&v.v3>=100){
+        if(BM.hook) st.push({k:'Gancho (3s)',r:v.hook/BM.hook,v:_pct(v.hook),b:_pct(BM.hook),fix:'os 3 primeiros segundos não estão parando o dedo — reescreva só a abertura e mantenha o resto'});
+        if(BM.hold) st.push({k:'Retenção',r:v.hold/BM.hold,v:_pct(v.hold,0),b:_pct(BM.hold,0),fix:'o corpo perde quem já tinha parado — encurte o meio e adiante a promessa'});
+        if(BM.ctrView) st.push({k:'CTA (clique/view)',r:v.ctrView/BM.ctrView,v:_pct(v.ctrView),b:_pct(BM.ctrView),fix:'quem assiste não clica — o fechamento está fraco ou a oferta não fica clara no fim'});
+      }
+      if(BM.conv&&conv!=null) st.push({k:'Página/checkout',r:conv/BM.conv,v:_pct(conv),b:_pct(BM.conv),fix:'clica mas não compra — tráfego pouco qualificado ou promessa desalinhada com a página'});
+      if(st.length){
+        const ord=st.slice().sort((x,y)=>x.r-y.r), pior=ord[0], melhor=ord[ord.length-1];
+        if(pior.r<0.85) S_.push(`<div style="font-weight:700;margin:8px 0 2px;color:#c5221f">🔴 Gargalo: ${pior.k}</div><div>${pior.v} contra mediana ${pior.b} da conta — <b>${pior.fix}</b>.${melhor.r>1.1?` O ponto forte é <b>${melhor.k}</b> (${melhor.v} vs ${melhor.b}), então preserve essa parte.`:''}</div>`);
+        else S_.push(`<div style="font-weight:700;margin:8px 0 2px;color:#137333">✅ Sem gargalo evidente</div><div>Todas as etapas estão dentro ou acima da mediana. O ponto mais forte é <b>${melhor.k}</b> (${melhor.v} vs ${melhor.b}).${a.roas!=null&&a.roas<be?' O ROAS abaixo do breakeven aqui é questão de <b>custo de mídia/leilão</b>, não do criativo.':''}</div>`);
+      }
+
+      // 3) Conteúdo x resultado (hook e CTA reais)
+      if(ca.hook){
+        let leitura='';
+        if(v&&v.v3>=100&&BM.hook){ leitura = v.hook>=BM.hook*1.15?'esse gancho <b>prende acima da média</b> — vale reaproveitar em novos roteiros':(v.hook<=BM.hook*0.85?'esse gancho <b>está abaixo da média</b> em parar o dedo — é o primeiro item a trocar':'esse gancho performa na média'); }
+        S_.push(`<div style="font-weight:700;margin:8px 0 2px;color:#5a2ca0">🎙️ Conteúdo × resultado</div>
+          <div><b>Gancho:</b> "${esc(ca.hook)}"${leitura?` — ${leitura}.`:''}</div>
+          ${ca.ctaTxt?`<div style="margin-top:2px"><b>CTA:</b> "${esc(ca.ctaTxt)}"${ca.cta?` <span class="mini">(tipo: ${esc(ca.cta)})</span>`:''}</div>`:''}`);
+      }
+
+      // 4) Variantes: vencedora vs perdedora
+      const vars=Object.values(a.vars||{}).filter(x=>x.spend>=500);
+      if(vars.length>1){
+        const vv=vars.map(x=>({...x,roas:x.spend>0?x.receita/x.spend:0,cpa:x.front>0?x.spend/x.front:null})).sort((x,y)=>y.roas-x.roas);
+        const bestV=vv[0], worstV=vv[vv.length-1];
+        if(bestV.roas>0&&worstV.roas<bestV.roas*0.75){
+          const econ=worstV.spend;
+          S_.push(`<div style="font-weight:700;margin:8px 0 2px;color:#5a2ca0">🧪 Variantes (${vars.length})</div>
+            <div>Melhor: <b>${esc(bestV.name)}</b> — ROAS ${fmtRoas(bestV.roas)} (${fmtMoney0(bestV.spend)}, CPA ${bestV.cpa!=null?fmtMoney0(bestV.cpa):'—'}).<br>
+            Pior: <b>${esc(worstV.name)}</b> — ROAS ${fmtRoas(worstV.roas)} (${fmtMoney0(econ)}, CPA ${worstV.cpa!=null?fmtMoney0(worstV.cpa):'—'}).<br>
+            <b>Ação:</b> pausar a pior e realocar os ${fmtMoney0(econ)} na vencedora — mesma peça, ${((bestV.roas/(worstV.roas||0.01)-1)*100).toFixed(0)}% mais eficiente.</div>`);
+        }
+      }
+
+      // 5) Qualidade do lead
+      if(resp>=20&&ab!=null){
+        const diff=BM.ab?ab-BM.ab:0;
+        const sem=(a.fsem||0)/resp*100;
+        S_.push(`<div style="font-weight:700;margin:8px 0 2px;color:#5a2ca0">👥 Qualidade do lead</div>
+          <div>${_pct(ab,0)} dos compradores são <b>Faixa A+B</b> (mediana da conta ${_pct(BM.ab||0,0)}) e ${_pct(sem,0)} declararam <b>não ter caixa</b>.
+          ${diff>=2?' Traz comprador com mais dinheiro que a média — <b>é o tipo de lead que alimenta o backend</b>.':(diff<=-2?' Traz comprador com menos caixa que a média — converte no front, mas <b>dificilmente sobe para o alto ticket</b>.':' Perfil de comprador na média da conta.')}
+          Ticket ${fmtMoney0(ticket)}.</div>`);
+      }
+
+      // 6) Comparação com o próprio ângulo + ações
+      const acoes=[];
+      if(ca.angle&&bestAng){
+        const pares=ads.filter(x=>((S._critAnalise||{})[x.name]||{}).angle===ca.angle&&x.spend>=1000);
+        const rank=pares.slice().sort((x,y)=>(y.roas||0)-(x.roas||0)).findIndex(x=>x.name===a.name)+1;
+        if(pares.length>1&&rank>0) acoes.push(`Dentro do ângulo "<b>${esc(ca.angle)}</b>" este é o <b>${rank}º de ${pares.length}</b> em ROAS.${rank===1?' É a referência do ângulo — clone a estrutura dele.':(rank>=pares.length?' É o pior do ângulo — o problema é a execução, não o ângulo.':'')}`);
+        if(ca.angle!==bestAng.k) acoes.push(`O ângulo campeão da conta é "<b>${esc(bestAng.k)}</b>" (ROAS ${fmtRoas(bestAng.roas)}) vs ${fmtRoas((_byAng[ca.angle].r/_byAng[ca.angle].s))} deste. Testar esta peça reescrita nesse ângulo.`);
       }
       if(ca.cta&&bestCta&&worstCta&&bestCta.k!==worstCta.k&&ca.cta===worstCta.k)
-        s.push(`<b>Tipo de CTA:</b> nesta conta o CTA de <b>${esc(bestCta.k)}</b> rende ROAS ${fmtRoas(bestCta.roas)} contra ${fmtRoas(worstCta.roas)} do <b>${esc(worstCta.k)}</b> (que é o deste ad). <i>Teste este mesmo criativo com CTA de ${esc(bestCta.k)}.</i>`);
-      if(ca.angle&&bestAng){
-        if(ca.angle===bestAng.k) s.push(`<b>Ângulo campeão:</b> "${esc(ca.angle)}" é o melhor da conta (ROAS ${fmtRoas(bestAng.roas)}). <i>Priorize novas variações deste ângulo.</i>`);
-        else s.push(`<b>Ângulo:</b> "${esc(ca.angle)}". O melhor da conta é "${esc(bestAng.k)}" (ROAS ${fmtRoas(bestAng.roas)}). <i>Vale testar esta mesma peça reescrita nesse ângulo.</i>`);
-      }
-      const resp=(a.fa||0)+(a.fb||0)+(a.fc||0)+(a.fsem||0);
-      if(resp>=20&&BM.ab){ const ab=((a.fa||0)+(a.fb||0))/resp*100;
-        if(ab>=BM.ab*1.2) s.push(`<b>Público de melhor qualidade:</b> ${ab.toFixed(0)}% dos compradores são Faixa A+B (mediana ${BM.ab.toFixed(0)}%). <i>Traz lead com caixa — bom para alimentar o backend.</i>`);
-        else if(ab<=BM.ab*0.8) s.push(`<b>Público sem caixa:</b> só ${ab.toFixed(0)}% A+B (mediana ${BM.ab.toFixed(0)}%). <i>Converte no front mas dificilmente sobe para o alto ticket.</i>`);
-      }
-      if(!s.length) return '';
-      return `<div class="sug-box"><b>💡 Sugestões:</b><ul style="margin:4px 0 0 16px;padding:0">${s.slice(0,4).map(x=>`<li style="margin-bottom:3px">${x}</li>`).join('')}</ul></div>`;
+        acoes.push(`CTA de <b>${esc(worstCta.k)}</b> rende ROAS ${fmtRoas(worstCta.roas)} na conta contra ${fmtRoas(bestCta.roas)} do <b>${esc(bestCta.k)}</b>. Regravar só o fechamento com CTA de ${esc(bestCta.k)}.`);
+      if(a.n>=500) acoes.push(`<b>${fmtNum(a.n)} anúncios</b> agrupados sob a mesma peça: há duplicação competindo no leilão. Consolidar em menos anúncios costuma baixar CPM.`);
+      if(a.roas!=null&&a.roas>=be&&a.spend<50000) acoes.push(`Está no lucro com pouco investido (${fmtMoney0(a.spend)}) — <b>tem espaço para escalar</b>.`);
+      if(a.roas!=null&&a.roas<be*0.7&&a.spend>=100000) acoes.push(`Já consumiu ${fmtMoney0(a.spend)} com ROAS ${fmtRoas(a.roas)} — <b>cortar ou reduzir</b> e realocar nos vencedores.`);
+      if(acoes.length) S_.push(`<div style="font-weight:700;margin:8px 0 2px;color:#137333">💡 Ações recomendadas</div><ul style="margin:2px 0 0 16px;padding:0">${acoes.map(x=>`<li style="margin-bottom:3px">${x}</li>`).join('')}</ul>`);
+
+      return `<div class="diag-box">${S_.join('')}</div>`;
     };
-    const leituraPerf=(a)=>{
-      const ca=(S._critAnalise||{})[a.name]||{};
-      const be=parseFloat(A.roasAlvo)||1, roas=a.roas;
-      const spendK=a.spend>=1000?('R$'+(a.spend/1000).toFixed(0)+'k'):fmtMoney0(a.spend);
-      const resp=(a.fa||0)+(a.fb||0)+(a.fc||0)+(a.fsem||0);
-      const abPct=resp>0?Math.round(((a.fa||0)+(a.fb||0))/resp*100):null;
-      let verd,cor,why;
-      if(roas==null){ verd='SEM DADO';cor='#888';why='sem receita atribuída no período'; }
-      else if(roas>=be){ verd='ESCALAR';cor='#137333';why=a.spend<50000?'no lucro e ainda com pouco gasto — tem espaço pra escalar':'no lucro, mantém/escala aos poucos'; }
-      else if(roas>=be*0.85){ verd='OBSERVAR';cor='#b26a00';why='perto do breakeven — deixar rodar e otimizar'; }
-      else { verd=a.spend>=100000?'CORTAR':'ATENÇÃO';cor='#c5221f';why=a.spend>=100000?'alto gasto com ROAS fraco — está drenando caixa':'ROAS abaixo do breakeven'; }
-      const p=[`ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b> (${spendK} gasto · CPA ${a.cpa!=null?fmtMoney0(a.cpa):'—'}${abPct!=null?' · A+B '+abPct+'% entre respondentes':''})`];
-      if(ca.angle) p.push(`<b>${esc(ca.angle)}</b>${ca.angleWhy?' — '+esc(ca.angleWhy):''}`);
-      p.push(`<b style="color:${cor}">${verd}</b>: ${why}`);
-      return `<div class="leitura-box"><b>📈 Leitura de performance:</b> ${p.join('. ')}.</div>`;
-    };
-    const analiseLine=(g)=>{
-      const ca=(S._critAnalise||{})[g.name]; if(!ca) return '';
-      const ic=ca.kind==='image'?'🖼️':'🎬';
-      const badge=ca.kind==='image'?'<span class="mini" style="color:#7b2ff7">imagem</span>':'<span class="mini" style="color:#0891b2">vídeo</span>';
-      return `<details style="margin-top:2px"><summary class="mini" style="cursor:pointer;color:#7b2ff7;font-weight:600">${ic} análise do criativo (áudio + visual) ${badge}</summary><div style="padding:8px 10px 4px 12px;border-left:2px solid #d8c9f5;margin-top:4px;font-size:12px;line-height:1.5;max-height:420px;overflow:auto">${ca.html}</div></details>`;
+    const analiseLine=(a)=>{
+      const ca=(S._critAnalise||{})[a.name];
+      const ic=ca?(ca.kind==='image'?'🖼️':'🎬'):'📊';
+      const badge=ca?(ca.kind==='image'?'<span class="mini" style="color:#7b2ff7">imagem</span>':'<span class="mini" style="color:#0891b2">vídeo</span>'):'';
+      const lbl=ca?'análise do criativo (diagnóstico + áudio/visual)':'diagnóstico de performance';
+      return `<details style="margin-top:2px"><summary class="mini" style="cursor:pointer;color:#7b2ff7;font-weight:600">${ic} ${lbl} ${badge}</summary><div style="padding:8px 10px 4px 12px;border-left:2px solid #d8c9f5;margin-top:4px;font-size:12px;line-height:1.5;max-height:520px;overflow:auto">${deepDiag(a,ca)}${ca?`<div style="font-weight:700;margin:12px 0 4px;color:#5a2ca0">🎬 Análise de áudio & visual (completa)</div>${ca.html}`:''}</div></details>`;
     };
     adsHtml = top.length ? top.map(a=>`<div class="item bom" style="margin-bottom:8px">
         <div class="i-top"><div class="i-name">${esc(a.name)}${a.n>1?` <span class="mini" style="color:#999">(${a.n} anúncios agrupados)</span>`:''}</div><div class="i-metric" style="color:${roasColor(a.roas)}">${fmtRoas(a.roas)}</div></div>
@@ -2163,8 +2205,6 @@ function renderTopAdsAudiences(A){
         ${variantLine(a)}
         ${accLine(a)}
         ${analiseLine(a)}
-        ${leituraPerf(a)}
-        ${sugestoes(a)}
       </div>`).join('')
       : `<div class="empty">${q?'Nenhum anúncio encontrado para "'+esc(q)+'"':'Nenhum anúncio com venda no período para '+esc(currentFunnel().label)}.</div>`;
   }
