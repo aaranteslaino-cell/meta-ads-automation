@@ -340,6 +340,20 @@ async function execBulk(action,pct){
     }
     S._sel={}; render();
     alert('Ativar: '+ok+' ok, '+fail+' falha(s).');
+  } else if(action==='DUPLICAR'||action==='DUPLICAR_ATIVA'){
+    const ativar=action==='DUPLICAR_ATIVA';
+    const pctTxt=(pct&&pct!==1)?((pct>1?'+':'')+Math.round((pct-1)*100)+'% no orçamento da cópia'):'mesmo orçamento';
+    if(!confirm(`Duplicar ${validos.length} campanha(s) com conjuntos e anúncios?\n\nAs cópias vão nascer ${ativar?'ATIVAS e já gastando':'PAUSADAS'} · ${pctTxt}`)) return;
+    let ok=0,fail=0; const erros=[];
+    for(const id of validos){
+      try{ const r=await duplicarCampanha(id,pct,ativar);
+        S._exec=S._exec||{}; S._exec[id]='DUPLICAR';
+        await logOtim(id,'DUPLICAR',+(r.daily/100).toFixed(2), r.orcNovo!=null?+(r.orcNovo/100).toFixed(2):+(r.daily/100).toFixed(2));
+        ok++;
+      }catch(e){ fail++; erros.push((byId[id].name||id).slice(0,40)+': '+e.message); }
+    }
+    await refreshData(); S._sel={}; render();
+    alert(`Duplicar: ${ok} cópia(s) criada(s)${ativar?' e ATIVAS':' (PAUSADAS)'}, ${fail} falha(s).`+(erros.length?'\n\n'+erros.slice(0,5).join('\n'):''));
   } else if(action==='ESCALAR'){
     if(!pct||pct<=1){ alert('Escolha um percentual.'); return; }
     const pctTxt='+'+Math.round((pct-1)*100)+'%';
@@ -1004,6 +1018,10 @@ function renderBulkBar(){
           <option value="0.85">-15%</option><option value="0.8">-20%</option><option value="0.7" selected>-30%</option><option value="0.5">-50%</option><option value="0.3">-70%</option>
         </select>
         <button class="btn btn-sm" style="background:#f59e0b;color:#000;padding:4px 12px;border-radius:6px" onclick="execBulk('REDUZIR',parseFloat(document.getElementById('bulk-red-pct').value))">Reduzir</button>
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:4px;border-left:1px solid #4a4a5e;padding-left:10px">
+        <button class="btn btn-sm" title="Duplica as campanhas (conjuntos + anúncios) com o % de escala aplicado no orçamento da cópia. Nascem PAUSADAS." style="background:#0891b2;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('DUPLICAR',parseFloat(document.getElementById('bulk-esc-pct').value))">⧉ Duplicar</button>
+        <button class="btn btn-sm" title="Duplica e já sobe as cópias ATIVAS, gastando na hora." style="background:#0e7490;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('DUPLICAR_ATIVA',parseFloat(document.getElementById('bulk-esc-pct').value))">⧉ + ativar</button>
       </span>
       <button onclick="clearSel()" style="background:none;border:none;color:#aaa;cursor:pointer;font-size:12px;margin-left:auto">limpar seleção</button>`;
   } else if(bar){ bar.remove(); }
@@ -2457,6 +2475,10 @@ function renderComparativoCard(A){
           </select>
           <button class="btn btn-purple btn-sm" style="padding:3px 9px" onclick="execCustom('${c.id}','ESCALAR',parseFloat(document.getElementById('${selId}').value))">Executar</button>
         </div>
+        <div class="row" style="gap:4px;margin-top:4px;align-items:center;flex-wrap:nowrap">
+          <button class="btn btn-gray btn-sm" style="padding:3px 8px;font-size:11px" title="Duplica a campanha (conjuntos + anúncios) já com o % do seletor aplicado no orçamento da cópia. Nasce PAUSADA." onclick="execDuplicar('${c.id}',parseFloat(document.getElementById('${selId}').value),false)">⧉ Duplicar</button>
+          <button class="btn btn-gray btn-sm" style="padding:3px 8px;font-size:11px;color:#137333" title="Duplica e já sobe a cópia ATIVA, gastando na hora." onclick="execDuplicar('${c.id}',parseFloat(document.getElementById('${selId}').value),true)">⧉ Duplicar + ativar</button>
+        </div>
       </td>`;
     }
     if(act.a==='REDUZIR'){
@@ -2554,6 +2576,43 @@ async function execCustom(id, tipoLabel, pct){
     await logOtim(id, tipoLabel, +(daily/100).toFixed(2), +(novo/100).toFixed(2));
     await refreshOtim(); render();
   }catch(e){ alert('Erro ao executar: '+e.message); }
+}
+// ── Duplicar campanha (Graph API /copies) ───────────────────────────────────
+// deep_copy=true leva conjuntos + anúncios juntos. A cópia nasce PAUSADA por padrão
+// (status_option), para você revisar antes de subir — evita gastar sem querer.
+async function duplicarCampanha(id, pct, ativar){
+  const d=(S.data||[]).find(r=>r.id===id);
+  if(!d) throw new Error('Campanha não encontrada.');
+  const tok=getTokenById(d._tokenId);
+  if(!tok) throw new Error('Token da conta não encontrado.');
+  const hoje=new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'});
+  const body={ deep_copy:'true', status_option: ativar?'ACTIVE':'PAUSED',
+               rename_options: JSON.stringify({rename_suffix:' - Cópia '+hoje}) };
+  const r=await apiPost(id+'/copies', body, tok);
+  const novoId=r.copied_campaign_id||r.id||null;
+  const daily=+(d.daily_budget||0);
+  let orcNovo=null;
+  if(novoId && daily>0 && pct && pct!==1){
+    orcNovo=Math.round(daily*pct);
+    try{ await apiPost(novoId, {daily_budget:String(orcNovo)}, tok); }
+    catch(e){ console.warn('cópia criada mas falhou ajustar orçamento', e.message); orcNovo=null; }
+  }
+  return {novoId, name:d.name, daily, orcNovo, ativar};
+}
+async function execDuplicar(id, pct, ativar){
+  const d=(S.data||[]).find(r=>r.id===id);
+  if(!d){ alert('Campanha não encontrada.'); return; }
+  const daily=+(d.daily_budget||0);
+  const pctTxt=(pct&&pct!==1)?((pct>1?'+':'')+Math.round((pct-1)*100)+'%'):'mesmo orçamento';
+  const orcTxt=(daily>0&&pct&&pct!==1)?` — orçamento da cópia: R$ ${(daily/100).toFixed(2)} → R$ ${(Math.round(daily*pct)/100).toFixed(2)} (${pctTxt})`:(daily>0?` — orçamento da cópia: R$ ${(daily/100).toFixed(2)}`:'');
+  if(!confirm(`Duplicar a campanha (com conjuntos e anúncios)?\n\n${d.name}\n\nA cópia vai nascer ${ativar?'ATIVA e já gastando':'PAUSADA (você revisa e sobe depois)'}${orcTxt}`)) return;
+  try{
+    const r=await duplicarCampanha(id, pct, ativar);
+    S._exec=S._exec||{}; S._exec[id]='DUPLICAR';
+    await logOtim(id, 'DUPLICAR', +(r.daily/100).toFixed(2), r.orcNovo!=null?+(r.orcNovo/100).toFixed(2):+(r.daily/100).toFixed(2));
+    await refreshData();
+    alert(`Cópia criada${r.ativar?' e ATIVA':' (PAUSADA)'}.\n\nID da nova campanha: ${r.novoId||'—'}\n\n${r.ativar?'':'Lembre de ativar no Meta quando quiser subir.'}`);
+  }catch(e){ alert('Erro ao duplicar: '+e.message); }
 }
 async function execLote(tipo){
   const B=parseFloat(S.roasAlvo)||1; const A=analyze(); const cpaAlvo=A.cpaAlvo||80;
