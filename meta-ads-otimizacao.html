@@ -1425,7 +1425,8 @@ async function enviarPlanilha(){
   try{
     // body como string simples evita preflight CORS no Apps Script
     const res=await fetch(url,{method:'POST',redirect:'follow',
-      body:JSON.stringify({aba, alunos:v.alunos, investimento:+v.investimento.toFixed(2), faturamento:+v.faturamento.toFixed(2)})});
+      body:JSON.stringify({aba, colAlunos:(S.gsCol||'').trim().toUpperCase()||null,
+        alunos:v.alunos, investimento:+v.investimento.toFixed(2), faturamento:+v.faturamento.toFixed(2)})});
     let j=null; try{ j=await res.json(); }catch(_){}
     if(j&&j.ok){ S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:j.linha, aba:j.aba, ...v};
       alert(`Gravado na linha ${j.linha} da aba "${j.aba}".`); }
@@ -1448,7 +1449,9 @@ function renderRelatorio(A){
       <div style="flex:1;min-width:260px"><label>URL do Web App (Apps Script)</label>
         <input value="${esc(S.gsUrl||'')}" onchange="setCfg('gsUrl',this.value)" placeholder="https://script.google.com/macros/s/…/exec"></div>
       <div><label>Aba da planilha</label>
-        <input style="width:180px" value="${esc(S.gsAba||'')}" onchange="setCfg('gsAba',this.value)" placeholder="PERPÉTUO NATH 37"></div>
+        <input style="width:180px" value="${esc(S.gsAba||'')}" onchange="setCfg('gsAba',this.value)" placeholder="📅 Registro Diário"></div>
+      <div><label title="Letra da coluna 'Alunos PP' do bloco certo. Rode testarConexao no Apps Script para ver as opções.">Coluna Alunos</label>
+        <input style="width:90px" value="${esc(S.gsCol||'')}" onchange="setCfg('gsCol',this.value)" placeholder="ex: B"></div>
       <button class="btn btn-purple" onclick="enviarPlanilha()" ${S._gsSending?'disabled':''}>${S._gsSending?'<span class="loading"></span> Enviando…':'Gravar na planilha'}</button>
     </div>
     ${S._gsLast?`<div class="mini" style="margin-top:8px;color:#137333">✓ Último envio: linha ${esc(String(S._gsLast.linha))} da aba "${esc(String(S._gsLast.aba))}" em ${esc(S._gsLast.quando)} — ${fmtNum(S._gsLast.alunos)} alunos · ${fmtMoney0(S._gsLast.investimento)} · ${fmtMoney0(S._gsLast.faturamento)}</div>`:''}
