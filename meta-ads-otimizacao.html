@@ -237,7 +237,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -405,6 +405,62 @@ async function api(path, params={}, token=null){
   return json;
 }
 
+// ── Diagnóstico de tokens ───────────────────────────────────────────────────
+// Testa cada token isoladamente: validade, app dono, business, escopos e o erro
+// exato de /me/adaccounts. Serve para separar "token expirado" de "app bloqueado".
+async function diagTokens(){
+  if(!S.tokens.length){ alert('Nenhum token encontrado.'); return; }
+  S._diagLoading=true; S._diag=null; render();
+  const out=[];
+  for(const tk of S.tokens){
+    if(!tk.token) continue;
+    const d={label:tk.label||'(sem nome)', me:null, app:null, appId:null, biz:[], expira:null, scopes:[], contas:null, erro:null, erroCode:null};
+    try{ const me=await api('/me',{fields:'id,name'},tk.token); d.me=me.name||me.id; }
+    catch(e){ d.erro='token inválido: '+e.message; }
+    if(d.me){
+      try{
+        const dbg=await api('/debug_token',{input_token:tk.token},tk.token);
+        const dd=(dbg&&dbg.data)||{};
+        d.app=dd.application||null; d.appId=dd.app_id||null;
+        d.scopes=dd.scopes||[];
+        d.expira = dd.expires_at ? (dd.expires_at===0?'nunca':new Date(dd.expires_at*1000).toLocaleString('pt-BR')) : 'nunca';
+        if(dd.is_valid===false) d.erro='token marcado como INVÁLIDO pelo Meta';
+      }catch(e){ /* debug_token pode ser negado sem app token; não é fatal */ }
+      try{ const b=await api('/me/businesses',{fields:'id,name',limit:50},tk.token); d.biz=(b.data||[]).map(x=>x.name); }catch(e){}
+      try{ const r=await api('/me/adaccounts',{fields:'id,name,account_status',limit:500},tk.token);
+        d.contas=(r.data||[]).length;
+        d.desativadas=(r.data||[]).filter(a=>a.account_status!==1).map(a=>a.name);
+      }catch(e){ d.erro=e.message; const m=e.message.match(/^\((\d+)/); d.erroCode=m?m[1]:null; }
+    }
+    out.push(d);
+  }
+  S._diag=out; S._diagLoading=false; render();
+}
+function _diagVeredito(d){
+  if(!d.me) return {cor:'#c5221f', txt:'Token morto — precisa gerar um novo no Business Manager.'};
+  if(d.contas>0) return {cor:'#137333', txt:`OK — ${d.contas} conta(s) acessível(is).`+(d.desativadas&&d.desativadas.length?` ⚠️ ${d.desativadas.length} com status ≠ ativa: ${d.desativadas.slice(0,3).join(', ')}`:'')};
+  if(d.erroCode==='200') return {cor:'#c5221f', txt:'Acesso à API bloqueado pelo Meta para este app/business. Verifique o Security Center do BM e se a Marketing API do app continua liberada (não é problema de token expirado — o token responde, o acesso é que foi cortado).'};
+  if(/465/.test(d.erro||'')) return {cor:'#c5221f', txt:'O app usado não pertence ao Business Manager deste system user. Adicione o app no BM (Configurações → Contas → Apps) e gere o token de novo escolhendo esse app.'};
+  if(d.erro) return {cor:'#c5221f', txt:d.erro};
+  return {cor:'#b26a00', txt:'Token válido mas nenhuma conta de anúncio vinculada — dê acesso às contas para este system user.'};
+}
+function renderDiag(){
+  if(S._diagLoading) return `<div class="info-box" style="margin-top:12px"><span class="loading"></span> Testando cada token…</div>`;
+  if(!S._diag) return '';
+  return `<div style="margin-top:14px"><b>Diagnóstico dos tokens</b>
+    ${S._diag.map(d=>{const v=_diagVeredito(d);return `<div style="border:1px solid #eee;border-left:3px solid ${v.cor};border-radius:8px;padding:10px 12px;margin-top:8px">
+      <div style="font-weight:700">${esc(d.label)} ${d.me?`<span class="mini" style="font-weight:400">· ${esc(d.me)}</span>`:''}</div>
+      <div style="color:${v.cor};font-size:12.5px;margin-top:3px">${esc(v.txt)}</div>
+      <div class="mini" style="margin-top:4px">
+        ${d.app?`App: <b>${esc(d.app)}</b>${d.appId?` (${esc(d.appId)})`:''} · `:''}
+        ${d.biz&&d.biz.length?`Business: <b>${esc(d.biz.join(', '))}</b> · `:''}
+        ${d.expira?`Expira: ${esc(d.expira)} · `:''}
+        ${d.scopes&&d.scopes.length?`Escopos: ${esc(d.scopes.slice(0,6).join(', '))}`:''}
+      </div>
+      ${d.erro&&d.contas!==0?`<div class="mini" style="margin-top:3px;color:#c5221f">Erro cru: ${esc(d.erro)}</div>`:''}
+    </div>`;}).join('')}
+  </div>`;
+}
 // ── Conectar ────────────────────────────────────────────────────────────────
 async function connect(){
   if(!S.tokens.length){ alert('Nenhum token encontrado. Conecte no monitor/automação primeiro (os tokens são compartilhados).'); return; }
@@ -420,7 +476,9 @@ async function connect(){
     }catch(e){ errs.push(`[${tk.label}] ${e.message}`); }
   }
   const seen=new Set(); S.accounts = S.accounts.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
-  if(!S.accounts.length){ if(btn){ btn.disabled=false; btn.textContent='Conectar'; } alert('Nenhuma conta encontrada.'+(errs.length?'\n\n'+errs.join('\n'):'')); return; }
+  if(!S.accounts.length){ if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
+    alert('Nenhuma conta encontrada.'+(errs.length?'\n\n'+errs.join('\n'):'')+'\n\nClique em "🩺 Diagnosticar tokens" para ver o que está bloqueado em cada um.');
+    diagTokens(); return; }
   S.connected = true; render(); await refreshData();
 }
 function disconnect(){ S.connected=false; S.accounts=[]; S.data=[]; saveState(); render(); }
@@ -1032,7 +1090,11 @@ function renderConnect(){
     <h2>Conectar</h2>
     <div class="info-box" style="margin-bottom:12px">Os tokens são compartilhados com o monitor e a automação. ${S.tokens.length?`Encontrei <b>${S.tokens.length}</b> token(s).`:'Nenhum token encontrado ainda — conecte no monitor primeiro.'}</div>
     ${S.tokens.map(t=>`<div class="token-item"><span class="lbl">${esc(t.label||'token')}</span><span class="id">${esc(String(t.token).slice(0,18))}…</span></div>`).join('')}
-    <button id="btn-connect" class="btn btn-purple" style="margin-top:10px" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
+    <div class="row" style="margin-top:10px">
+      <button id="btn-connect" class="btn btn-purple" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
+      <button class="btn btn-gray" onclick="diagTokens()" ${S.tokens.length?'':'disabled'} title="Testa cada token: validade, app, business, escopos e o erro exato de acesso às contas.">🩺 Diagnosticar tokens</button>
+    </div>
+    ${renderDiag()}
   </div>`;
 }
 
