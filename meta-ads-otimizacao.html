@@ -237,7 +237,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -1401,7 +1401,59 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderRelatorio(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
+}
+
+// ── Relatório na planilha (Apps Script Web App) ─────────────────────────────
+// Preenche SÓ Alunos PP / Investimento / Faturamento. As colunas com fórmula
+// (Lucro, CPA, TKM, ROAS, CPO) se recalculam sozinhas — não são tocadas.
+function relatorioValores(A){
+  const T=A.T;
+  const fat=(A.funnelTotal&&A.funnelTotal.receita>0)?A.funnelTotal.receita:((T.receita||0)+((A.off&&A.off.receita)||0));
+  return { alunos:T.front||0, investimento:T.spend||0, faturamento:fat };
+}
+async function enviarPlanilha(){
+  const url=(S.gsUrl||'').trim(), aba=(S.gsAba||'').trim();
+  if(!url){ alert('Cole a URL do Web App do Apps Script primeiro (termina em /exec).'); return; }
+  if(!/\/exec\s*$/.test(url)){ if(!confirm('A URL normalmente termina em /exec. Enviar assim mesmo?')) return; }
+  const A=analyze(); const v=relatorioValores(A);
+  const w=periodRange(S.period);
+  if(!confirm(`Gravar na planilha${aba?` (aba "${aba}")`:''}?\n\n`+
+    `Alunos PP: ${fmtNum(v.alunos)}\nInvestimento: ${fmtMoney(v.investimento)}\nFaturamento: ${fmtMoney(v.faturamento)}\n\n`+
+    `Funil: ${currentFunnel().label} · período: ${S.period}\n\nEscreve na primeira linha vazia. As colunas de fórmula não são alteradas.`)) return;
+  S._gsSending=true; render();
+  try{
+    // body como string simples evita preflight CORS no Apps Script
+    const res=await fetch(url,{method:'POST',redirect:'follow',
+      body:JSON.stringify({aba, alunos:v.alunos, investimento:+v.investimento.toFixed(2), faturamento:+v.faturamento.toFixed(2)})});
+    let j=null; try{ j=await res.json(); }catch(_){}
+    if(j&&j.ok){ S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:j.linha, aba:j.aba, ...v};
+      alert(`Gravado na linha ${j.linha} da aba "${j.aba}".`); }
+    else if(j&&j.erro){ alert('A planilha recusou: '+j.erro); }
+    else { S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:'?', aba:aba||'?', ...v};
+      alert('Enviado, mas não consegui ler a resposta (bloqueio de CORS). Confira na planilha se a linha foi gravada.'); }
+  }catch(e){ alert('Erro ao enviar: '+e.message+'\n\nVerifique se a implantação está como "Qualquer pessoa".'); }
+  S._gsSending=false; saveState(); render();
+}
+function renderRelatorio(A){
+  const v=relatorioValores(A);
+  return `<div class="card"><details ${S.gsUrl?'':'open'}>
+    <summary style="font-weight:700;font-size:15px;color:#7b2ff7">📗 Enviar relatório para a planilha <span class="mini" style="font-weight:400;color:#888">preenche Alunos PP · Investimento · Faturamento</span></summary>
+    <div class="kpis" style="margin-top:10px">
+      <div class="kpi"><div class="k-l">Alunos PP</div><div class="k-v">${fmtNum(v.alunos)}</div><div class="k-s">vendas front no período</div></div>
+      <div class="kpi"><div class="k-l">Investimento</div><div class="k-v">${fmtMoney0(v.investimento)}</div><div class="k-s">gasto em mídia</div></div>
+      <div class="kpi"><div class="k-l">Faturamento</div><div class="k-v">${fmtMoney0(v.faturamento)}</div><div class="k-s">receita do funil</div></div>
+    </div>
+    <div class="row" style="gap:16px;align-items:flex-end;margin-top:12px">
+      <div style="flex:1;min-width:260px"><label>URL do Web App (Apps Script)</label>
+        <input value="${esc(S.gsUrl||'')}" onchange="setCfg('gsUrl',this.value)" placeholder="https://script.google.com/macros/s/…/exec"></div>
+      <div><label>Aba da planilha</label>
+        <input style="width:180px" value="${esc(S.gsAba||'')}" onchange="setCfg('gsAba',this.value)" placeholder="PERPÉTUO NATH 37"></div>
+      <button class="btn btn-purple" onclick="enviarPlanilha()" ${S._gsSending?'disabled':''}>${S._gsSending?'<span class="loading"></span> Enviando…':'Gravar na planilha'}</button>
+    </div>
+    ${S._gsLast?`<div class="mini" style="margin-top:8px;color:#137333">✓ Último envio: linha ${esc(String(S._gsLast.linha))} da aba "${esc(String(S._gsLast.aba))}" em ${esc(S._gsLast.quando)} — ${fmtNum(S._gsLast.alunos)} alunos · ${fmtMoney0(S._gsLast.investimento)} · ${fmtMoney0(S._gsLast.faturamento)}</div>`:''}
+    <div class="mini" style="margin-top:8px">Grava na <b>primeira linha vazia</b> da aba, nas 3 colunas de entrada. <b>Lucro, CPA, TKM, ROAS e CPO não são tocados</b> — continuam sendo calculados pelas fórmulas da planilha. Os valores seguem o <b>funil e o período selecionados no topo</b>. Instalação do Apps Script: veja <code>apps-script-planilha.js</code>.</div>
+  </details></div>`;
 }
 
 // ── Visão própria do Backend (Mentoria & Consultoria) — sem mídia paga ───────
