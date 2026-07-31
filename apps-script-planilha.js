@@ -48,22 +48,73 @@ function doPost(e) {
         .normalize('NFD').replace(/[̀-ͯ]/g, '')
         .trim().toLowerCase();
     };
+    var colLetra = function (c) {   // 0 -> A, 1 -> B ...
+      var s = '';
+      c = c + 1;
+      while (c > 0) { var m = (c - 1) % 26; s = String.fromCharCode(65 + m) + s; c = (c - m - 1) / 26; }
+      return s;
+    };
 
-    // Acha a linha de cabeçalho procurando as 3 colunas na MESMA linha.
-    var hRow = -1, cA = -1, cI = -1, cF = -1;
-    for (var r = 0; r < Math.min(dados.length, 60) && hRow < 0; r++) {
-      var a = -1, i = -1, f = -1;
+    // Acha TODOS os blocos "Alunos PP / Investimento / Faturamento" da aba.
+    var blocos = [];
+    for (var r = 0; r < dados.length; r++) {
       for (var c = 0; c < dados[r].length; c++) {
-        var v = norm(dados[r][c]);
-        if (v.indexOf('alunos') >= 0) a = c;
-        else if (v.indexOf('investimento') >= 0) i = c;
-        else if (v.indexOf('faturamento') >= 0) f = c;
+        if (norm(dados[r][c]).indexOf('alunos') < 0) continue;
+        var i = -1, f = -1;
+        for (var c2 = c + 1; c2 < Math.min(dados[r].length, c + 12); c2++) {
+          var v2 = norm(dados[r][c2]);
+          if (i < 0 && v2.indexOf('investimento') >= 0) i = c2;
+          else if (f < 0 && v2.indexOf('faturamento') >= 0) f = c2;
+        }
+        if (i < 0 || f < 0) continue;
+
+        // primeira linha vazia na coluna de Alunos, abaixo do cabeçalho
+        var vazia = -1;
+        for (var r2 = r + 1; r2 < dados.length; r2++) {
+          if (norm(dados[r2][c]) === '') { vazia = r2; break; }
+        }
+        if (vazia < 0) vazia = dados.length;
+
+        // título/banner: primeiro texto não vazio nas 3 linhas acima
+        var titulo = '';
+        for (var up = r - 1; up >= 0 && up >= r - 3 && !titulo; up--) {
+          for (var cc = Math.max(0, c - 2); cc < Math.min(dados[up].length, f + 3); cc++) {
+            var t = String(dados[up][cc] || '').trim();
+            if (t) { titulo = t; break; }
+          }
+        }
+        blocos.push({
+          titulo: titulo, cabecalho: r + 1,
+          colAlunos: colLetra(c), colInvestimento: colLetra(i), colFaturamento: colLetra(f),
+          primeiraVazia: vazia + 1,
+          _c: c, _i: i, _f: f, _h: r
+        });
       }
-      if (a >= 0 && i >= 0 && f >= 0) { hRow = r; cA = a; cI = i; cF = f; }
     }
-    if (hRow < 0) {
-      return out({ ok: false, erro: 'Não achei o cabeçalho com Alunos PP / Investimento / Faturamento nesta aba.' });
+    if (!blocos.length) {
+      return out({ ok: false, erro: 'Não achei nenhum bloco com Alunos PP / Investimento / Faturamento nesta aba.' });
     }
+
+    // Escolhe o bloco: por coluna informada, por âncora (texto do título), ou o primeiro.
+    var alvo = null;
+    if (b.colAlunos) {
+      var alvoLetra = String(b.colAlunos).trim().toUpperCase();
+      alvo = blocos.filter(function (x) { return x.colAlunos === alvoLetra; })[0];
+      if (!alvo) return out({ ok: false, erro: 'Não achei bloco com Alunos na coluna ' + alvoLetra, blocos: blocos });
+    } else if (b.ancora) {
+      var anc = norm(b.ancora);
+      alvo = blocos.filter(function (x) { return norm(x.titulo).indexOf(anc) >= 0; })[0];
+      if (!alvo) return out({ ok: false, erro: 'Não achei bloco com o título contendo "' + b.ancora + '"', blocos: blocos });
+    } else {
+      alvo = blocos[0];
+    }
+
+    // Lista os blocos para você conferir/escolher, sem gravar nada.
+    if (b.listar) {
+      return out({ ok: true, aba: sh.getName(), blocos: blocos });
+    }
+
+    var hRow = alvo._h, cA = alvo._c, cI = alvo._i, cF = alvo._f;
 
     // Linha alvo: a informada, ou a primeira vazia abaixo do cabeçalho.
     var linha = -1;
@@ -78,7 +129,11 @@ function doPost(e) {
 
     // Modo consulta: só devolve onde escreveria, sem gravar nada.
     if (b.simular) {
-      return out({ ok: true, simulacao: true, linha: linha + 1, aba: sh.getName() });
+      return out({
+        ok: true, simulacao: true, aba: sh.getName(), linha: linha + 1,
+        bloco: { titulo: alvo.titulo, colAlunos: alvo.colAlunos, colInvestimento: alvo.colInvestimento, colFaturamento: alvo.colFaturamento },
+        totalBlocos: blocos.length
+      });
     }
 
     var num = function (x) { var n = parseFloat(x); return isNaN(n) ? 0 : n; };
@@ -117,15 +172,20 @@ function doGet() {
  * Troque o nome da aba abaixo pelo da sua.
  */
 function testarConexao() {
-  var ABA = 'PERPÉTUO NATH 37';   // <-- ajuste se o nome for outro
+  var ABA = '📅 Registro Diário';   // <-- nome da guia (embaixo, na planilha)
 
-  var r = doPost({ postData: { contents: JSON.stringify({ aba: ABA, simular: true }) } });
+  var r = doPost({ postData: { contents: JSON.stringify({ aba: ABA, listar: true }) } });
   var resp = JSON.parse(r.getContent());
 
-  if (resp.ok) {
-    Logger.log('✅ Tudo certo! Aba "%s" encontrada. O dashboard gravaria na linha %s.', resp.aba, resp.linha);
-  } else {
-    Logger.log('❌ Problema: %s', resp.erro);
+  if (!resp.ok) { Logger.log('❌ Problema: %s', resp.erro); return resp; }
+
+  Logger.log('Aba "%s" — %s bloco(s) encontrado(s):', resp.aba, resp.blocos.length);
+  for (var i = 0; i < resp.blocos.length; i++) {
+    var x = resp.blocos[i];
+    Logger.log('  [%s] título: "%s" | Alunos=%s Investimento=%s Faturamento=%s | 1ª linha vazia: %s',
+      i + 1, x.titulo, x.colAlunos, x.colInvestimento, x.colFaturamento, x.primeiraVazia);
   }
+  Logger.log('');
+  Logger.log('➡️  Escolha o bloco certo e use a LETRA da coluna Alunos no dashboard (campo "Coluna Alunos").');
   return resp;
 }
