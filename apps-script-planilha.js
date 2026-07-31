@@ -13,6 +13,16 @@
  * 4. Copie a URL gerada (termina em /exec) e cole no dashboard
  */
 
+/**
+ * ⚠️ COLE AQUI O ID DA SUA PLANILHA.
+ * Está na URL dela, entre "/d/" e "/edit":
+ * docs.google.com/spreadsheets/d/  ESTE_PEDAÇO_AQUI  /edit
+ *
+ * Se você abriu o Apps Script por dentro da planilha (Extensões → Apps Script),
+ * pode deixar vazio que ele acha sozinho. Preenchendo, funciona nos dois casos.
+ */
+var PLANILHA_ID = '';
+
 function doPost(e) {
   var out = function (o) {
     return ContentService.createTextOutput(JSON.stringify(o))
@@ -21,9 +31,11 @@ function doPost(e) {
 
   try {
     var b = JSON.parse(e.postData.contents);
-    var ss = b.planilhaId
-      ? SpreadsheetApp.openById(b.planilhaId)
-      : SpreadsheetApp.getActiveSpreadsheet();
+    var id = b.planilhaId || PLANILHA_ID;
+    var ss = id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+      return out({ ok: false, erro: 'Sem planilha. Cole o ID dela na variável PLANILHA_ID no topo do script.' });
+    }
 
     var sh = b.aba ? ss.getSheetByName(b.aba) : ss.getSheets()[0];
     if (!sh) {
@@ -95,4 +107,25 @@ function doGet() {
   return ContentService
     .createTextOutput('Web App ativo. Use POST para gravar.')
     .setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * TESTE — rode esta função aqui no editor (botão "Executar") ANTES de implantar.
+ * Ela NÃO grava nada: só confirma que acha a planilha, a aba e as 3 colunas,
+ * e diz em qual linha o dashboard escreveria. Veja o resultado em "Registro de execução".
+ *
+ * Troque o nome da aba abaixo pelo da sua.
+ */
+function testarConexao() {
+  var ABA = 'PERPÉTUO NATH 37';   // <-- ajuste se o nome for outro
+
+  var r = doPost({ postData: { contents: JSON.stringify({ aba: ABA, simular: true }) } });
+  var resp = JSON.parse(r.getContent());
+
+  if (resp.ok) {
+    Logger.log('✅ Tudo certo! Aba "%s" encontrada. O dashboard gravaria na linha %s.', resp.aba, resp.linha);
+  } else {
+    Logger.log('❌ Problema: %s', resp.erro);
+  }
+  return resp;
 }
