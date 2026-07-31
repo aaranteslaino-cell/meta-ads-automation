@@ -1412,6 +1412,19 @@ function relatorioValores(A){
   const fat=(A.funnelTotal&&A.funnelTotal.receita>0)?A.funnelTotal.receita:((T.receita||0)+((A.off&&A.off.receita)||0));
   return { alunos:T.front||0, investimento:T.spend||0, faturamento:fat };
 }
+// Copia os 3 valores separados por TAB: colando numa célula, o Sheets
+// distribui em 3 colunas seguidas (Alunos PP / Investimento / Faturamento).
+async function copiarValores(){
+  const A=analyze(), v=relatorioValores(A);
+  const br=n=>String(n).replace('.',',');           // decimal no padrão pt-BR
+  const txt=[Math.round(v.alunos), br(v.investimento.toFixed(2)), br(v.faturamento.toFixed(2))].join('\t');
+  try{
+    await navigator.clipboard.writeText(txt);
+    alert(`Copiado:\n\n${txt.replace(/\t/g,'   |   ')}\n\nNa planilha, clique na célula "Alunos PP" da linha vazia e cole (Cmd+V). Ele preenche as 3 colunas de uma vez.`);
+  }catch(e){
+    prompt('Copie manualmente (Cmd+C) e cole na célula de Alunos PP:', txt);
+  }
+}
 async function enviarPlanilha(){
   const url=(S.gsUrl||'').trim(), aba=(S.gsAba||'').trim();
   if(!url){ alert('Cole a URL do Web App do Apps Script primeiro (termina em /exec).'); return; }
@@ -1452,6 +1465,7 @@ function renderRelatorio(A){
         <input style="width:180px" value="${esc(S.gsAba||'')}" onchange="setCfg('gsAba',this.value)" placeholder="📅 Registro Diário"></div>
       <div><label title="Letra da coluna 'Alunos PP' do bloco certo. Rode testarConexao no Apps Script para ver as opções.">Coluna Alunos</label>
         <input style="width:90px" value="${esc(S.gsCol||'')}" onchange="setCfg('gsCol',this.value)" placeholder="ex: B"></div>
+      <button class="btn btn-gray" onclick="copiarValores()" title="Copia os 3 valores separados por TAB. Cole na célula de Alunos PP da linha vazia e ele preenche as 3 colunas. Não depende do Apps Script.">📋 Copiar valores</button>
       <button class="btn btn-purple" onclick="enviarPlanilha()" ${S._gsSending?'disabled':''}>${S._gsSending?'<span class="loading"></span> Enviando…':'Gravar na planilha'}</button>
     </div>
     ${S._gsLast?`<div class="mini" style="margin-top:8px;color:#137333">✓ Último envio: linha ${esc(String(S._gsLast.linha))} da aba "${esc(String(S._gsLast.aba))}" em ${esc(S._gsLast.quando)} — ${fmtNum(S._gsLast.alunos)} alunos · ${fmtMoney0(S._gsLast.investimento)} · ${fmtMoney0(S._gsLast.faturamento)}</div>`:''}
