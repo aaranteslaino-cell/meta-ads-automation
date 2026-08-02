@@ -416,7 +416,7 @@ async function diagTokens(){
     if(!tk.token) continue;
     const d={label:tk.label||'(sem nome)', me:null, app:null, appId:null, biz:[], expira:null, scopes:[], contas:null, erro:null, erroCode:null};
     try{ const me=await api('/me',{fields:'id,name'},tk.token); d.me=me.name||me.id; }
-    catch(e){ d.erro='token inválido: '+e.message; }
+    catch(e){ d.erro=e.message; const m=e.message.match(/^\((\d+)/); d.erroCode=m?m[1]:null; }
     if(d.me){
       try{
         const dbg=await api('/debug_token',{input_token:tk.token},tk.token);
@@ -437,7 +437,12 @@ async function diagTokens(){
   S._diag=out; S._diagLoading=false; render();
 }
 function _diagVeredito(d){
-  if(!d.me) return {cor:'#c5221f', txt:'Token morto — precisa gerar um novo no Business Manager.'};
+  if(!d.me){
+    if(d.erroCode==='200') return {cor:'#c5221f', txt:'O APP está bloqueado pelo Meta — não é o token. Nem /me responde. Gerar token novo COM O MESMO APP não resolve: use outro app do Business Manager para gerar o token, ou destrave este app no painel de desenvolvedores.'};
+    if(/465/.test(d.erro||'')) return {cor:'#c5221f', txt:'O app usado não pertence ao Business Manager deste system user. Adicione o app no BM e gere o token de novo escolhendo esse app.'};
+    if(d.erroCode==='190') return {cor:'#c5221f', txt:'Token expirado ou revogado — gere um novo no Business Manager.'};
+    return {cor:'#c5221f', txt:'Token não responde: '+(d.erro||'erro desconhecido')};
+  }
   if(d.contas>0) return {cor:'#137333', txt:`OK — ${d.contas} conta(s) acessível(is).`+(d.desativadas&&d.desativadas.length?` ⚠️ ${d.desativadas.length} com status ≠ ativa: ${d.desativadas.slice(0,3).join(', ')}`:'')};
   if(d.erroCode==='200') return {cor:'#c5221f', txt:'Acesso à API bloqueado pelo Meta para este app/business. Verifique o Security Center do BM e se a Marketing API do app continua liberada (não é problema de token expirado — o token responde, o acesso é que foi cortado).'};
   if(/465/.test(d.erro||'')) return {cor:'#c5221f', txt:'O app usado não pertence ao Business Manager deste system user. Adicione o app no BM (Configurações → Contas → Apps) e gere o token de novo escolhendo esse app.'};
