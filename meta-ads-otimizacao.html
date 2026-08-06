@@ -1437,29 +1437,68 @@ async function copiarValores(){
     alert(`Copiado:\n\n${txt.replace(/\t/g,'   |   ')}\n\nNa planilha, clique na célula "Alunos PP" da linha da data e cole (Cmd+V). Ele preenche as 3 colunas.`);
   }catch(e){ prompt('Copie (Cmd+C) e cole na célula de Alunos PP:', txt); }
 }
+// Planilha do relatório (para conferir a gravação lendo de volta)
+const GS_PLANILHA_ID='1Xk3jipROXslXYMdp6x994NzbEMt_puoacSKe-MlYFJM';
+const GS_GID='1179187502';
+const _colIdx=L=>{let n=0;for(const ch of String(L).toUpperCase())n=n*26+(ch.charCodeAt(0)-64);return n-1;};
+const COL_POR_BLOCO={'NATH 37':'AX','TOMÉ':'AP','GERAL':'BF'};
+function _csvParseLinhas(t){
+  const rows=[];let row=[],f='',q=false;
+  for(let i=0;i<t.length;i++){const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){f+='"';i++;} else q=false; } else f+=c; }
+    else { if(c==='"')q=true; else if(c===','){row.push(f);f='';} else if(c==='\n'){row.push(f);rows.push(row);row=[];f='';} else if(c!=='\r')f+=c; }
+  }
+  if(f.length||row.length){row.push(f);rows.push(row);}
+  return rows;
+}
+// Lê a planilha e devolve o que está gravado naquela data/bloco.
+async function lerLinhaPlanilha(data, bloco){
+  const r=await fetch(`https://docs.google.com/spreadsheets/d/${GS_PLANILHA_ID}/export?format=csv&gid=${GS_GID}&t=${Date.now()}`);
+  if(!r.ok) throw new Error('não consegui ler a planilha (HTTP '+r.status+')');
+  const rows=_csvParseLinhas(await r.text());
+  const ci=_colIdx(COL_POR_BLOCO[bloco]||'AX');
+  const dd=String(data).trim();
+  for(const row of rows){
+    const b=(row[1]||'').trim();                      // coluna B = Data
+    if(b && b.replace(/^(\d)\//,'0$1/')===dd){
+      const n=v=>parseFloat(String(v||'').replace(/[R$\s.]/g,'').replace(',','.'))||0;
+      return {achou:true, alunos:n(row[ci]), investimento:n(row[ci+1]), faturamento:n(row[ci+2])};
+    }
+  }
+  return {achou:false};
+}
 async function enviarPlanilha(){
   const url=(S.gsUrl||'').trim(), aba=(S.gsAba||'').trim()||'📅 Registro Diário';
   const bloco=relatorioBloco(), iso=relatorioData();
   if(!url){ alert('Cole a URL do Web App do Apps Script primeiro (termina em /exec).'); return; }
-  if(!bloco){ alert('O funil "'+currentFunnel().label+'" não tem bloco nesta planilha.\n\nA planilha tem: PERPÉTUO TOMÉ, PERPÉTUO NATH 37 e PERPÉTUO GERAL.\nSelecione Nathalia, Tomé ou Todos.'); return; }
-  if(!iso){ alert('O relatório é diário: selecione um período de UM dia só.\n\nUse "Hoje", "Ontem", ou datas iguais em De/Até.'); return; }
+  if(!bloco){ alert('O funil "'+currentFunnel().label+'" não tem bloco nesta planilha.\n\nA planilha tem: PERPÉTUO TOMÉ, PERPÉTUO NATH 37 e PERPÉTUO GERAL.'); return; }
+  if(!iso){ alert('O relatório é diário: selecione um período de UM dia só ("Hoje", "Ontem", ou datas iguais).'); return; }
   const A=analyze(), v=relatorioValores(A), data=_ddmm(iso);
   if(!confirm(`Gravar na planilha?\n\nBloco: PERPÉTUO ${bloco}\nData: ${data}\n\n`+
     `Alunos PP: ${fmtNum(v.alunos)}\nInvestimento: ${fmtMoney(v.investimento)}\nFaturamento: ${fmtMoney(v.faturamento)}\n\n`+
-    `Grava na linha de ${data}. Se já houver valor lá, será sobrescrito.`)) return;
+    `Se já houver valor nessa linha, será sobrescrito.`)) return;
   S._gsSending=true; render();
   try{
-    const res=await fetch(url,{method:'POST',redirect:'follow',
+    // no-cors: o navegador envia sem bloquear (a resposta vem opaca, e tudo bem —
+    // a confirmação real vem de ler a planilha de volta logo abaixo).
+    await fetch(url,{method:'POST',mode:'no-cors',
       body:JSON.stringify({aba, bloco, data, alunos:v.alunos,
         investimento:+v.investimento.toFixed(2), faturamento:+v.faturamento.toFixed(2)})});
-    let j=null; try{ j=await res.json(); }catch(_){}
-    if(j&&j.ok){ S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:j.linha, data:j.data, bloco:j.bloco, ...v};
-      alert(`Gravado!\n\nBloco: ${j.bloco}\nData: ${j.data} (linha ${j.linha})`); }
-    else if(j&&j.erro){ alert('A planilha recusou:\n\n'+j.erro); }
-    else { S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:'?', data, bloco, ...v};
-      alert('Enviado, mas não consegui ler a resposta (CORS). Confira na planilha se a linha de '+data+' foi preenchida.'); }
-  }catch(e){ alert('Erro ao enviar: '+e.message+'\n\nVerifique se a implantação está como "Qualquer pessoa".'); }
-  S._gsSending=false; saveState(); render();
+    await new Promise(r=>setTimeout(r,2500));   // dá tempo do Sheets persistir
+    let conf=null; try{ conf=await lerLinhaPlanilha(data, bloco); }catch(e){}
+    if(conf&&conf.achou&&Math.round(conf.alunos)===Math.round(v.alunos)&&Math.abs(conf.investimento-v.investimento)<1){
+      S._gsLast={quando:new Date().toLocaleString('pt-BR'), data, bloco, ...v}; saveState();
+      alert(`✅ Gravado e conferido!\n\nBloco: PERPÉTUO ${bloco}\nData: ${data}\n\nAlunos ${fmtNum(conf.alunos)} · Investimento ${fmtMoney(conf.investimento)} · Faturamento ${fmtMoney(conf.faturamento)}`);
+    } else if(conf&&conf.achou){
+      alert(`⚠️ Enviei, mas a planilha ainda mostra outro valor nessa linha:\n\n`+
+        `na planilha: ${fmtNum(conf.alunos)} alunos · ${fmtMoney(conf.investimento)}\n`+
+        `enviado:     ${fmtNum(v.alunos)} alunos · ${fmtMoney(v.investimento)}\n\n`+
+        `Pode ser demora do Sheets — recarregue a planilha e confira. Se continuar diferente, a implantação pode estar desatualizada (reimplante como "Nova versão").`);
+    } else {
+      alert('Enviado, mas não consegui conferir lendo a planilha. Verifique manualmente a linha de '+data+'.');
+    }
+  }catch(e){ alert('Erro ao enviar: '+e.message); }
+  S._gsSending=false; render();
 }
 function renderRelatorio(A){
   const v=relatorioValores(A), bloco=relatorioBloco(), iso=relatorioData(), data=_ddmm(iso);
