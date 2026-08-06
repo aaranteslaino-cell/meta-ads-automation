@@ -237,8 +237,12 @@ var HORA_GATILHO = 5;        // 5h da manhã (fuso da planilha)
 // Funil no Meta  →  bloco na planilha
 var FUNIS = [
   { match: 'NATH',   bloco: 'NATH 37' },
-  { match: 'TOME',   bloco: 'TOMÉ'    },
-  { match: '',       bloco: 'GERAL'   }   // '' = todas as campanhas
+  { match: 'TOME',   bloco: 'TOMÉ'    }
+  // GERAL desativado de propósito: este token enxerga só 10 das 25 contas de
+  // anúncio, então o INVESTIMENTO viria incompleto enquanto o FATURAMENTO
+  // (Supabase) viria completo — o que produziria um ROAS falso e otimista.
+  // Para reativar: dê a este system user acesso a TODAS as contas e descomente:
+  // , { match: '', bloco: 'GERAL' }
 ];
 
 function _semAcento(s) {
