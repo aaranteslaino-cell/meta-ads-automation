@@ -230,7 +230,7 @@ function testarConexao() {
 // Para testar antes sem esperar: rode  preencherOntem  manualmente.
 
 var SB_URL = 'https://mnrnnmfaupvmjfgpzkou.supabase.co';
-var SB_KEY = 'sb_publishable_KraV-pqYINerWJ4CjNbHmA_bnpCPKr0';
+var SB_KEY = 'sb_publishable_KraV-pqYINerxc0nCgdHaA_xHj7ew87';
 var USD_BRL = 5.40;          // mesma taxa padrão do dashboard
 var HORA_GATILHO = 5;        // 5h da manhã (fuso da planilha)
 
