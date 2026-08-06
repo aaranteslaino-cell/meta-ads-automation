@@ -426,3 +426,98 @@ function simularOntem() {
       f.bloco, alunos, invest.toFixed(2), (parseFloat(fr.receita_bruta) || 0).toFixed(2));
   });
 }
+
+// ── Preenchimento retroativo ────────────────────────────────────────────────
+// Preenche vários dias de uma vez. Útil para fechar o mês que já passou
+// ou recuperar dias em que o gatilho falhou.
+
+/** Dias de um intervalo, do início ao fim (inclusive). */
+function _diasEntre(ini, fim) {
+  var out = [], d = new Date(ini.getTime());
+  while (d.getTime() <= fim.getTime()) { out.push(new Date(d.getTime())); d.setDate(d.getDate() + 1); }
+  return out;
+}
+function _hojeSP() {
+  var s = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy/MM/dd').split('/');
+  return new Date(+s[0], +s[1] - 1, +s[2]);
+}
+
+/**
+ * Roda o intervalo dia a dia.
+ * @param {Date} ini  primeiro dia
+ * @param {Date} fim  último dia
+ * @param {boolean} simular  true = só mostra no log, não grava
+ */
+function _rodarIntervalo(ini, fim, simular) {
+  var dias = _diasEntre(ini, fim);
+  Logger.log('%s %s dia(s): %s → %s', simular ? '🔍 SIMULANDO' : '▶ PREENCHENDO',
+    dias.length, _ddmmDe(ini), _ddmmDe(fim));
+  Logger.log('');
+
+  var oks = 0, falhas = 0;
+  for (var i = 0; i < dias.length; i++) {
+    var d = dias[i], dia = _isoDia(d), ddmm = _ddmmDe(d);
+    try {
+      var camps = _metaGastoPorCampanha(dia);
+      var since = dia + 'T00:00:00-03:00';
+      var until = Utilities.formatDate(new Date(d.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
+
+      var frontPorCamp = {};
+      _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
+        var id = String(r.campaign_id || ''); if (!id) return;
+        frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
+      });
+
+      var sh = simular ? null : SpreadsheetApp.openById(PLANILHA_ID).getSheetByName(ABA_PADRAO);
+      var linha = '';
+      FUNIS.forEach(function (f) {
+        var m = _semAcento(f.match), invest = 0, alunos = 0;
+        Object.keys(camps).forEach(function (id) {
+          if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
+          invest += camps[id].gasto; alunos += frontPorCamp[id] || 0;
+        });
+        var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
+        var vals = { alunos: alunos, investimento: Math.round(invest * 100) / 100,
+                     faturamento: parseFloat(fr.receita_bruta) || 0 };
+        if (!simular) _escrever(sh, ddmm, f.bloco, vals);
+        linha += Utilities.formatString('  %s: %s alunos / R$ %s / R$ %s',
+          f.bloco, vals.alunos, vals.investimento.toFixed(2), vals.faturamento.toFixed(2));
+      });
+      Logger.log('%s %s %s', simular ? '  ' : '✅', ddmm, linha);
+      oks++;
+    } catch (e) {
+      Logger.log('❌ %s — %s', ddmm, e.message);
+      falhas++;
+    }
+  }
+  Logger.log('');
+  Logger.log('%s %s dia(s) ok, %s falha(s).', simular ? '🔍 Simulação:' : '✅ Concluído:', oks, falhas);
+}
+
+/** SIMULA o mês atual, do dia 1 até ontem. Não grava nada. */
+function simularMesAteOntem() {
+  var hoje = _hojeSP();
+  var ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  var ontem = new Date(hoje.getTime() - 864e5);
+  if (ontem.getTime() < ini.getTime()) { Logger.log('Ainda é dia 1 — nada a preencher.'); return; }
+  _rodarIntervalo(ini, ontem, true);
+}
+
+/** PREENCHE o mês atual, do dia 1 até ontem. Sobrescreve o que houver. */
+function preencherMesAteOntem() {
+  var hoje = _hojeSP();
+  var ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  var ontem = new Date(hoje.getTime() - 864e5);
+  if (ontem.getTime() < ini.getTime()) { Logger.log('Ainda é dia 1 — nada a preencher.'); return; }
+  _rodarIntervalo(ini, ontem, false);
+}
+
+/**
+ * Intervalo livre. Edite as datas abaixo e rode.
+ * Formato: new Date(ano, mês-1, dia)  →  agosto = mês 7
+ */
+function preencherIntervaloManual() {
+  var ini = new Date(2026, 7, 1);   // 01/08/2026
+  var fim = new Date(2026, 7, 5);   // 05/08/2026
+  _rodarIntervalo(ini, fim, false);
+}
