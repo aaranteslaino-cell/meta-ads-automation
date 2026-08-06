@@ -214,3 +214,211 @@ function testarConexao() {
   }
   return resp;
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  AUTOMAÇÃO DIÁRIA — preenche sozinho o dia anterior, sem abrir o dashboard
+// ════════════════════════════════════════════════════════════════════════════
+//
+// COMO ATIVAR (uma vez):
+//   1. Configurações do projeto (⚙️) → Propriedades do script → Adicionar
+//        Propriedade: META_TOKEN
+//        Valor: (cole o token do Meta gerado no Business Manager)
+//      Guardar aqui em vez de no código evita que o token apareça no arquivo.
+//   2. Rode a função  criarGatilhoDiario  uma vez (menu de funções → Executar)
+//   3. Pronto: todo dia às 5h da manhã ele preenche o dia anterior.
+//
+// Para testar antes sem esperar: rode  preencherOntem  manualmente.
+
+var SB_URL = 'https://mnrnnmfaupvmjfgpzkou.supabase.co';
+var SB_KEY = 'sb_publishable_KraV-pqYINerWJ4CjNbHmA_bnpCPKr0';
+var USD_BRL = 5.40;          // mesma taxa padrão do dashboard
+var HORA_GATILHO = 5;        // 5h da manhã (fuso da planilha)
+
+// Funil no Meta  →  bloco na planilha
+var FUNIS = [
+  { match: 'NATH',   bloco: 'NATH 37' },
+  { match: 'TOME',   bloco: 'TOMÉ'    },
+  { match: '',       bloco: 'GERAL'   }   // '' = todas as campanhas
+];
+
+function _semAcento(s) {
+  return String(s == null ? '' : s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+function _metaToken() {
+  var t = PropertiesService.getScriptProperties().getProperty('META_TOKEN');
+  if (!t) throw new Error('Falta o META_TOKEN nas Propriedades do script (⚙️ Configurações do projeto).');
+  return t;
+}
+function _isoDia(d) {                       // Date -> "YYYY-MM-DD"
+  return Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd');
+}
+function _ddmmDe(d) {                       // Date -> "DD/MM"
+  return Utilities.formatDate(d, 'America/Sao_Paulo', 'dd/MM');
+}
+
+/** Gasto por campanha no Meta, no dia (converte USD→BRL como o dashboard). */
+function _metaGastoPorCampanha(dia) {
+  var tok = _metaToken(), API = 'https://graph.facebook.com/v21.0';
+  var contas = [];
+  var url = API + '/me/adaccounts?fields=id,name,currency&limit=500&access_token=' + encodeURIComponent(tok);
+  while (url) {
+    var j = JSON.parse(UrlFetchApp.fetch(url, { muteHttpExceptions: true }).getContentText());
+    if (j.error) throw new Error('Meta /me/adaccounts: ' + j.error.message);
+    contas = contas.concat(j.data || []);
+    url = (j.paging && j.paging.next) ? j.paging.next : null;
+  }
+
+  var camps = {};   // campaign_id -> { nome, gasto }
+  var tr = encodeURIComponent(JSON.stringify({ since: dia, until: dia }));
+  for (var i = 0; i < contas.length; i++) {
+    var acc = contas[i], usd = (acc.currency === 'USD');
+    var u = API + '/' + acc.id + '/insights?level=campaign' +
+            '&fields=spend,campaign_id,campaign_name&time_range=' + tr +
+            '&limit=500&access_token=' + encodeURIComponent(tok);
+    var guard = 0;
+    while (u && guard++ < 20) {
+      var res = JSON.parse(UrlFetchApp.fetch(u, { muteHttpExceptions: true }).getContentText());
+      if (res.error) { Logger.log('  ⚠️ %s: %s', acc.name, res.error.message); break; }
+      (res.data || []).forEach(function (r) {
+        var v = parseFloat(r.spend) || 0;
+        if (!v) return;
+        var id = r.campaign_id;
+        if (!camps[id]) camps[id] = { nome: r.campaign_name || '', gasto: 0 };
+        camps[id].gasto += usd ? v * USD_BRL : v;
+      });
+      u = (res.paging && res.paging.next) ? res.paging.next : null;
+    }
+  }
+  return camps;
+}
+
+function _sbRpc(nome, corpo) {
+  var r = UrlFetchApp.fetch(SB_URL + '/rest/v1/rpc/' + nome, {
+    method: 'post', contentType: 'application/json',
+    headers: { apikey: SB_KEY, Authorization: 'Bearer ' + SB_KEY },
+    payload: JSON.stringify(corpo), muteHttpExceptions: true
+  });
+  var t = r.getContentText();
+  if (r.getResponseCode() >= 300) throw new Error('Supabase ' + nome + ': ' + t);
+  return JSON.parse(t);
+}
+
+/** Escreve os 3 valores na linha da data, no bloco indicado. */
+function _escrever(sh, dataDDMM, blocoNome, vals) {
+  var M = _mapear(sh);
+  if (M.erro) throw new Error(M.erro);
+
+  var alvo = null, bn = _semAcento(blocoNome);
+  for (var i = 0; i < M.blocos.length; i++) {
+    if (_semAcento(M.blocos[i].titulo).indexOf(bn) >= 0) { alvo = M.blocos[i]; break; }
+  }
+  if (!alvo) throw new Error('Bloco "' + blocoNome + '" não encontrado.');
+
+  var linha = M.linhaPorData[dataDDMM];
+  if (!linha) throw new Error('Data ' + dataDDMM + ' não existe na aba.');
+
+  sh.getRange(linha, alvo._c + 1).setValue(Math.round(vals.alunos));
+  sh.getRange(linha, alvo._i + 1).setValue(vals.investimento);
+  sh.getRange(linha, alvo._f + 1).setValue(vals.faturamento);
+  return { linha: linha, bloco: alvo.titulo };
+}
+
+/** Preenche um dia específico (Date) em todos os blocos configurados. */
+function preencherDia(quando) {
+  var dia = _isoDia(quando), ddmm = _ddmmDe(quando);
+  Logger.log('▶ Preenchendo %s (%s)', ddmm, dia);
+
+  var sh = SpreadsheetApp.openById(PLANILHA_ID).getSheetByName(ABA_PADRAO);
+  if (!sh) throw new Error('Aba "' + ABA_PADRAO + '" não encontrada.');
+
+  var camps = _metaGastoPorCampanha(dia);
+  var since = dia + 'T00:00:00-03:00';
+  var until = Utilities.formatDate(new Date(quando.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
+
+  // vendas front por campanha (mesma fonte que o dashboard usa)
+  var frontPorCamp = {};
+  _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
+    var id = String(r.campaign_id || '');
+    if (!id) return;
+    frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
+  });
+
+  var resultados = [];
+  FUNIS.forEach(function (f) {
+    var m = _semAcento(f.match), invest = 0, alunos = 0;
+    Object.keys(camps).forEach(function (id) {
+      if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
+      invest += camps[id].gasto;
+      alunos += frontPorCamp[id] || 0;
+    });
+
+    var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
+    var faturamento = parseFloat(fr.receita_bruta) || 0;
+
+    var vals = { alunos: alunos, investimento: Math.round(invest * 100) / 100, faturamento: faturamento };
+    try {
+      var w = _escrever(sh, ddmm, f.bloco, vals);
+      Logger.log('  ✅ %s → linha %s | %s alunos · R$ %s · R$ %s',
+        w.bloco, w.linha, vals.alunos, vals.investimento.toFixed(2), vals.faturamento.toFixed(2));
+      resultados.push({ bloco: w.bloco, ok: true, vals: vals });
+    } catch (e) {
+      Logger.log('  ❌ %s: %s', f.bloco, e.message);
+      resultados.push({ bloco: f.bloco, ok: false, erro: String(e) });
+    }
+  });
+  return resultados;
+}
+
+/** Roda automaticamente pelo gatilho: preenche o dia anterior. */
+function preencherOntem() {
+  var ontem = new Date(Date.now() - 864e5);
+  return preencherDia(ontem);
+}
+
+/** Cria (ou recria) o gatilho diário. Rode UMA vez. */
+function criarGatilhoDiario() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'preencherOntem') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('preencherOntem').timeBased().atHour(HORA_GATILHO).everyDays(1).create();
+  Logger.log('✅ Gatilho criado: preencherOntem, todo dia por volta das %sh.', HORA_GATILHO);
+  Logger.log('   (o Google roda dentro da janela %sh–%sh)', HORA_GATILHO, HORA_GATILHO + 1);
+}
+
+/** Remove o gatilho, se quiser desligar a automação. */
+function removerGatilhoDiario() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'preencherOntem') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  Logger.log('%s gatilho(s) removido(s).', n);
+}
+
+/** Teste seguro: mostra o que seria gravado ontem, SEM escrever. */
+function simularOntem() {
+  var ontem = new Date(Date.now() - 864e5);
+  var dia = _isoDia(ontem), ddmm = _ddmmDe(ontem);
+  Logger.log('▶ Simulando %s (%s) — nada será gravado', ddmm, dia);
+
+  var camps = _metaGastoPorCampanha(dia);
+  Logger.log('  campanhas com gasto no Meta: %s', Object.keys(camps).length);
+
+  var since = dia + 'T00:00:00-03:00';
+  var until = Utilities.formatDate(new Date(ontem.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
+  var frontPorCamp = {};
+  _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
+    var id = String(r.campaign_id || ''); if (!id) return;
+    frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
+  });
+
+  FUNIS.forEach(function (f) {
+    var m = _semAcento(f.match), invest = 0, alunos = 0;
+    Object.keys(camps).forEach(function (id) {
+      if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
+      invest += camps[id].gasto; alunos += frontPorCamp[id] || 0;
+    });
+    var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
+    Logger.log('  %s → %s alunos · investimento R$ %s · faturamento R$ %s',
+      f.bloco, alunos, invest.toFixed(2), (parseFloat(fr.receita_bruta) || 0).toFixed(2));
+  });
+}
