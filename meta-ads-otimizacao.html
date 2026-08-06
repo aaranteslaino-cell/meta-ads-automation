@@ -1410,71 +1410,83 @@ function renderDashboard(A){
 }
 
 // ── Relatório na planilha (Apps Script Web App) ─────────────────────────────
-// Preenche SÓ Alunos PP / Investimento / Faturamento. As colunas com fórmula
-// (Lucro, CPA, TKM, ROAS, CPO) se recalculam sozinhas — não são tocadas.
+// Grava SÓ Alunos PP / Investimento / Faturamento, na LINHA DA DATA.
+// Lucro, CPA, TKM, ROAS e CPO são fórmulas na planilha e não são tocados.
+const BLOCO_POR_FUNIL={NATH:'NATH 37', TOME:'TOMÉ', ALL:'GERAL'};
 function relatorioValores(A){
   const T=A.T;
   const fat=(A.funnelTotal&&A.funnelTotal.receita>0)?A.funnelTotal.receita:((T.receita||0)+((A.off&&A.off.receita)||0));
   return { alunos:T.front||0, investimento:T.spend||0, faturamento:fat };
 }
-// Copia os 3 valores separados por TAB: colando numa célula, o Sheets
-// distribui em 3 colunas seguidas (Alunos PP / Investimento / Faturamento).
+// O relatório é diário: só aceita período de UM dia.
+function relatorioData(){
+  if(S.period==='today') return brToday();
+  if(S.period==='yesterday') return addDaysStr(brToday(),-1);
+  if(S.period==='custom'){ const r=customRange(); return (r.since&&r.since===r.until)?r.since:null; }
+  return null;
+}
+const _ddmm=iso=>iso?iso.slice(8,10)+'/'+iso.slice(5,7):'';
+function relatorioBloco(){ return BLOCO_POR_FUNIL[currentFunnel().key]||null; }
+
 async function copiarValores(){
   const A=analyze(), v=relatorioValores(A);
-  const br=n=>String(n).replace('.',',');           // decimal no padrão pt-BR
+  const br=n=>String(n).replace('.',',');
   const txt=[Math.round(v.alunos), br(v.investimento.toFixed(2)), br(v.faturamento.toFixed(2))].join('\t');
   try{
     await navigator.clipboard.writeText(txt);
-    alert(`Copiado:\n\n${txt.replace(/\t/g,'   |   ')}\n\nNa planilha, clique na célula "Alunos PP" da linha vazia e cole (Cmd+V). Ele preenche as 3 colunas de uma vez.`);
-  }catch(e){
-    prompt('Copie manualmente (Cmd+C) e cole na célula de Alunos PP:', txt);
-  }
+    alert(`Copiado:\n\n${txt.replace(/\t/g,'   |   ')}\n\nNa planilha, clique na célula "Alunos PP" da linha da data e cole (Cmd+V). Ele preenche as 3 colunas.`);
+  }catch(e){ prompt('Copie (Cmd+C) e cole na célula de Alunos PP:', txt); }
 }
 async function enviarPlanilha(){
-  const url=(S.gsUrl||'').trim(), aba=(S.gsAba||'').trim();
+  const url=(S.gsUrl||'').trim(), aba=(S.gsAba||'').trim()||'📅 Registro Diário';
+  const bloco=relatorioBloco(), iso=relatorioData();
   if(!url){ alert('Cole a URL do Web App do Apps Script primeiro (termina em /exec).'); return; }
-  if(!/\/exec\s*$/.test(url)){ if(!confirm('A URL normalmente termina em /exec. Enviar assim mesmo?')) return; }
-  const A=analyze(); const v=relatorioValores(A);
-  const w=periodRange(S.period);
-  if(!confirm(`Gravar na planilha${aba?` (aba "${aba}")`:''}?\n\n`+
+  if(!bloco){ alert('O funil "'+currentFunnel().label+'" não tem bloco nesta planilha.\n\nA planilha tem: PERPÉTUO TOMÉ, PERPÉTUO NATH 37 e PERPÉTUO GERAL.\nSelecione Nathalia, Tomé ou Todos.'); return; }
+  if(!iso){ alert('O relatório é diário: selecione um período de UM dia só.\n\nUse "Hoje", "Ontem", ou datas iguais em De/Até.'); return; }
+  const A=analyze(), v=relatorioValores(A), data=_ddmm(iso);
+  if(!confirm(`Gravar na planilha?\n\nBloco: PERPÉTUO ${bloco}\nData: ${data}\n\n`+
     `Alunos PP: ${fmtNum(v.alunos)}\nInvestimento: ${fmtMoney(v.investimento)}\nFaturamento: ${fmtMoney(v.faturamento)}\n\n`+
-    `Funil: ${currentFunnel().label} · período: ${S.period}\n\nEscreve na primeira linha vazia. As colunas de fórmula não são alteradas.`)) return;
+    `Grava na linha de ${data}. Se já houver valor lá, será sobrescrito.`)) return;
   S._gsSending=true; render();
   try{
-    // body como string simples evita preflight CORS no Apps Script
     const res=await fetch(url,{method:'POST',redirect:'follow',
-      body:JSON.stringify({aba, colAlunos:(S.gsCol||'').trim().toUpperCase()||null,
-        alunos:v.alunos, investimento:+v.investimento.toFixed(2), faturamento:+v.faturamento.toFixed(2)})});
+      body:JSON.stringify({aba, bloco, data, alunos:v.alunos,
+        investimento:+v.investimento.toFixed(2), faturamento:+v.faturamento.toFixed(2)})});
     let j=null; try{ j=await res.json(); }catch(_){}
-    if(j&&j.ok){ S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:j.linha, aba:j.aba, ...v};
-      alert(`Gravado na linha ${j.linha} da aba "${j.aba}".`); }
-    else if(j&&j.erro){ alert('A planilha recusou: '+j.erro); }
-    else { S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:'?', aba:aba||'?', ...v};
-      alert('Enviado, mas não consegui ler a resposta (bloqueio de CORS). Confira na planilha se a linha foi gravada.'); }
+    if(j&&j.ok){ S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:j.linha, data:j.data, bloco:j.bloco, ...v};
+      alert(`Gravado!\n\nBloco: ${j.bloco}\nData: ${j.data} (linha ${j.linha})`); }
+    else if(j&&j.erro){ alert('A planilha recusou:\n\n'+j.erro); }
+    else { S._gsLast={quando:new Date().toLocaleString('pt-BR'), linha:'?', data, bloco, ...v};
+      alert('Enviado, mas não consegui ler a resposta (CORS). Confira na planilha se a linha de '+data+' foi preenchida.'); }
   }catch(e){ alert('Erro ao enviar: '+e.message+'\n\nVerifique se a implantação está como "Qualquer pessoa".'); }
   S._gsSending=false; saveState(); render();
 }
 function renderRelatorio(A){
-  const v=relatorioValores(A);
+  const v=relatorioValores(A), bloco=relatorioBloco(), iso=relatorioData(), data=_ddmm(iso);
+  const aviso = !bloco ? `<div class="warn-box" style="margin-top:10px">O funil <b>${esc(currentFunnel().label)}</b> não tem bloco nesta planilha (ela tem Tomé, Nath 37 e Geral). Selecione um deles para gravar.</div>`
+    : !iso ? `<div class="warn-box" style="margin-top:10px">O relatório é <b>diário</b>: selecione <b>Hoje</b>, <b>Ontem</b>, ou datas iguais em De/Até. Hoje está em um período de vários dias.</div>` : '';
   return `<div class="card"><details ${S.gsUrl?'':'open'}>
-    <summary style="font-weight:700;font-size:15px;color:#7b2ff7">📗 Enviar relatório para a planilha <span class="mini" style="font-weight:400;color:#888">preenche Alunos PP · Investimento · Faturamento</span></summary>
+    <summary style="font-weight:700;font-size:15px;color:#7b2ff7">📗 Enviar relatório para a planilha <span class="mini" style="font-weight:400;color:#888">Alunos PP · Investimento · Faturamento</span></summary>
+    <div class="row" style="margin-top:10px;gap:8px">
+      <span class="chip ${bloco?'active':''}" style="cursor:default">${bloco?'PERPÉTUO '+esc(bloco):'sem bloco'}</span>
+      <span class="chip ${iso?'active':''}" style="cursor:default">${data||'período inválido'}</span>
+    </div>
+    ${aviso}
     <div class="kpis" style="margin-top:10px">
-      <div class="kpi"><div class="k-l">Alunos PP</div><div class="k-v">${fmtNum(v.alunos)}</div><div class="k-s">vendas front no período</div></div>
+      <div class="kpi"><div class="k-l">Alunos PP</div><div class="k-v">${fmtNum(v.alunos)}</div><div class="k-s">vendas front</div></div>
       <div class="kpi"><div class="k-l">Investimento</div><div class="k-v">${fmtMoney0(v.investimento)}</div><div class="k-s">gasto em mídia</div></div>
       <div class="kpi"><div class="k-l">Faturamento</div><div class="k-v">${fmtMoney0(v.faturamento)}</div><div class="k-s">receita do funil</div></div>
     </div>
     <div class="row" style="gap:16px;align-items:flex-end;margin-top:12px">
-      <div style="flex:1;min-width:260px"><label>URL do Web App (Apps Script)</label>
+      <div style="flex:1;min-width:280px"><label>URL do Web App (Apps Script)</label>
         <input value="${esc(S.gsUrl||'')}" onchange="setCfg('gsUrl',this.value)" placeholder="https://script.google.com/macros/s/…/exec"></div>
-      <div><label>Aba da planilha</label>
-        <input style="width:180px" value="${esc(S.gsAba||'')}" onchange="setCfg('gsAba',this.value)" placeholder="📅 Registro Diário"></div>
-      <div><label title="Letra da coluna 'Alunos PP' do bloco certo. Rode testarConexao no Apps Script para ver as opções.">Coluna Alunos</label>
-        <input style="width:90px" value="${esc(S.gsCol||'')}" onchange="setCfg('gsCol',this.value)" placeholder="ex: B"></div>
-      <button class="btn btn-gray" onclick="copiarValores()" title="Copia os 3 valores separados por TAB. Cole na célula de Alunos PP da linha vazia e ele preenche as 3 colunas. Não depende do Apps Script.">📋 Copiar valores</button>
+      <div><label>Aba</label>
+        <input style="width:170px" value="${esc(S.gsAba||'')}" onchange="setCfg('gsAba',this.value)" placeholder="📅 Registro Diário"></div>
+      <button class="btn btn-gray" onclick="copiarValores()" title="Copia os 3 valores separados por TAB para colar na planilha. Não depende do Apps Script.">📋 Copiar</button>
       <button class="btn btn-purple" onclick="enviarPlanilha()" ${S._gsSending?'disabled':''}>${S._gsSending?'<span class="loading"></span> Enviando…':'Gravar na planilha'}</button>
     </div>
-    ${S._gsLast?`<div class="mini" style="margin-top:8px;color:#137333">✓ Último envio: linha ${esc(String(S._gsLast.linha))} da aba "${esc(String(S._gsLast.aba))}" em ${esc(S._gsLast.quando)} — ${fmtNum(S._gsLast.alunos)} alunos · ${fmtMoney0(S._gsLast.investimento)} · ${fmtMoney0(S._gsLast.faturamento)}</div>`:''}
-    <div class="mini" style="margin-top:8px">Grava na <b>primeira linha vazia</b> da aba, nas 3 colunas de entrada. <b>Lucro, CPA, TKM, ROAS e CPO não são tocados</b> — continuam sendo calculados pelas fórmulas da planilha. Os valores seguem o <b>funil e o período selecionados no topo</b>. Instalação do Apps Script: veja <code>apps-script-planilha.js</code>.</div>
+    ${S._gsLast?`<div class="mini" style="margin-top:8px;color:#137333">✓ Último envio: ${esc(String(S._gsLast.bloco||''))} · ${esc(String(S._gsLast.data||''))} (linha ${esc(String(S._gsLast.linha))}) em ${esc(S._gsLast.quando)}</div>`:''}
+    <div class="mini" style="margin-top:8px">O bloco vem do <b>funil</b> e a linha vem da <b>data do período</b>, ambos selecionados no topo. <b>Lucro, CPA, TKM, ROAS e CPO não são tocados</b> — são fórmulas da planilha. Instalação: veja <code>apps-script-planilha.js</code>.</div>
   </details></div>`;
 }
 
