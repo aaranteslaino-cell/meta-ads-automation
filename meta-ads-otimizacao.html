@@ -1219,11 +1219,17 @@ function sessaoDiagnostico(inv, lds){
   const lps =ativos.filter(g=>g.f!=='NATIVO').map(g=>g.pv?g.leads/g.pv*100:0);
   const mqls=ativos.map(g=>g.leads?g.opp/g.leads*100:0);
 
+  // As etapas de LP só existem em Carta/FLP — o Nativo é formulário dentro do Meta
+  // e tem pageview zerado. Misturar as duas bases dá número sem sentido, então
+  // essas duas etapas somam apenas os funis que realmente têm pageview.
+  const comLP=ativos.filter(g=>g.pv>0);
+  const L=comLP.reduce((a,g)=>({clicks:a.clicks+g.clicks,pv:a.pv+g.pv,leads:a.leads+g.leads}),{clicks:0,pv:0,leads:0});
+
   const et=[];
   et.push(_etapaHtml('Impressão → clique (CTR)', T.imp?T.clicks/T.imp*100:0, med(ctrs), 'criativo não está chamando atenção — testar novos ganchos'));
-  if(T.pv>0){
-    et.push(_etapaHtml('Clique → pageview', T.clicks?T.pv/T.clicks*100:0, 90, 'gente clica mas não carrega a página — velocidade/link da LP'));
-    et.push(_etapaHtml('Pageview → lead (conv LP)', T.pv?T.leads/T.pv*100:0, med(lps), 'a página não converte — headline, formulário ou promessa desalinhada'));
+  if(L.pv>0){
+    et.push(_etapaHtml('Clique → pageview', L.clicks?L.pv/L.clicks*100:0, 90, 'gente clica mas não carrega a página — velocidade/link da LP'));
+    et.push(_etapaHtml('Pageview → lead (conv LP)', L.pv?L.leads/L.pv*100:0, med(lps), 'a página não converte — headline, formulário ou promessa desalinhada'));
   }
   et.push(_etapaHtml('Lead → oportunidade (MQL)', T.leads?T.opp/T.leads*100:0, med(mqls), 'lead entra mas sem caixa — o criativo/público está atraindo perfil errado'));
 
@@ -1238,7 +1244,7 @@ function sessaoDiagnostico(inv, lds){
     <div style="overflow-x:auto;margin-top:8px"><table class="dim-tbl" style="font-size:12px"><thead><tr>
       <th style="text-align:left">Etapa</th><th class="num">Atual</th><th class="num">Mediana entre funis</th><th>Situação</th>
     </tr></thead><tbody>${et.map(x=>x.html).join('')}</tbody></table></div>
-    <div class="mini" style="margin-top:6px">A mediana é entre os funis do período (Nativo / Carta / FLP), não um alvo externo. "Clique → pageview" usa 90% como referência de saúde técnica. O Nativo não entra nas etapas de LP porque o pageview dele vem errado na planilha.</div>
+    <div class="mini" style="margin-top:6px">A mediana é entre os funis do período (Nativo / Carta / FLP), não um alvo externo. <b>As duas etapas de LP contam só Carta e FLP</b> — o Nativo é formulário dentro do Meta e não tem pageview, então entra apenas no CTR e no MQL. "Clique → pageview" usa 90% como referência de saúde técnica.</div>
   </div>`;
 }
 // Ideias de teste — Sessão
