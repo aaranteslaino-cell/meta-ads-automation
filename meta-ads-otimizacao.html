@@ -684,7 +684,11 @@ function reloadTopAds(){ S._topAds=null; S._refData=null; loadTopAds(); }
 function setTopAdsSort(v){ S.topAdsSort=v||'roas'; saveState(); render(); }
 function setAdSearch(v){ S._adSearch=v||''; render(); const el=document.querySelector('[data-adsearch]'); if(el){el.focus();el.selectionStart=el.selectionEnd=el.value.length;} }
 function setCampSearch(v){ S._campSearch=v||''; render(); const el=document.querySelector('[data-campsearch]'); if(el){el.focus();el.selectionStart=el.selectionEnd=el.value.length;} }
-function _isNathCriativos(){ const ck=S.view==='criativos'?(S.criativosFunnel||'ALL'):''; return ck==='NATH'; }
+if(typeof S.criativosHist!=='boolean') S.criativosHist=false;   // padrão: respeita o período do topo
+// O arquivo histórico (nath-ref.json) vem AGREGADO por período inteiro, sem quebra
+// diária — por isso ele não obedece ao filtro de datas. Só é usado no modo histórico.
+function _isNathCriativos(){ const ck=S.view==='criativos'?(S.criativosFunnel||'ALL'):''; return ck==='NATH' && S.criativosHist; }
+function setCriativosHist(v){ if(S.criativosHist===!!v) return; S.criativosHist=!!v; S._topAds=null; S._refData=null; saveState(); render(); loadTopAds(); }
 function loadTopAds(){ if(_isNathCriativos()) fetchRefData(); else fetchTopAds(); }
 async function fetchRefData(){
   if(S._refLoading) return; S._refLoading=true; render();
@@ -2538,8 +2542,16 @@ function renderTopAdsAudiences(A){
   }
   const cfKey=S.criativosFunnel||'ALL';
   const criativosFilter=S.view==='criativos'?`<div class="row" style="margin:8px 0 4px;gap:4px">${[{key:'ALL',label:'Todos',emoji:'🌐'},...FUNNELS.filter(f=>!f.backend)].map(f=>`<button class="chip ${cfKey===f.key?'active':''}" onclick="setCriativosFunnel('${f.key}')" style="font-size:12px;padding:4px 10px">${f.emoji} ${f.label}</button>`).join('')}</div>`:'';
+  // Modo dos dados (só faz sentido na Nathalia, que é quem tem arquivo histórico)
+  const modoCriativos = (S.view==='criativos' && cfKey==='NATH') ? `<div class="row" style="margin:2px 0 6px;gap:4px;align-items:center">
+      <span class="mini" style="margin-right:2px">Dados:</span>
+      <button class="chip ${!S.criativosHist?'active':''}" onclick="setCriativosHist(false)" style="font-size:12px;padding:4px 10px" title="Gasto da API do Meta + receita do Supabase, ambos filtrados pelo período escolhido no topo.">📅 Período selecionado</button>
+      <button class="chip ${S.criativosHist?'active':''}" onclick="setCriativosHist(true)" style="font-size:12px;padding:4px 10px" title="Retrato fixo montado das planilhas exportadas do Meta. Não obedece ao filtro de datas: os dados de origem vêm somados por período inteiro.">📚 Histórico completo</button>
+      ${S.criativosHist?`<span class="mini" style="color:#b26a00">⚠ ignora o filtro de datas</span>`:''}
+    </div>` : '';
   return `<div class="card">${head}
     ${criativosFilter}
+    ${modoCriativos}
     <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
       <h3 style="margin:0">📢 Top anúncios <span class="mini" style="text-transform:none">com venda e gasto mínimo, agrupados por nome (inclui pausados)</span>${_nathRef?` <span class="mini" style="color:#2563eb">${S._refData.totalAds} ads · R$ ${fmtNum(Math.round(S._refData.totalSpend))} investido (${S._refData.period?.start?.slice(0,7)} a ${S._refData.period?.end?.slice(0,7)})</span>`:S._topAdsMeta?` <span class="mini" style="color:${S._topAdsMeta.err?'#c5221f':'#666'}">${S._topAdsMeta.total} ads de ${S._topAdsMeta.ok}/${S._topAdsMeta.ok+S._topAdsMeta.err} contas${S._topAdsMeta.err?' ('+S._topAdsMeta.err+' erro: '+S._topAdsMeta.errNames.join(', ')+')':''}</span>`:''}</h3>
       <input type="text" data-adsearch placeholder="Pesquisar ad..." value="${esc(S._adSearch||'')}" oninput="setAdSearch(this.value)" style="padding:4px 8px;font-size:12px;border-radius:6px;border:1px solid #ddd;width:180px">
@@ -2558,7 +2570,7 @@ function renderTopAdsAudiences(A){
     ${adsHtml}
     ${ideiasHtml}
     ${renderVideoAnalysis()}
-    ${_nathRef&&_adsAnalysis?renderCreativeAnalysis(_adsAnalysis):''}
+    ${_adsAnalysis?renderCreativeAnalysis(_adsAnalysis):''}
     <hr style="margin:16px 0">
     <h3 style="margin:2px 0 8px">🎯 Top públicos <span class="mini" style="text-transform:none">por conjunto de anúncios (público customizado, interesses ou amplo/Advantage+) · inclui pausados</span></h3>
     ${pubHtml}
