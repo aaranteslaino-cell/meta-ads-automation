@@ -1191,6 +1191,134 @@ function renderSheetView(){
   if(S._sheet.error){ return head+`<div class="empty" style="margin-top:12px">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
   return head+`</div>`+(f.sheet==='sessao'?renderSessaoFull():renderDirectFull());
 }
+
+// ── Diagnóstico de funil + ideias (Sessão e Direct) ─────────────────────────
+const _pctS=(x,d=1)=>(x==null||!isFinite(x))?'—':x.toFixed(d)+'%';
+function _etapaHtml(nome, valor, mediana, dica){
+  const r = (mediana>0)? valor/mediana : 1;
+  const cor = r>=1.15?'#137333' : (r<=0.85?'#c5221f':'#666');
+  const sinal = r>=1.15?'acima' : (r<=0.85?'abaixo':'na média');
+  return {nome, valor, mediana, r, cor, sinal, dica,
+    html:`<tr><td style="text-align:left;font-weight:600">${nome}</td>
+      <td class="num" style="color:${cor};font-weight:700">${_pctS(valor,2)}</td>
+      <td class="num">${_pctS(mediana,2)}</td>
+      <td class="mini" style="color:${cor}">${sinal}</td></tr>`};
+}
+// Sessão: impressão → clique → pageview → lead → oportunidade
+function sessaoDiagnostico(inv, lds){
+  const porFunil={};
+  ['NATIVO','CARTA','FLP'].forEach(f=>porFunil[f]={f,imp:0,clicks:0,pv:0,leads:0,opp:0,spend:0});
+  inv.forEach(r=>{const g=porFunil[r.funnel]||porFunil.NATIVO;g.imp+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;g.spend+=r.spend;});
+  lds.forEach(r=>{const g=porFunil[r.funnel]||porFunil.NATIVO;g.leads++;if(r.opp)g.opp++;});
+  const ativos=Object.values(porFunil).filter(g=>g.imp>0||g.leads>0);
+  if(!ativos.length) return '';
+
+  const T=ativos.reduce((a,g)=>({imp:a.imp+g.imp,clicks:a.clicks+g.clicks,pv:a.pv+g.pv,leads:a.leads+g.leads,opp:a.opp+g.opp,spend:a.spend+g.spend}),{imp:0,clicks:0,pv:0,leads:0,opp:0,spend:0});
+  const med=(arr)=>{const a=arr.filter(x=>x>0&&isFinite(x)).sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:0;};
+  const ctrs=ativos.map(g=>g.imp?g.clicks/g.imp*100:0);
+  const lps =ativos.filter(g=>g.f!=='NATIVO').map(g=>g.pv?g.leads/g.pv*100:0);
+  const mqls=ativos.map(g=>g.leads?g.opp/g.leads*100:0);
+
+  const et=[];
+  et.push(_etapaHtml('Impressão → clique (CTR)', T.imp?T.clicks/T.imp*100:0, med(ctrs), 'criativo não está chamando atenção — testar novos ganchos'));
+  if(T.pv>0){
+    et.push(_etapaHtml('Clique → pageview', T.clicks?T.pv/T.clicks*100:0, 90, 'gente clica mas não carrega a página — velocidade/link da LP'));
+    et.push(_etapaHtml('Pageview → lead (conv LP)', T.pv?T.leads/T.pv*100:0, med(lps), 'a página não converte — headline, formulário ou promessa desalinhada'));
+  }
+  et.push(_etapaHtml('Lead → oportunidade (MQL)', T.leads?T.opp/T.leads*100:0, med(mqls), 'lead entra mas sem caixa — o criativo/público está atraindo perfil errado'));
+
+  const pior=et.slice().sort((a,b)=>a.r-b.r)[0];
+  const gargalo = pior && pior.r<0.85
+    ? `<div class="ins-row" style="border-color:#f3c2c0"><span class="rk-tag rk-cut">Gargalo</span> <b>${esc(pior.nome)}</b> está ${_pctS(pior.valor,2)} contra mediana ${_pctS(pior.mediana,2)} — ${pior.dica}.</div>`
+    : `<div class="ins-row" style="border-color:#cfeed6"><span class="rk-tag rk-esc">Sem gargalo claro</span> As etapas estão dentro da média entre os funis. Para melhorar o CPO aqui, o caminho é <b>volume no funil mais eficiente</b>, não conserto de etapa.</div>`;
+
+  return `<div class="card"><h3 style="margin:0 0 8px">🔎 Diagnóstico do funil <span class="mini" style="text-transform:none;font-weight:400">onde as pessoas caem entre uma etapa e outra</span></h3>
+    <div class="mini" style="margin-bottom:8px">${fmtNum(T.imp)} impressões → ${fmtNum(T.clicks)} cliques${T.pv?` → ${fmtNum(T.pv)} pageviews`:''} → ${fmtNum(T.leads)} leads → <b>${fmtNum(T.opp)} oportunidades</b></div>
+    ${gargalo}
+    <div style="overflow-x:auto;margin-top:8px"><table class="dim-tbl" style="font-size:12px"><thead><tr>
+      <th style="text-align:left">Etapa</th><th class="num">Atual</th><th class="num">Mediana entre funis</th><th>Situação</th>
+    </tr></thead><tbody>${et.map(x=>x.html).join('')}</tbody></table></div>
+    <div class="mini" style="margin-top:6px">A mediana é entre os funis do período (Nativo / Carta / FLP), não um alvo externo. "Clique → pageview" usa 90% como referência de saúde técnica. O Nativo não entra nas etapas de LP porque o pageview dele vem errado na planilha.</div>
+  </div>`;
+}
+// Ideias de teste — Sessão
+function sessaoIdeias(inv, lds){
+  const I=[];
+  const agg=(keyFn)=>{const m={};
+    inv.forEach(r=>{const k=keyFn(r);if(!k)return;(m[k]=m[k]||{k,spend:0,leads:0,opp:0,imp:0,clicks:0}).spend+=r.spend;m[k].imp+=r.impr;m[k].clicks+=r.clicks;});
+    lds.forEach(r=>{const k=keyFn(r);if(!k)return;const g=(m[k]=m[k]||{k,spend:0,leads:0,opp:0,imp:0,clicks:0});g.leads++;if(r.opp)g.opp++;});
+    return Object.values(m).map(g=>({...g,cpo:g.opp?g.spend/g.opp:null,cpl:g.leads?g.spend/g.leads:null,mql:g.leads?g.opp/g.leads*100:0}));};
+
+  const funis=agg(r=>r.funnel).filter(g=>g.spend>=200);
+  const comOpp=funis.filter(g=>g.opp>=2);
+  if(comOpp.length>=2){
+    const o=comOpp.slice().sort((a,b)=>a.cpo-b.cpo), best=o[0], worst=o[o.length-1];
+    const nm={NATIVO:'Nativo',CARTA:'Carta/Consultoria',FLP:'FLP (VSL)'};
+    I.push(`<b>Migre verba do funil mais caro para o mais barato.</b> <b>${nm[best.k]||best.k}</b> entrega oportunidade a ${fmtMoney0(best.cpo)} contra ${fmtMoney0(worst.cpo)} do <b>${nm[worst.k]||worst.k}</b> — ${((worst.cpo/best.cpo-1)*100).toFixed(0)}% mais caro. Só o ${nm[worst.k]||worst.k} está levando ${fmtMoney0(worst.spend)}.`);
+  }
+  const pubs=agg(r=>r.adset).filter(g=>g.spend>=200&&g.opp>=1).sort((a,b)=>a.cpo-b.cpo);
+  if(pubs.length>=2){
+    const b=pubs[0], w=pubs[pubs.length-1];
+    if(w.cpo>b.cpo*1.5) I.push(`<b>O público muda mais o CPO que o criativo.</b> <b>${esc(b.k)}</b> traz oportunidade a ${fmtMoney0(b.cpo)}, enquanto <b>${esc(w.k)}</b> custa ${fmtMoney0(w.cpo)}. Concentre no primeiro e teste variações dele (lookalike, faixa etária) antes de criar criativo novo.`);
+  }
+  const ads=agg(r=>r.ad).filter(g=>g.spend>=200);
+  const adsOpp=ads.filter(g=>g.opp>=1).sort((a,b)=>a.cpo-b.cpo);
+  if(adsOpp.length){ const b=adsOpp[0];
+    I.push(`<b>Clone o anúncio vencedor.</b> <b>${esc(b.k)}</b> tem o melhor CPO (${fmtMoney0(b.cpo)}, ${b.opp} oport.). Produza 3 variações trocando um elemento por vez (gancho / prova / CTA) para descobrir o que sustenta o resultado.`);
+  }
+  const semOpp=ads.filter(g=>g.opp===0&&g.spend>=300).sort((a,b)=>b.spend-a.spend).slice(0,2);
+  if(semOpp.length) I.push(`<b>Corte o que gasta sem qualificar.</b> ${semOpp.map(g=>`<b>${esc(g.k)}</b> (${fmtMoney0(g.spend)}, ${g.leads} leads, 0 oport.)`).join(' e ')}. Gera lead mas nenhum com caixa — ou o criativo promete fácil demais, ou o público é errado.`);
+  const baixoMql=ads.filter(g=>g.leads>=10).sort((a,b)=>a.mql-b.mql)[0];
+  const altoMql=ads.filter(g=>g.leads>=10).sort((a,b)=>b.mql-a.mql)[0];
+  if(baixoMql&&altoMql&&altoMql.mql>baixoMql.mql*1.8)
+    I.push(`<b>Copie a qualificação do melhor anúncio.</b> <b>${esc(altoMql.k)}</b> converte ${_pctS(altoMql.mql,0)} dos leads em oportunidade, contra ${_pctS(baixoMql.mql,0)} de <b>${esc(baixoMql.k)}</b>. Veja o que o primeiro diz sobre investimento/perfil e leve para o segundo.`);
+
+  if(!I.length) return '';
+  return `<div class="card"><h3 style="margin:0 0 10px">🧪 Ideias de teste <span class="mini" style="text-transform:none;font-weight:400">geradas dos seus próprios dados no período</span></h3>${I.map(x=>`<div class="act">${x}</div>`).join('')}</div>`;
+}
+// Direct: impressão → clique → conversa
+function directDiagnostico(dir){
+  const T=dir.reduce((a,r)=>({imp:a.imp+r.impr,clicks:a.clicks+r.clicks,conv:a.conv+r.conv,spend:a.spend+r.spend}),{imp:0,clicks:0,conv:0,spend:0});
+  if(!T.imp) return '';
+  const porExp={}; dir.forEach(r=>{const g=(porExp[r.expert]=porExp[r.expert]||{imp:0,clicks:0,conv:0});g.imp+=r.impr;g.clicks+=r.clicks;g.conv+=r.conv;});
+  const med=(arr)=>{const a=arr.filter(x=>x>0&&isFinite(x)).sort((x,y)=>x-y);return a.length?a[Math.floor(a.length/2)]:0;};
+  const ctrs=Object.values(porExp).map(g=>g.imp?g.clicks/g.imp*100:0);
+  const cvs =Object.values(porExp).map(g=>g.clicks?g.conv/g.clicks*100:0);
+  const et=[
+    _etapaHtml('Impressão → clique (CTR)', T.imp?T.clicks/T.imp*100:0, med(ctrs), 'criativo não para o dedo — testar novos ganchos'),
+    _etapaHtml('Clique → conversa', T.clicks?T.conv/T.clicks*100:0, med(cvs), 'clica mas não puxa assunto — a primeira mensagem automática não engaja')
+  ];
+  const pior=et.slice().sort((a,b)=>a.r-b.r)[0];
+  const gargalo = pior && pior.r<0.85
+    ? `<div class="ins-row" style="border-color:#f3c2c0"><span class="rk-tag rk-cut">Gargalo</span> <b>${esc(pior.nome)}</b>: ${_pctS(pior.valor,2)} contra mediana ${_pctS(pior.mediana,2)} — ${pior.dica}.</div>`
+    : `<div class="ins-row" style="border-color:#cfeed6"><span class="rk-tag rk-esc">Sem gargalo claro</span> As etapas estão equilibradas entre os experts.</div>`;
+  return `<div class="card"><h3 style="margin:0 0 8px">🔎 Diagnóstico do funil <span class="mini" style="text-transform:none;font-weight:400">impressão → clique → conversa</span></h3>
+    <div class="mini" style="margin-bottom:8px">${fmtNum(T.imp)} impressões → ${fmtNum(T.clicks)} cliques → <b>${fmtNum(T.conv)} conversas</b></div>
+    ${gargalo}
+    <div style="overflow-x:auto;margin-top:8px"><table class="dim-tbl" style="font-size:12px"><thead><tr>
+      <th style="text-align:left">Etapa</th><th class="num">Atual</th><th class="num">Mediana entre experts</th><th>Situação</th>
+    </tr></thead><tbody>${et.map(x=>x.html).join('')}</tbody></table></div>
+  </div>`;
+}
+function directIdeias(dir){
+  const I=[];
+  const agg=(keyFn)=>{const m={};dir.forEach(r=>{const k=keyFn(r);if(!k)return;const g=(m[k]=m[k]||{k,spend:0,conv:0,imp:0,clicks:0});g.spend+=r.spend;g.conv+=r.conv;g.imp+=r.impr;g.clicks+=r.clicks;});
+    return Object.values(m).map(g=>({...g,cc:g.conv?g.spend/g.conv:null,ctr:g.imp?g.clicks/g.imp*100:0}));};
+  const exp=agg(r=>r.expert).filter(g=>g.spend>=200&&g.conv>=3).sort((a,b)=>a.cc-b.cc);
+  if(exp.length>=2){const b=exp[0],w=exp[exp.length-1];
+    if(w.cc>b.cc*1.3) I.push(`<b>Realoque entre experts.</b> <b>${esc(b.k)}</b> traz conversa a ${fmtMoney(b.cc)} contra ${fmtMoney(w.cc)} de <b>${esc(w.k)}</b>. Mesmo produto, custo ${((w.cc/b.cc-1)*100).toFixed(0)}% maior — vale migrar verba e investigar o que muda na comunicação do primeiro.`);}
+  const ads=agg(r=>r.ad).filter(g=>g.spend>=200);
+  const bons=ads.filter(g=>g.conv>=3).sort((a,b)=>a.cc-b.cc);
+  if(bons.length) I.push(`<b>Clone o anúncio mais barato em conversa.</b> <b>${esc(bons[0].k)}</b> a ${fmtMoney(bons[0].cc)} por conversa (${bons[0].conv} conversas). Faça variações trocando só a abertura da mensagem.`);
+  const caros=ads.filter(g=>g.conv===0&&g.spend>=300).sort((a,b)=>b.spend-a.spend).slice(0,2);
+  if(caros.length) I.push(`<b>Corte o que não gera conversa.</b> ${caros.map(g=>`<b>${esc(g.k)}</b> (${fmtMoney0(g.spend)}, 0 conversas)`).join(' e ')}.`);
+  const pubs=agg(r=>r.adset).filter(g=>g.spend>=200&&g.conv>=2).sort((a,b)=>a.cc-b.cc);
+  if(pubs.length>=2){const b=pubs[0],w=pubs[pubs.length-1];
+    if(w.cc>b.cc*1.5) I.push(`<b>O público está pesando mais que o criativo.</b> <b>${esc(b.k)}</b> a ${fmtMoney(b.cc)}/conversa contra ${fmtMoney(w.cc)} de <b>${esc(w.k)}</b>. Concentre no primeiro antes de produzir criativo novo.`);}
+  if(!I.length) return '';
+  return `<div class="card"><h3 style="margin:0 0 10px">🧪 Ideias de teste <span class="mini" style="text-transform:none;font-weight:400">geradas dos seus próprios dados no período</span></h3>${I.map(x=>`<div class="act">${x}</div>`).join('')}</div>`;
+}
+
 function renderSessaoFull(){
   const {inv,lds}=sheetScope();
   const spend=sh_sum(inv,'spend'),impr=sh_sum(inv,'impr'),clicks=sh_sum(inv,'clicks');
@@ -1212,7 +1340,7 @@ function renderSessaoFull(){
   const ins=sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl);
   const pubs=sh_rankName(inv,lds,'adset'),ads=sh_rankName(inv,lds,'ad');
   const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableS('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableS('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
-  return kpis+charts+tblF+ins+ranks+sheetDetailCard();
+  return kpis+charts+tblF+sessaoDiagnostico(inv,lds)+ins+sessaoIdeias(inv,lds)+ranks+sheetDetailCard();
 }
 function sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl){
   const rows=[`<div class="ins-row"><span class="rk-tag rk-res">Resumo</span> Investimento de <b>${mS(spend)}</b> gerou <b>${fmtNum(opp)}</b> oportunidades — CPO médio <b>${mS(cpo)}</b> · ${fmtNum(leads)} leads (CPL ${mS(cpl)}).</div>`];
@@ -1327,7 +1455,7 @@ function renderDirectFull(){
   const tblE=`<div class="card"><h3 style="margin:0 0 8px">Por expert</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Expert</th><th class="num">Invest.</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th><th class="num">CTR</th></tr></thead><tbody>${exArr.map(g=>`<tr><td style="font-weight:600">${g.k}</td><td class="num">${mS(g.spend)}</td><td class="num" style="font-weight:700">${fmtNum(g.conv)}</td><td class="num" style="color:#137333;font-weight:700">${g.conv?mS(g.spend/g.conv):'—'}</td><td class="num">${g.impr?(g.clicks/g.impr*100).toFixed(2)+'%':'—'}</td></tr>`).join('')}</tbody></table></div></div>`;
   const pubs=sh_rankNameD(dir,'adset'),ads=sh_rankNameD(dir,'ad');
   const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableD('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableD('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
-  return kpis+charts+tblE+ins+ranks+sheetDetailCard();
+  return kpis+charts+tblE+directDiagnostico(dir)+ins+directIdeias(dir)+ranks+sheetDetailCard();
 }
 function sh_rankNameD(dir,dim){
   const m={},g=n=>m[n]||(m[n]={name:n,spend:0,conv:0});
