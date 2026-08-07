@@ -663,7 +663,7 @@ async function fetchTopAds(){
         const mapped=(ins||[]).map(r=>({
           id:r.ad_id, name:r.ad_name||'(sem nome)', campaign_name:r.campaign_name, adset_id:r.adset_id, adset_name:r.adset_name,
           spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
-          ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0,
+          ctr:parseFloat(r.ctr)||0, cpm:parseFloat(r.cpm)||0, cpc:parseFloat(r.cpc)||0, reach:parseInt(r.reach)||0, freq:parseFloat(r.frequency)||0,
           v3:(()=>{const x=(r.actions||[]).find(a=>a.action_type==='video_view');return x?(parseFloat(x.value)||0):0;})(),
           vPlays:vv(r,'video_play_actions'), vThru:vv(r,'video_thruplay_watched_actions'),
           vP25:vv(r,'video_p25_watched_actions'), vP50:vv(r,'video_p50_watched_actions'),
@@ -2087,7 +2087,7 @@ function renderVideoAnalysis(){
       if(!m[code]) m[code]={name:code,n:0,spend:0,imp:0,clicks:0,v3:0,vThru:0,vP25:0,vP50:0,vP75:0,vP100:0,vAvgSum:0,vAvgN:0};
       const g=m[code];
       const spBRL=((o._currency||'BRL')==='USD')?(o.spend||0)*usdRateV:(o.spend||0);
-      g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0;
+      g.n++; g.spend+=spBRL; g.imp+=o.impressions||0; g.clicks+=o.clicks||0; g.reach=(g.reach||0)+(o.reach||0);
       g.v3+=o.v3||0; g.vThru+=o.vThru||0; g.vP25+=o.vP25||0; g.vP50+=o.vP50||0; g.vP75+=o.vP75||0; g.vP100+=o.vP100||0;
       if(o.vAvgT>0){ g.vAvgSum+=o.vAvgT*(o.v3||1); g.vAvgN+=(o.v3||1); }
     });
@@ -2418,6 +2418,58 @@ function renderTopAdsAudiences(A){
 
       return `<div class="diag-box">${S_.join('')}</div>`;
     };
+    const metricasLine=(a)=>{
+      const v=_vm[a.name];
+      const cpm=a.imp>0?a.spend/a.imp*1000:0, cpc=a.clicks>0?a.spend/a.clicks:0;
+      const ticket=a.front>0?a.receita/a.front:0;
+      const conv=a.clicks>0?a.front/a.clicks*100:0;
+      const extra=a.front>0?(a.total-a.front)/a.front*100:0;   // upsell/bump por venda front
+      const cell=(l,val,t)=>`<div style="padding:6px 8px"><div class="mini" style="text-transform:uppercase;letter-spacing:.3px"${t?` title="${esc(t)}"`:''}>${l}</div><div style="font-weight:700;font-variant-numeric:tabular-nums">${val}</div></div>`;
+      const grid=(titulo,cells)=>`<div style="margin-top:8px"><div style="font-weight:700;font-size:11px;color:#5a2ca0;text-transform:uppercase;letter-spacing:.4px">${titulo}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(104px,1fr));gap:2px;margin-top:2px">${cells.join('')}</div></div>`;
+
+      let html = grid('Entrega', [
+        cell('Impressões', fmtNum(a.imp)),
+        cell('CPM', fmtMoney(cpm), 'custo por mil impressões'),
+        cell('Cliques', fmtNum(a.clicks)),
+        cell('CTR', fmtPct(a.ctr), 'cliques ÷ impressões'),
+        cell('CPC', fmtMoney(cpc), 'custo por clique'),
+        cell('Anúncios', fmtNum(a.n), 'quantos anúncios estão agrupados sob este nome')
+      ]);
+      html += grid('Conversão', [
+        cell('Gasto', fmtMoney0(a.spend)),
+        cell('Receita', fmtMoney0(a.receita)),
+        cell('ROAS', fmtRoas(a.roas)),
+        cell('Vendas front', fmtNum(a.front)),
+        cell('CPA', a.cpa!=null?fmtMoney(a.cpa):'—', 'gasto ÷ vendas front'),
+        cell('Ticket', fmtMoney(ticket), 'receita ÷ vendas front'),
+        cell('Clique→venda', conv?fmtPct(conv):'—', 'vendas front ÷ cliques'),
+        cell('Vendas totais', fmtNum(a.total)),
+        cell('Extra/venda', a.front?extra.toFixed(0)+'%':'—', 'quanto de order bump/upsell vem por venda front')
+      ]);
+      if(v&&v.v3>=100){
+        html += grid('Vídeo', [
+          cell('Views 3s', fmtNum(v.v3)),
+          cell('Hook', v.hook.toFixed(1)+'%', 'views de 3s ÷ impressões — quantos pararam o dedo'),
+          cell('Hold', v.hold.toFixed(0)+'%', 'ThruPlay ÷ views de 3s — quantos seguraram'),
+          cell('Até 75%', v.r75.toFixed(0)+'%', 'proxy de quem chegou ao CTA'),
+          cell('Tempo médio', v.avgT?v.avgT.toFixed(0)+'s':'—'),
+          cell('CTR/views', v.ctrView.toFixed(1)+'%', 'cliques ÷ views de 3s')
+        ]);
+      }
+      const resp=(a.fa||0)+(a.fb||0)+(a.fc||0)+(a.fsem||0);
+      if(resp>0){
+        html += grid('Qualidade do comprador', [
+          cell('Faixa A', fmtNum(a.fa||0), 'investe ≥ R$3k'),
+          cell('Faixa B', fmtNum(a.fb||0), 'investe R$1–3k'),
+          cell('Faixa C', fmtNum(a.fc||0), '< R$1k mas renda ≥ R$3k'),
+          cell('Sem caixa', fmtNum(a.fsem||0)),
+          cell('A+B', (((a.fa||0)+(a.fb||0))/resp*100).toFixed(0)+'%', 'entre os que responderam a pesquisa'),
+          cell('Não respondeu', fmtNum(a.fresp0||0))
+        ]);
+      }
+      return `<details style="margin-top:2px"><summary class="mini" style="cursor:pointer;color:#0891b2;font-weight:600">📊 métricas do ad</summary><div style="padding:4px 6px 6px 10px;border-left:2px solid #cfe8ef;margin-top:4px">${html}</div></details>`;
+    };
     const analiseLine=(a)=>{
       const ca=(S._critAnalise||{})[a.name];
       const ic=ca?(ca.kind==='image'?'🖼️':'🎬'):'📊';
@@ -2517,6 +2569,7 @@ function renderTopAdsAudiences(A){
         ${faixaLine(a)}
         ${variantLine(a)}
         ${accLine(a)}
+        ${metricasLine(a)}
         ${analiseLine(a)}
       </div>`).join('')
       : `<div class="empty">${q?'Nenhum anúncio encontrado para "'+esc(q)+'"':'Nenhum anúncio com venda no período para '+esc(currentFunnel().label)}.</div>`;
