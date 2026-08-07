@@ -237,7 +237,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -827,6 +827,51 @@ async function fetchPesquisa(){
 }
 function reloadPesquisa(){ S._pesquisa=null; fetchPesquisa(); }
 
+// ── Direct ao vivo pela API do Meta ─────────────────────────────────────────
+// A planilha do Google só sincroniza de tempos em tempos, então o dia de hoje
+// chegava zerado. Como o Meta tem gasto E conversas em tempo real, o Direct
+// passa a ler dele. Mantém o mesmo formato de linha da planilha, para o resto
+// da tela (gráficos, drill, rankings) continuar funcionando igual.
+const CONV_ACTION='onsite_conversion.messaging_conversation_started_7d';
+async function fetchDirectApi(){
+  if(S._directLoading) return; S._directLoading=true; render();
+  try{
+    const accs=(S.accounts||[]); const rows=[];
+    const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+    const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name');
+    const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:'DIRECT'}]));
+    for(let i=0;i<accs.length;i++){
+      const acc=accs[i], tok=getTokenById(acc._tokenId); if(!tok) continue;
+      const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`];
+      if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); }
+      else { qs.push('date_preset='+S.period); }
+      let url=`${GQL}/${acc.id}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
+      let pg=0;
+      while(url && pg<30){ pg++;
+        let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
+        if(j.error){ console.warn('[Direct]',acc.name,j.error.message); break; }
+        (j.data||[]).forEach(r=>{
+          const conv=(r.actions||[]).find(a=>a.action_type===CONV_ACTION);
+          const sp=parseFloat(r.spend)||0;
+          rows.push({ date:r.date_start||'', expert:_classExpert(r.campaign_name||''),
+            campaign:_cleanName(r.campaign_name||''), campaign_id:(r.campaign_id||'').trim(),
+            adset:_cleanName(r.adset_name||''), adset_id:(r.adset_id||'').trim(),
+            ad:_cleanName(r.ad_name||''), ad_id:(r.ad_id||'').trim(),
+            spend:(acc.currency==='USD')?sp*usdRate:sp,
+            impr:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
+            conv:conv?(parseFloat(conv.value)||0):0 });
+        });
+        url=(j.paging&&j.paging.next)?j.paging.next:null;
+      }
+      if(i<accs.length-1) await new Promise(r=>setTimeout(r,300));
+    }
+    const dts=rows.map(x=>x.date).filter(Boolean).sort();
+    S._directApi={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), quando:new Date()};
+  }catch(e){ console.warn('[Direct] erro',e); S._directApi={rows:[],erro:String(e)}; }
+  S._directLoading=false; render();
+}
+function reloadDirectApi(){ S._directApi=null; fetchDirectApi(); }
+
 // ── Sessão Estratégica + Direct (planilha do Google, ao vivo) ────────────────
 function _csvParse(text){
   const rows=[]; let row=[], field='', q=false;
@@ -1166,7 +1211,8 @@ function sheetScope(){
   if(sec==='sessao'){
     return {w, inv:S._sheet.invest.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t)), lds:S._sheet.leads.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t))};
   }
-  return {w, dir:S._sheet.direct.filter(r=>_inWin(r.date,w)&&(!t||r.expert===t))};
+  const fonteDir=(S._directApi&&S._directApi.rows)?S._directApi.rows:((S._sheet&&S._sheet.direct)||[]);
+  return {w, dir:fonteDir.filter(r=>_inWin(r.date,w)&&(!t||r.expert===t))};
 }
 function sh_sum(a,k){ return a.reduce((s,r)=>s+(r[k]||0),0); }
 function sh_aggS(inv,lds,idKey,nameKey){
@@ -1183,11 +1229,17 @@ function sh_aggD(dir,idKey,nameKey){
 function renderSheetView(){
   const f=currentFunnel();
   const head=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start">
-    <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">${f.sheet==='sessao'?'funil de lead — Oportunidade & CPO':'funil de mensagem — Conversas & Custo'} · planilha do Google (ao vivo)</span></h2>
-    ${S._sheet&&S._sheet.maxDate?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(S._sheet.maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}</div>
-    <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="reloadSheet()">↻ Atualizar planilha</button></div>
+    <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">${f.sheet==='sessao'?'funil de lead — Oportunidade & CPO · planilha do Google':'funil de mensagem — Conversas & Custo · API do Meta (tempo real)'}</span></h2>
+    ${(()=>{const md=f.sheet==='direct'?(S._directApi&&S._directApi.maxDate):(S._sheet&&S._sheet.maxDate);return md;})()?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(f.sheet==='direct'?S._directApi.maxDate:S._sheet.maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}</div>
+    <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="${f.sheet==='direct'?'reloadDirectApi()':'reloadSheet()'}">↻ Atualizar</button></div>
     <div class="row" style="margin-top:10px;gap:6px">${sheetTabs().map(([k,l])=>`<button class="subtab ${S.sheetTab===k?'on':''}" onclick="setSheetTab('${k}')">${l}</button>`).join('')}</div>`;
-  if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando planilha…</div></div>`; }
+  if(f.sheet==='direct'){
+    // Direct vem da API do Meta (tempo real). A planilha ficava horas atrasada.
+    if(S._directApi==null&&!S._directLoading) setTimeout(()=>fetchDirectApi(),30);
+    if(S._directLoading||S._directApi==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Buscando conversas no Meta…</div></div>`;
+  } else {
+    if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando planilha…</div></div>`; }
+  }
   if(S._sheet.error){ return head+`<div class="empty" style="margin-top:12px">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
   return head+`</div>`+(f.sheet==='sessao'?renderSessaoFull():renderDirectFull());
 }
@@ -3242,7 +3294,7 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); if(S.view!=='criativos'&&currentFunnel().sheet){ render(); } else { refreshData(); } }
+function setPeriod(p){ S.period=p; S._directApi=null; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); if(S.view!=='criativos'&&currentFunnel().sheet){ render(); } else { refreshData(); } }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
