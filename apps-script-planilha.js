@@ -220,29 +220,29 @@ function testarConexao() {
 // ════════════════════════════════════════════════════════════════════════════
 //
 // COMO ATIVAR (uma vez):
-//   1. Configurações do projeto (⚙️) → Propriedades do script → Adicionar
-//        Propriedade: META_TOKEN
-//        Valor: (cole o token do Meta gerado no Business Manager)
-//      Guardar aqui em vez de no código evita que o token apareça no arquivo.
-//   2. Rode a função  criarGatilhoDiario  uma vez (menu de funções → Executar)
-//   3. Pronto: todo dia às 5h da manhã ele preenche o dia anterior.
+//   1. ⚙️ Configurações do projeto → Propriedades do script → Adicionar
+//        Propriedade: META_TOKEN     Valor: (o token gerado no Business Manager)
+//   2. Rode  criarGatilhoDiario  uma vez
+//   3. Todo dia às 5h ele preenche o dia anterior.
 //
-// Para testar antes sem esperar: rode  preencherOntem  manualmente.
+// Testes seguros (não gravam): simularOntem, simularMesAteOntem
 
 var SB_URL = 'https://mnrnnmfaupvmjfgpzkou.supabase.co';
 var SB_KEY = 'sb_publishable_KraV-pqYINerxc0nCgdHaA_xHj7ew87';
 var USD_BRL = 5.40;          // mesma taxa padrão do dashboard
 var HORA_GATILHO = 5;        // 5h da manhã (fuso da planilha)
 
-// Funil no Meta  →  bloco na planilha
+// Blocos a preencher.
+//   match → filtra as campanhas do Meta pelo nome e usa funnel_revenue daquele funil
+//   soma  → não consulta nada: soma os blocos já calculados
+//
+// GERAL é soma de NATH + TOMÉ de propósito. Usar p_funil:'' traria também a
+// receita de Consultorias & Mentorias (backend) e de orgânico, que não têm
+// gasto de mídia — o ROAS do bloco sairia inflado.
 var FUNIS = [
-  { match: 'NATH',   bloco: 'NATH 37' },
-  { match: 'TOME',   bloco: 'TOMÉ'    }
-  // GERAL desativado de propósito: este token enxerga só 10 das 25 contas de
-  // anúncio, então o INVESTIMENTO viria incompleto enquanto o FATURAMENTO
-  // (Supabase) viria completo — o que produziria um ROAS falso e otimista.
-  // Para reativar: dê a este system user acesso a TODAS as contas e descomente:
-  // , { match: '', bloco: 'GERAL' }
+  { match: 'NATH', bloco: 'NATH 37' },
+  { match: 'TOME', bloco: 'TOMÉ'    },
+  { soma: ['NATH 37', 'TOMÉ'], bloco: 'GERAL' }
 ];
 
 function _semAcento(s) {
@@ -253,18 +253,13 @@ function _metaToken() {
   if (!t) throw new Error('Falta o META_TOKEN nas Propriedades do script (⚙️ Configurações do projeto).');
   return t;
 }
-function _isoDia(d) {                       // Date -> "YYYY-MM-DD"
-  return Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd');
-}
-function _ddmmDe(d) {                       // Date -> "DD/MM"
-  return Utilities.formatDate(d, 'America/Sao_Paulo', 'dd/MM');
-}
+function _isoDia(d) { return Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd'); }
+function _ddmmDe(d) { return Utilities.formatDate(d, 'America/Sao_Paulo', 'dd/MM'); }
 
 /** Gasto por campanha no Meta, no dia (converte USD→BRL como o dashboard). */
 function _metaGastoPorCampanha(dia) {
   var tok = _metaToken(), API = 'https://graph.facebook.com/v21.0';
-  var contas = [];
-  var url = API + '/me/adaccounts?fields=id,name,currency&limit=500&access_token=' + encodeURIComponent(tok);
+  var contas = [], url = API + '/me/adaccounts?fields=id,name,currency&limit=500&access_token=' + encodeURIComponent(tok);
   while (url) {
     var j = JSON.parse(UrlFetchApp.fetch(url, { muteHttpExceptions: true }).getContentText());
     if (j.error) throw new Error('Meta /me/adaccounts: ' + j.error.message);
@@ -272,20 +267,17 @@ function _metaGastoPorCampanha(dia) {
     url = (j.paging && j.paging.next) ? j.paging.next : null;
   }
 
-  var camps = {};   // campaign_id -> { nome, gasto }
-  var tr = encodeURIComponent(JSON.stringify({ since: dia, until: dia }));
+  var camps = {}, tr = encodeURIComponent(JSON.stringify({ since: dia, until: dia }));
   for (var i = 0; i < contas.length; i++) {
     var acc = contas[i], usd = (acc.currency === 'USD');
-    var u = API + '/' + acc.id + '/insights?level=campaign' +
-            '&fields=spend,campaign_id,campaign_name&time_range=' + tr +
-            '&limit=500&access_token=' + encodeURIComponent(tok);
+    var u = API + '/' + acc.id + '/insights?level=campaign&fields=spend,campaign_id,campaign_name' +
+            '&time_range=' + tr + '&limit=500&access_token=' + encodeURIComponent(tok);
     var guard = 0;
     while (u && guard++ < 20) {
       var res = JSON.parse(UrlFetchApp.fetch(u, { muteHttpExceptions: true }).getContentText());
       if (res.error) { Logger.log('  ⚠️ %s: %s', acc.name, res.error.message); break; }
       (res.data || []).forEach(function (r) {
-        var v = parseFloat(r.spend) || 0;
-        if (!v) return;
+        var v = parseFloat(r.spend) || 0; if (!v) return;
         var id = r.campaign_id;
         if (!camps[id]) camps[id] = { nome: r.campaign_name || '', gasto: 0 };
         camps[id].gasto += usd ? v * USD_BRL : v;
@@ -305,6 +297,51 @@ function _sbRpc(nome, corpo) {
   var t = r.getContentText();
   if (r.getResponseCode() >= 300) throw new Error('Supabase ' + nome + ': ' + t);
   return JSON.parse(t);
+}
+
+/**
+ * Calcula os valores de todos os blocos para um dia.
+ * Fonte única usada por preencher e simular, para os dois nunca divergirem.
+ * @return {Object} { 'NATH 37': {alunos, investimento, faturamento}, ... }
+ */
+function _calcularDia(quando) {
+  var dia = _isoDia(quando);
+  var camps = _metaGastoPorCampanha(dia);
+  var since = dia + 'T00:00:00-03:00';
+  var until = Utilities.formatDate(new Date(quando.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
+
+  // vendas front por campanha (mesma fonte do dashboard)
+  var frontPorCamp = {};
+  _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
+    var id = String(r.campaign_id || ''); if (!id) return;
+    frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
+  });
+
+  var out = {};
+  // 1ª passada: blocos que consultam de fato
+  FUNIS.forEach(function (f) {
+    if (f.soma) return;
+    var m = _semAcento(f.match), invest = 0, alunos = 0;
+    Object.keys(camps).forEach(function (id) {
+      if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
+      invest += camps[id].gasto; alunos += frontPorCamp[id] || 0;
+    });
+    var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
+    out[f.bloco] = { alunos: alunos, investimento: Math.round(invest * 100) / 100,
+                     faturamento: parseFloat(fr.receita_bruta) || 0 };
+  });
+  // 2ª passada: blocos que são soma de outros
+  FUNIS.forEach(function (f) {
+    if (!f.soma) return;
+    var t = { alunos: 0, investimento: 0, faturamento: 0 };
+    f.soma.forEach(function (nome) {
+      var v = out[nome]; if (!v) return;
+      t.alunos += v.alunos; t.investimento += v.investimento; t.faturamento += v.faturamento;
+    });
+    t.investimento = Math.round(t.investimento * 100) / 100;
+    out[f.bloco] = t;
+  });
+  return out;
 }
 
 /** Escreve os 3 valores na linha da data, no bloco indicado. */
@@ -327,56 +364,36 @@ function _escrever(sh, dataDDMM, blocoNome, vals) {
   return { linha: linha, bloco: alvo.titulo };
 }
 
-/** Preenche um dia específico (Date) em todos os blocos configurados. */
-function preencherDia(quando) {
-  var dia = _isoDia(quando), ddmm = _ddmmDe(quando);
-  Logger.log('▶ Preenchendo %s (%s)', ddmm, dia);
+/** Preenche (ou simula) um dia em todos os blocos. */
+function _rodarDia(quando, simular) {
+  var ddmm = _ddmmDe(quando);
+  var vals = _calcularDia(quando);
+  var sh = simular ? null : SpreadsheetApp.openById(PLANILHA_ID).getSheetByName(ABA_PADRAO);
+  if (!simular && !sh) throw new Error('Aba "' + ABA_PADRAO + '" não encontrada.');
 
-  var sh = SpreadsheetApp.openById(PLANILHA_ID).getSheetByName(ABA_PADRAO);
-  if (!sh) throw new Error('Aba "' + ABA_PADRAO + '" não encontrada.');
-
-  var camps = _metaGastoPorCampanha(dia);
-  var since = dia + 'T00:00:00-03:00';
-  var until = Utilities.formatDate(new Date(quando.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
-
-  // vendas front por campanha (mesma fonte que o dashboard usa)
-  var frontPorCamp = {};
-  _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
-    var id = String(r.campaign_id || '');
-    if (!id) return;
-    frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
-  });
-
-  var resultados = [];
+  var linha = '';
   FUNIS.forEach(function (f) {
-    var m = _semAcento(f.match), invest = 0, alunos = 0;
-    Object.keys(camps).forEach(function (id) {
-      if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
-      invest += camps[id].gasto;
-      alunos += frontPorCamp[id] || 0;
-    });
-
-    var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
-    var faturamento = parseFloat(fr.receita_bruta) || 0;
-
-    var vals = { alunos: alunos, investimento: Math.round(invest * 100) / 100, faturamento: faturamento };
-    try {
-      var w = _escrever(sh, ddmm, f.bloco, vals);
-      Logger.log('  ✅ %s → linha %s | %s alunos · R$ %s · R$ %s',
-        w.bloco, w.linha, vals.alunos, vals.investimento.toFixed(2), vals.faturamento.toFixed(2));
-      resultados.push({ bloco: w.bloco, ok: true, vals: vals });
-    } catch (e) {
-      Logger.log('  ❌ %s: %s', f.bloco, e.message);
-      resultados.push({ bloco: f.bloco, ok: false, erro: String(e) });
-    }
+    var v = vals[f.bloco]; if (!v) return;
+    if (!simular) _escrever(sh, ddmm, f.bloco, v);
+    linha += Utilities.formatString('  %s: %s alunos / R$ %s / R$ %s',
+      f.bloco, v.alunos, v.investimento.toFixed(2), v.faturamento.toFixed(2));
   });
-  return resultados;
+  Logger.log('%s %s%s', simular ? '  ' : '✅', ddmm, linha);
+  return vals;
 }
+
+function preencherDia(quando) { return _rodarDia(quando, false); }
+function simularDia(quando)   { return _rodarDia(quando, true); }
 
 /** Roda automaticamente pelo gatilho: preenche o dia anterior. */
 function preencherOntem() {
-  var ontem = new Date(Date.now() - 864e5);
-  return preencherDia(ontem);
+  Logger.log('▶ Preenchendo ontem');
+  return _rodarDia(new Date(Date.now() - 864e5), false);
+}
+/** Mostra o que gravaria ontem, sem escrever. */
+function simularOntem() {
+  Logger.log('🔍 Simulando ontem — nada será gravado');
+  return _rodarDia(new Date(Date.now() - 864e5), true);
 }
 
 /** Cria (ou recria) o gatilho diário. Rode UMA vez. */
@@ -386,9 +403,7 @@ function criarGatilhoDiario() {
   });
   ScriptApp.newTrigger('preencherOntem').timeBased().atHour(HORA_GATILHO).everyDays(1).create();
   Logger.log('✅ Gatilho criado: preencherOntem, todo dia por volta das %sh.', HORA_GATILHO);
-  Logger.log('   (o Google roda dentro da janela %sh–%sh)', HORA_GATILHO, HORA_GATILHO + 1);
 }
-
 /** Remove o gatilho, se quiser desligar a automação. */
 function removerGatilhoDiario() {
   var n = 0;
@@ -398,40 +413,7 @@ function removerGatilhoDiario() {
   Logger.log('%s gatilho(s) removido(s).', n);
 }
 
-/** Teste seguro: mostra o que seria gravado ontem, SEM escrever. */
-function simularOntem() {
-  var ontem = new Date(Date.now() - 864e5);
-  var dia = _isoDia(ontem), ddmm = _ddmmDe(ontem);
-  Logger.log('▶ Simulando %s (%s) — nada será gravado', ddmm, dia);
-
-  var camps = _metaGastoPorCampanha(dia);
-  Logger.log('  campanhas com gasto no Meta: %s', Object.keys(camps).length);
-
-  var since = dia + 'T00:00:00-03:00';
-  var until = Utilities.formatDate(new Date(ontem.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
-  var frontPorCamp = {};
-  _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
-    var id = String(r.campaign_id || ''); if (!id) return;
-    frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
-  });
-
-  FUNIS.forEach(function (f) {
-    var m = _semAcento(f.match), invest = 0, alunos = 0;
-    Object.keys(camps).forEach(function (id) {
-      if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
-      invest += camps[id].gasto; alunos += frontPorCamp[id] || 0;
-    });
-    var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
-    Logger.log('  %s → %s alunos · investimento R$ %s · faturamento R$ %s',
-      f.bloco, alunos, invest.toFixed(2), (parseFloat(fr.receita_bruta) || 0).toFixed(2));
-  });
-}
-
 // ── Preenchimento retroativo ────────────────────────────────────────────────
-// Preenche vários dias de uma vez. Útil para fechar o mês que já passou
-// ou recuperar dias em que o gatilho falhou.
-
-/** Dias de um intervalo, do início ao fim (inclusive). */
 function _diasEntre(ini, fim) {
   var out = [], d = new Date(ini.getTime());
   while (d.getTime() <= fim.getTime()) { out.push(new Date(d.getTime())); d.setDate(d.getDate() + 1); }
@@ -441,54 +423,15 @@ function _hojeSP() {
   var s = Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy/MM/dd').split('/');
   return new Date(+s[0], +s[1] - 1, +s[2]);
 }
-
-/**
- * Roda o intervalo dia a dia.
- * @param {Date} ini  primeiro dia
- * @param {Date} fim  último dia
- * @param {boolean} simular  true = só mostra no log, não grava
- */
 function _rodarIntervalo(ini, fim, simular) {
   var dias = _diasEntre(ini, fim);
   Logger.log('%s %s dia(s): %s → %s', simular ? '🔍 SIMULANDO' : '▶ PREENCHENDO',
     dias.length, _ddmmDe(ini), _ddmmDe(fim));
   Logger.log('');
-
   var oks = 0, falhas = 0;
   for (var i = 0; i < dias.length; i++) {
-    var d = dias[i], dia = _isoDia(d), ddmm = _ddmmDe(d);
-    try {
-      var camps = _metaGastoPorCampanha(dia);
-      var since = dia + 'T00:00:00-03:00';
-      var until = Utilities.formatDate(new Date(d.getTime() + 864e5), 'America/Sao_Paulo', 'yyyy-MM-dd') + 'T00:00:00-03:00';
-
-      var frontPorCamp = {};
-      _sbRpc('meta_revenue_by_ad', { p_since: since, p_until: until }).forEach(function (r) {
-        var id = String(r.campaign_id || ''); if (!id) return;
-        frontPorCamp[id] = (frontPorCamp[id] || 0) + (parseInt(r.vendas_front) || 0);
-      });
-
-      var sh = simular ? null : SpreadsheetApp.openById(PLANILHA_ID).getSheetByName(ABA_PADRAO);
-      var linha = '';
-      FUNIS.forEach(function (f) {
-        var m = _semAcento(f.match), invest = 0, alunos = 0;
-        Object.keys(camps).forEach(function (id) {
-          if (m && _semAcento(camps[id].nome).indexOf(m) < 0) return;
-          invest += camps[id].gasto; alunos += frontPorCamp[id] || 0;
-        });
-        var fr = _sbRpc('funnel_revenue', { p_since: since, p_until: until, p_funil: f.match })[0] || {};
-        var vals = { alunos: alunos, investimento: Math.round(invest * 100) / 100,
-                     faturamento: parseFloat(fr.receita_bruta) || 0 };
-        if (!simular) _escrever(sh, ddmm, f.bloco, vals);
-        linha += Utilities.formatString('  %s: %s alunos / R$ %s / R$ %s',
-          f.bloco, vals.alunos, vals.investimento.toFixed(2), vals.faturamento.toFixed(2));
-      });
-      Logger.log('%s %s %s', simular ? '  ' : '✅', ddmm, linha);
-      oks++;
-    } catch (e) {
-      Logger.log('❌ %s — %s', ddmm, e.message);
-      falhas++;
-    }
+    try { _rodarDia(dias[i], simular); oks++; }
+    catch (e) { Logger.log('❌ %s — %s', _ddmmDe(dias[i]), e.message); falhas++; }
   }
   Logger.log('');
   Logger.log('%s %s dia(s) ok, %s falha(s).', simular ? '🔍 Simulação:' : '✅ Concluído:', oks, falhas);
@@ -496,28 +439,19 @@ function _rodarIntervalo(ini, fim, simular) {
 
 /** SIMULA o mês atual, do dia 1 até ontem. Não grava nada. */
 function simularMesAteOntem() {
-  var hoje = _hojeSP();
-  var ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  var hoje = _hojeSP(), ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
   var ontem = new Date(hoje.getTime() - 864e5);
   if (ontem.getTime() < ini.getTime()) { Logger.log('Ainda é dia 1 — nada a preencher.'); return; }
   _rodarIntervalo(ini, ontem, true);
 }
-
 /** PREENCHE o mês atual, do dia 1 até ontem. Sobrescreve o que houver. */
 function preencherMesAteOntem() {
-  var hoje = _hojeSP();
-  var ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  var hoje = _hojeSP(), ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
   var ontem = new Date(hoje.getTime() - 864e5);
   if (ontem.getTime() < ini.getTime()) { Logger.log('Ainda é dia 1 — nada a preencher.'); return; }
   _rodarIntervalo(ini, ontem, false);
 }
-
-/**
- * Intervalo livre. Edite as datas abaixo e rode.
- * Formato: new Date(ano, mês-1, dia)  →  agosto = mês 7
- */
+/** Intervalo livre — edite as datas (mês é 0-based: agosto = 7). */
 function preencherIntervaloManual() {
-  var ini = new Date(2026, 7, 1);   // 01/08/2026
-  var fim = new Date(2026, 7, 5);   // 05/08/2026
-  _rodarIntervalo(ini, fim, false);
+  _rodarIntervalo(new Date(2026, 7, 1), new Date(2026, 7, 5), false);
 }
