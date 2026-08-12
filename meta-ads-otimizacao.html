@@ -1400,7 +1400,11 @@ function sheetScope(){
     // (4 contra 88 em agosto), então serve só de conferência, não de fonte.
     const src=(S._rcApi&&S._rcApi.rows)||[];
     const inv=src.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
-    const lds=((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w));
+    // Todo lead que passa pela planilha veio da página de captura: o Typeform
+    // não escreve nela. Sem esse filtro, a aba Typeform mostrava os leads da
+    // página e a taxa de conversão passava de 500%.
+    const lds=((S._sheet&&S._sheet.leads)||[])
+      .filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w)&&(!t||t==='CAPTURA'));
     return {w, inv, lds, metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0)};
   }
 
@@ -1483,19 +1487,38 @@ function renderSheetView(){
  * 4 enquanto a planilha registrou 88. Por isso ele fica como conferência, não
  * como fonte. Oportunidade só existe porque a planilha traz a resposta de verba.
  */
+/** Leads do caminho Typeform no período. Só o pixel os enxerga. */
+function _rcLeadsTypeform(){
+  const w=sheetWindow();
+  return ((S._rcApi&&S._rcApi.rows)||[])
+    .filter(r=>r.funnel==='TYPEFORM'&&_inWin(r.date,w))
+    .reduce((s,r)=>s+(r.metaLeads||0),0);
+}
+
 function renderRoiClubFull(){
   const {inv,lds,metaLeads}=sheetScope();
+  const aba=S.sheetTab==='geral'?null:S.sheetTab;
   const spend=sh_sum(inv,'spend'),impr=sh_sum(inv,'impr'),clicks=sh_sum(inv,'clicks'),pv=sh_sum(inv,'pv');
-  const leads=lds.length, opp=lds.filter(r=>r.opp).length;
+
+  // Cada caminho tem a sua fonte de lead:
+  //   Página de captura → planilha (tem a resposta de verba, logo tem oportunidade)
+  //   Typeform          → pixel do Meta (não passa pela planilha, então sem oportunidade)
+  // Na Visão Geral os dois somam, e a oportunidade só existe para a parte que
+  // veio da planilha. Antes disso a aba Typeform repetia os leads da página.
+  const soTypeform = aba==='TYPEFORM';
+  const leads = soTypeform ? metaLeads : (lds.length + (aba?0:_rcLeadsTypeform()));
+  const opp   = lds.filter(r=>r.opp).length;
+  const temOpp = !soTypeform;
   const cpl=leads?spend/leads:0, cpo=opp?spend/opp:0, ctr=impr?clicks/impr*100:0, cpc=clicks?spend/clicks:0;
+  const fonteLead = soTypeform ? 'pixel do Meta' : (aba?'planilha, pelo slug':'planilha + pixel');
   const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
 
   const kpis=`<div class="card"><div class="kpis">
     ${kpi('Investimento',mS(spend),'gasto em mídia')}
-    ${kpi('Leads',fmtNum(leads),'planilha, pelo slug')}
+    ${kpi('Leads',fmtNum(leads),fonteLead)}
     ${kpi('CPL',leads?mS(cpl):'—','custo por lead')}
-    ${kpi('Oportunidades',fmtNum(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'',opp>0)}
-    ${kpi('CPO',opp?mS(cpo):'—','custo por oport.')}
+    ${kpi('Oportunidades',temOpp?fmtNum(opp):'—',temOpp&&leads?(100*opp/leads).toFixed(0)+'% dos leads':'não passa pela planilha',temOpp&&opp>0)}
+    ${kpi('CPO',temOpp&&opp?mS(cpo):'—','custo por oport.')}
     ${kpi('Pageviews',fmtNum(pv),'')}
     ${kpi('Tx. conv LP',pv&&leads?(leads/pv*100).toFixed(1)+'%':'—','lead / pageview')}
     ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}
@@ -1510,7 +1533,10 @@ function renderRoiClubFull(){
     const g=porSub[r.funnel]; if(!g) return;
     g.spend+=r.spend; g.impr+=r.impr; g.clicks+=r.clicks; g.pv+=r.pv; g.pixel+=(r.metaLeads||0);
   });
-  lds.forEach(r=>{ const g=porSub.CAPTURA; g.plan++; if(r.opp) g.opp++; });
+  // A tabela compara os dois caminhos sempre, então não usa lds (que segue a aba
+  // selecionada e ficaria vazio ao olhar o Typeform).
+  ((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w))
+    .forEach(r=>{ const g=porSub.CAPTURA; g.plan++; if(r.opp) g.opp++; });
 
   const linhaSub=g=>{
     const daPlan=g.k==='CAPTURA';
