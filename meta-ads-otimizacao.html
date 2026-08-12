@@ -849,36 +849,32 @@ const CONV_ACTION='onsite_conversion.messaging_conversation_started_7d';
 async function fetchDirectApi(){
   if(S._directLoading) return; S._directLoading=true; render();
   try{
-    const accs=(S.accounts||[]); const rows=[];
+    const accs=(S.accounts||[]); const agg={};
     const jan=janelaMeta();
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name');
-    const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:'DIRECT'}]));
     for(let i=0;i<accs.length;i++){
       const acc=accs[i], tok=getTokenById(acc._tokenId); if(!tok) continue;
-      // mesmo intervalo que o cabeçalho mostra, ver janelaMeta()
-      const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`,
-                'time_range='+encodeURIComponent(JSON.stringify(jan))];
-      let url=`${GQL}/${acc.id}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
-      let pg=0;
-      while(url && pg<30){ pg++;
-        let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
-        if(j.error){ console.warn('[Direct]',acc.name,j.error.message); break; }
-        (j.data||[]).forEach(r=>{
+      // mesma janela do cabeçalho e data já em horário de Brasília, ver _linhasFunilDaConta
+      const linhas=await _linhasFunilDaConta(acc,tok,'DIRECT',jan,flds);
+      linhas.forEach(({row:r,dia})=>{
           const conv=(r.actions||[]).find(a=>a.action_type===CONV_ACTION);
           const sp=parseFloat(r.spend)||0;
-          rows.push({ date:r.date_start||'', expert:_classExpert(r.campaign_name||''),
+          const k=dia+'|'+(r.ad_id||'');
+          let x=agg[k];
+          if(!x){ x=agg[k]={ date:dia, expert:_classExpert(r.campaign_name||''),
             campaign:_cleanName(r.campaign_name||''), campaign_id:(r.campaign_id||'').trim(),
             adset:_cleanName(r.adset_name||''), adset_id:(r.adset_id||'').trim(),
             ad:_cleanName(r.ad_name||''), ad_id:(r.ad_id||'').trim(),
-            spend:(acc.currency==='USD')?sp*usdRate:sp,
-            impr:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
-            conv:conv?(parseFloat(conv.value)||0):0 });
-        });
-        url=(j.paging&&j.paging.next)?j.paging.next:null;
-      }
+            spend:0, impr:0, clicks:0, conv:0 }; }
+          x.spend+=(acc.currency==='USD')?sp*usdRate:sp;
+          x.impr+=parseInt(r.impressions)||0;
+          x.clicks+=parseInt(r.clicks)||0;
+          x.conv+=conv?(parseFloat(conv.value)||0):0;
+      });
       if(i<accs.length-1) await new Promise(r=>setTimeout(r,300));
     }
+    const rows=Object.values(agg);
     const dts=rows.map(x=>x.date).filter(Boolean).sort();
     S._directApi={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), janela:jan, quando:new Date()};
   }catch(e){ console.warn('[Direct] erro',e); S._directApi={rows:[],erro:String(e),janela:jan}; }
@@ -918,6 +914,54 @@ function _actVal(actions,tipos){
 function janelaMeta(){ const w=sheetWindow(); return {since:w.since, until:w.until}; }
 function _mesmaJanela(a,b){ return !!a&&!!b&&a.since===b.since&&a.until===b.until; }
 
+/**
+ * Busca as linhas de um funil numa conta, já com a data em horário de Brasília.
+ *
+ * As contas C01, que rodam Direct, Sessão e ROI CLUB, estão em America/New_York.
+ * O "dia" que o Meta devolve para elas vai da 01h de Brasília até a 00h59 do dia
+ * seguinte, enquanto o lead da planilha usa o dia de Brasília cheio. Sobrava
+ * 1 hora de descasamento em cada ponta: no total de um período isso se anula,
+ * mas em "Hoje", "Ontem" e nas barras do gráfico não, chegando a 3% no dia.
+ *
+ * Quando a conta está em UTC-3, mantém a busca diária, que é bem mais leve.
+ * Fora disso, pede a quebra por hora, alarga a janela em um dia de cada lado
+ * (a hora 23 de lá cai no dia seguinte aqui) e reatribui cada hora ao dia certo.
+ */
+async function _linhasFunilDaConta(acc, tok, termo, jan, flds){
+  const tz=(acc._tzOffset!=null?Number(acc._tzOffset):BR_OFFSET);
+  const shift=BR_OFFSET-tz;
+  const porHora=(shift!==0);
+  const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:termo}]));
+  const range=porHora?{since:addDaysStr(jan.since,-1),until:addDaysStr(jan.until,1)}:jan;
+
+  const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`,
+            'time_range='+encodeURIComponent(JSON.stringify(range))];
+  if(porHora) qs.push('breakdowns=hourly_stats_aggregated_by_advertiser_time_zone');
+
+  let url=`${GQL}/${acc.id}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
+  const out=[]; let pg=0;
+  while(url && pg<60){ pg++;
+    let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
+    if(j.error){ console.warn('[funil]',acc.name,j.error.message); break; }
+    (j.data||[]).forEach(r=>{
+      let dia=r.date_start||'';
+      if(porHora){
+        const h=parseInt(String(r.hourly_stats_aggregated_by_advertiser_time_zone||'00').slice(0,2),10)||0;
+        const base=new Date(dia+'T00:00:00Z'); base.setUTCHours(h+shift);
+        dia=base.toISOString().slice(0,10);
+      }
+      if(dia<jan.since||dia>jan.until) return;   // sobra da janela alargada
+      // A chave identifica a linha crua. Com quebra por hora existem 24 linhas
+      // por anúncio e por dia, e todas precisam somar; a chave só evita contar
+      // duas vezes a mesma linha quando ela casa com mais de um termo de busca.
+      const hora=porHora?String(r.hourly_stats_aggregated_by_advertiser_time_zone||''):'';
+      out.push({key:(r.date_start||'')+'|'+(r.ad_id||'')+'|'+hora, row:r, dia});
+    });
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return out;
+}
+
 /** Refaz a busca quando a janela mudou desde o último fetch (ex.: a planilha
  *  carregou depois e moveu a âncora do período). */
 function garantirJanela(key){
@@ -930,38 +974,34 @@ async function fetchFunilApi(key){
   const cfg=FUNIL_API[key]; if(!cfg||S[cfg.loading]) return;
   S[cfg.loading]=true; render();
   try{
-    const accs=(S.accounts||[]), rows=[], vistos={};
+    const accs=(S.accounts||[]), vistos={}, agg={};
     const jan=janelaMeta();
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name');
     for(let i=0;i<accs.length;i++){
       const acc=accs[i], tok=getTokenById(acc._tokenId); if(!tok) continue;
       for(const termo of cfg.termos){
-        const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:termo}]));
-        const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`,
-                  'time_range='+encodeURIComponent(JSON.stringify(jan))];
-        let url=`${GQL}/${acc.id}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`, pg=0;
-        while(url && pg<30){ pg++;
-          let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
-          if(j.error){ console.warn('['+cfg.rotulo+']',acc.name,j.error.message); break; }
-          (j.data||[]).forEach(r=>{
-            const chave=(r.date_start||'')+'|'+(r.ad_id||'');
-            if(vistos[chave]) return; vistos[chave]=1;
-            const sp=parseFloat(r.spend)||0;
-            rows.push({ date:r.date_start||'', funnel:cfg.classificar(r.campaign_name||''),
-              campaign:_cleanName(r.campaign_name||''), campaign_id:(r.campaign_id||'').trim(),
-              adset:_cleanName(r.adset_name||''), adset_id:(r.adset_id||'').trim(),
-              ad:_cleanName(r.ad_name||''), ad_id:(r.ad_id||'').trim(),
-              spend:(acc.currency==='USD')?sp*usdRate:sp,
-              impr:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
-              pv:_actVal(r.actions,['landing_page_view']),
-              metaLeads:_actVal(r.actions,LEAD_ACTIONS) });
-          });
-          url=(j.paging&&j.paging.next)?j.paging.next:null;
-        }
+        const linhas=await _linhasFunilDaConta(acc,tok,termo,jan,flds);
+        linhas.forEach(({key,row:r,dia})=>{
+          if(vistos[key]) return; vistos[key]=1;   // mesma linha achada por dois termos
+          const k=dia+'|'+(r.ad_id||'');
+          let x=agg[k];
+          if(!x){ x=agg[k]={ date:dia, funnel:cfg.classificar(r.campaign_name||''),
+            campaign:_cleanName(r.campaign_name||''), campaign_id:(r.campaign_id||'').trim(),
+            adset:_cleanName(r.adset_name||''), adset_id:(r.adset_id||'').trim(),
+            ad:_cleanName(r.ad_name||''), ad_id:(r.ad_id||'').trim(),
+            spend:0, impr:0, clicks:0, pv:0, metaLeads:0 }; }
+          const sp=parseFloat(r.spend)||0;
+          x.spend+=(acc.currency==='USD')?sp*usdRate:sp;
+          x.impr+=parseInt(r.impressions)||0;
+          x.clicks+=parseInt(r.clicks)||0;
+          x.pv+=_actVal(r.actions,['landing_page_view']);
+          x.metaLeads+=_actVal(r.actions,LEAD_ACTIONS);
+        });
       }
       if(i<accs.length-1) await new Promise(r=>setTimeout(r,300));
     }
+    const rows=Object.values(agg);
     const dts=rows.map(x=>x.date).filter(Boolean).sort();
     S[cfg.store]={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), janela:jan, quando:new Date()};
   }catch(e){ console.warn('['+cfg.rotulo+'] erro',e); S[cfg.store]={rows:[],erro:String(e),janela:jan}; }
