@@ -850,14 +850,15 @@ async function fetchDirectApi(){
   if(S._directLoading) return; S._directLoading=true; render();
   try{
     const accs=(S.accounts||[]); const rows=[];
+    const jan=janelaMeta();
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name');
     const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:'DIRECT'}]));
     for(let i=0;i<accs.length;i++){
       const acc=accs[i], tok=getTokenById(acc._tokenId); if(!tok) continue;
-      const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`];
-      if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); }
-      else { qs.push('date_preset='+S.period); }
+      // mesmo intervalo que o cabeçalho mostra, ver janelaMeta()
+      const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`,
+                'time_range='+encodeURIComponent(JSON.stringify(jan))];
       let url=`${GQL}/${acc.id}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
       let pg=0;
       while(url && pg<30){ pg++;
@@ -879,8 +880,8 @@ async function fetchDirectApi(){
       if(i<accs.length-1) await new Promise(r=>setTimeout(r,300));
     }
     const dts=rows.map(x=>x.date).filter(Boolean).sort();
-    S._directApi={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), quando:new Date()};
-  }catch(e){ console.warn('[Direct] erro',e); S._directApi={rows:[],erro:String(e)}; }
+    S._directApi={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), janela:jan, quando:new Date()};
+  }catch(e){ console.warn('[Direct] erro',e); S._directApi={rows:[],erro:String(e),janela:jan}; }
   S._directLoading=false; render();
 }
 function reloadDirectApi(){ S._directApi=null; fetchDirectApi(); }
@@ -905,20 +906,40 @@ function _actVal(actions,tipos){
   return 0;
 }
 
+/**
+ * Intervalo enviado ao Meta nas views de funil.
+ *
+ * Antes ia o date_preset ("last_7d"), e o preset do Meta não inclui hoje,
+ * enquanto a tela mostrava e filtrava até hoje. Resultado: lead de hoje entrava
+ * e o gasto de hoje não, empurrando CPL e CPO para baixo sem aviso.
+ * Agora vai o mesmo intervalo que o cabeçalho exibe, então as três leituras
+ * (rótulo, gasto e lead) falam do mesmo período.
+ */
+function janelaMeta(){ const w=sheetWindow(); return {since:w.since, until:w.until}; }
+function _mesmaJanela(a,b){ return !!a&&!!b&&a.since===b.since&&a.until===b.until; }
+
+/** Refaz a busca quando a janela mudou desde o último fetch (ex.: a planilha
+ *  carregou depois e moveu a âncora do período). */
+function garantirJanela(key){
+  const cfg=FUNIL_API[key]; if(!cfg) return;
+  const st=S[cfg.store];
+  if(st && !S[cfg.loading] && !_mesmaJanela(st.janela, janelaMeta())){ S[cfg.store]=null; fetchFunilApi(key); }
+}
+
 async function fetchFunilApi(key){
   const cfg=FUNIL_API[key]; if(!cfg||S[cfg.loading]) return;
   S[cfg.loading]=true; render();
   try{
     const accs=(S.accounts||[]), rows=[], vistos={};
+    const jan=janelaMeta();
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name');
     for(let i=0;i<accs.length;i++){
       const acc=accs[i], tok=getTokenById(acc._tokenId); if(!tok) continue;
       for(const termo of cfg.termos){
         const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:termo}]));
-        const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`];
-        if(S.period==='custom') qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom'))));
-        else qs.push('date_preset='+S.period);
+        const qs=[`level=ad`,`fields=${flds}`,`time_increment=1`,`limit=500`,`filtering=${filt}`,
+                  'time_range='+encodeURIComponent(JSON.stringify(jan))];
         let url=`${GQL}/${acc.id}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`, pg=0;
         while(url && pg<30){ pg++;
           let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
@@ -942,8 +963,8 @@ async function fetchFunilApi(key){
       if(i<accs.length-1) await new Promise(r=>setTimeout(r,300));
     }
     const dts=rows.map(x=>x.date).filter(Boolean).sort();
-    S[cfg.store]={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), quando:new Date()};
-  }catch(e){ console.warn('['+cfg.rotulo+'] erro',e); S[cfg.store]={rows:[],erro:String(e)}; }
+    S[cfg.store]={rows, maxDate:dts.length?dts[dts.length-1]:brToday(), janela:jan, quando:new Date()};
+  }catch(e){ console.warn('['+cfg.rotulo+'] erro',e); S[cfg.store]={rows:[],erro:String(e),janela:jan}; }
   S[cfg.loading]=false; render();
 }
 function reloadFunilApi(key){ const c=FUNIL_API[key]; if(c){ S[c.store]=null; fetchFunilApi(key); } }
@@ -1456,6 +1477,7 @@ function renderSheetView(){
 
   if(sec==='direct'){
     // Direct vem da API do Meta (tempo real). A planilha ficava horas atrasada.
+    if(S._directApi&&!S._directLoading&&!_mesmaJanela(S._directApi.janela,janelaMeta())){ S._directApi=null; }
     if(S._directApi==null&&!S._directLoading) setTimeout(()=>fetchDirectApi(),30);
     if(S._directLoading||S._directApi==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Buscando conversas no Meta…</div></div>`;
     return head+`</div>`+renderDirectFull();
@@ -1463,6 +1485,7 @@ function renderSheetView(){
 
   if(sec==='roiclub'){
     // Precisa das duas fontes: gasto no Meta, lead e oportunidade na planilha.
+    garantirJanela('ROICLUB');
     if(S._rcApi==null&&!S._rcLoading) setTimeout(()=>fetchFunilApi('ROICLUB'),30);
     if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30);
     if(S._rcLoading||S._rcApi==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Buscando ROI CLUB no Meta…</div></div>`;
@@ -1471,6 +1494,7 @@ function renderSheetView(){
   }
 
   // Sessão: leads da planilha, investimento do Meta. Espera as duas fontes.
+  garantirJanela('SESSAO');
   if(S._sessaoApi==null&&!S._sessaoLoading) setTimeout(()=>fetchFunilApi('SESSAO'),30);
   if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando planilha…</div></div>`; }
   if(S._sheet.error){ return head+`<div class="empty" style="margin-top:12px">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
