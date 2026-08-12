@@ -1814,25 +1814,74 @@ function renderSessaoFull(){
   const leads=lds.length,opp=lds.filter(r=>r.opp).length;
   const cpl=leads?spend/leads:0,cpo=opp?spend/opp:0,ctr=impr?clicks/impr*100:0,cpc=clicks?spend/clicks:0;
   const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
+  const byFTopo={}; FUNIS_SESSAO.forEach(k=>byFTopo[k]={spend:0,leads:0});
+  inv.forEach(r=>{const g=byFTopo[r.funnel]||byFTopo.NATIVO;g.spend+=r.spend;});
+  lds.forEach(r=>{const g=byFTopo[r.funnel]||byFTopo.NATIVO;g.leads++;});
+  const gastoSemLead=FUNIS_SESSAO.reduce((a,k)=>a+((byFTopo[k]&&byFTopo[k].spend>0&&byFTopo[k].leads===0)?byFTopo[k].spend:0),0);
+  const parcial=gastoSemLead>0;
+  const avisoCusto=parcial?'inclui gasto sem lead medido':'';
   const kpis=`<div class="card"><div class="kpis">
-    ${kpi('Investimento',mS(spend),'gasto em mídia')}${kpi('Leads',fmtNum(leads),'')}${kpi('CPL',mS(cpl),'custo por lead')}
-    ${kpi('Oportunidades',fmtNum(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'',1)}${kpi('CPO',mS(cpo),'custo por oport.')}
+    ${kpi('Investimento',mS(spend),'gasto em mídia')}
+    ${kpi('Leads',fmtNum(leads),parcial?'só os que passam pela planilha':'')}
+    ${kpi('CPL',leads?mS(cpl):'—',avisoCusto||'custo por lead')}
+    ${kpi('Oportunidades',fmtNum(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'',opp>0)}
+    ${kpi('CPO',opp?mS(cpo):'—',opp?(avisoCusto||'custo por oport.'):'sem oportunidade no período')}
     ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}
   </div></div>`;
   const charts=`<div class="row" style="gap:16px;align-items:stretch"><div class="card" style="flex:2;min-width:320px"><h3 style="margin:0 0 8px">📊 Investimento & Oportunidade · CPO (linha)</h3><div style="height:260px"><canvas id="shBar"></canvas></div></div>
     <div class="card" style="flex:1;min-width:220px"><h3 style="margin:0 0 8px">Oportunidades por funil</h3><div style="height:260px"><canvas id="shDonut"></canvas></div></div></div>`;
-  const byF={}; FUNIS_SESSAO.forEach(k=>byF[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0});
-  inv.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.spend+=r.spend;g.impr+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;});
+  const byF={}; FUNIS_SESSAO.forEach(k=>byF[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0,pixel:0});
+  inv.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.spend+=r.spend;g.impr+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;g.pixel+=(r.metaLeads||0);});
   lds.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.leads++;if(r.opp)g.opp++;});
-  const fRow=g=>`<tr><td style="font-weight:600">${NOME_SE[g.k]||g.k}</td><td class="num">${mS(g.spend)}</td><td class="num">${fmtNum(g.leads)}</td><td class="num">${g.leads&&g.spend?mS(g.spend/g.leads):'—'}</td><td class="num" style="font-weight:700">${fmtNum(g.opp)}</td><td class="num" style="color:#137333;font-weight:700">${g.opp&&g.spend?mS(g.spend/g.opp):'—'}</td><td class="num">${g.k!=='NATIVO'?fmtNum(g.pv):'—'}</td><td class="num">${g.k!=='NATIVO'&&g.pv?(g.leads/g.pv*100).toFixed(0)+'%':'—'}</td></tr>`;
-  const tblF=`<div class="card"><h3 style="margin:0 0 8px">Por funil</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Funil</th><th class="num">Invest.</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Pageviews</th><th class="num">Tx conv LP</th></tr></thead><tbody>${FUNIS_SESSAO.map(k=>fRow(byF[k])).join('')}</tbody></table></div><div class="mini" style="margin-top:6px">Pageviews e Tx. conv LP não valem para o Nativo, que é formulário dentro do Meta. <b>Oportunidade</b> = respondeu o valor e não é "até R$3.000" nem "não tenho como iniciar".</div></div>`;
+  // Cada funil tem a sua fonte de lead, e elas não são intercambiáveis:
+  //   Nativo            → aba "formulario" (form dentro do Meta)
+  //   Plano de Negócio  → Typeform [SE] Plano de Negócios, que o navegador não lê
+  //   Tomé + Nath       → inativo
+  // Onde a planilha não alcança, mostra o que o pixel viu e diz que é do pixel,
+  // em vez de exibir um zero que passaria por "não captou nada".
+  const fRow=g=>{
+    const temPlanilha=g.leads>0, n=temPlanilha?g.leads:g.pixel;
+    const fonte=temPlanilha?'planilha':(g.pixel?'pixel':(g.spend?'sem fonte':'—'));
+    return `<tr><td style="font-weight:600">${NOME_SE[g.k]||g.k}</td>
+    <td class="num">${mS(g.spend)}</td>
+    <td class="num">${n?fmtNum(n):'—'}</td>
+    <td class="num">${n&&g.spend?mS(g.spend/n):'—'}</td>
+    <td class="num" style="font-weight:700">${temPlanilha?fmtNum(g.opp):'—'}</td>
+    <td class="num" style="color:#137333;font-weight:700">${temPlanilha&&g.opp&&g.spend?mS(g.spend/g.opp):'—'}</td>
+    <td class="num">${g.k!=='NATIVO'?fmtNum(g.pv):'—'}</td>
+    <td class="num">${g.k!=='NATIVO'&&g.pv&&n?(n/g.pv*100).toFixed(0)+'%':'—'}</td>
+    <td class="mini" style="${fonte==='sem fonte'?'color:#c5221f;font-weight:600':''}">${fonte}</td></tr>`;
+  };
+  const tblF=`<div class="card"><h3 style="margin:0 0 8px">Por funil</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Funil</th><th class="num">Invest.</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Pageviews</th><th class="num">Tx conv LP</th><th>Fonte</th></tr></thead><tbody>${FUNIS_SESSAO.map(k=>fRow(byF[k])).join('')}</tbody></table></div><div class="mini" style="margin-top:6px">Pageviews e Tx. conv LP não valem para o Nativo, que é formulário dentro do Meta. <b>Oportunidade</b> só aparece onde o lead passa pela planilha, porque é lá que está a resposta de verba.</div></div>`;
+  // Gasto rodando num funil cujo lead não chega em fonte nenhuma que o dashboard
+  // leia. É o pior caso: parece zero captação, mas na verdade é zero medição.
+  const semFonte=FUNIS_SESSAO.filter(k=>byF[k].spend>0&&byF[k].leads===0);
+  const alerta=semFonte.length?`<div class="card" style="border-left:4px solid #c5221f">
+    <h3 style="margin:0 0 6px">🚨 Gasto sem lead na planilha</h3>
+    <div style="font-size:13px;line-height:1.6">
+      ${semFonte.map(k=>`<b>${NOME_SE[k]}</b>: ${mS(byF[k].spend)} investidos, nenhum lead na planilha${byF[k].pixel?` (o pixel viu ${fmtNum(byF[k].pixel)})`:''}.`).join('<br>')}
+      <div class="mini" style="margin-top:8px">Sem lead na planilha não existe CPO, porque a resposta de verba é o que separa oportunidade de curioso.
+      Se o funil está captando de verdade em outro lugar, é esse outro lugar que precisa chegar até aqui.</div>
+    </div></div>`:'';
+
+  const fontes=`<div class="card"><h3 style="margin:0 0 6px">Onde mora o lead de cada funil</h3>
+    <div style="font-size:13px;line-height:1.7">
+      <b>Nativo</b>: aba <code>formulario</code> da planilha, alimentada pelo formulário dentro do Meta.<br>
+      <b>Plano de Negócio</b>: formulário <code>[SE] Plano de Negócios</code> no Typeform. <b>O dashboard não lê o Typeform</b>,
+      porque a API dele bloqueia chamada de navegador e o token não pode ficar numa página pública. Enquanto não houver ponte,
+      esse funil mostra o que o pixel viu, que costuma ser bem menos que o real.<br>
+      <b>Tomé + Nath</b>: inativo.
+      <div class="mini" style="margin-top:8px">Investimento, pageviews e cliques vêm sempre da API do Meta, com a data já
+      convertida para o horário de Brasília.</div>
+    </div></div>`;
+
   const ins=sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl);
   const pubs=sh_rankName(inv,lds,'adset'),ads=sh_rankName(inv,lds,'ad');
   const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableS('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableS('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
-  return kpis+charts+tblF+sessaoDiagnostico(inv,lds)+ins+sessaoIdeias(inv,lds)+ranks+sheetDetailCard();
+  return kpis+alerta+charts+tblF+sessaoDiagnostico(inv,lds)+ins+sessaoIdeias(inv,lds)+ranks+fontes+sheetDetailCard();
 }
 function sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl){
-  const rows=[`<div class="ins-row"><span class="rk-tag rk-res">Resumo</span> Investimento de <b>${mS(spend)}</b> gerou <b>${fmtNum(opp)}</b> oportunidades — CPO médio <b>${mS(cpo)}</b> · ${fmtNum(leads)} leads (CPL ${mS(cpl)}).</div>`];
+  const rows=[`<div class="ins-row"><span class="rk-tag rk-res">Resumo</span> Investimento de <b>${mS(spend)}</b> gerou <b>${fmtNum(opp)}</b> oportunidades${opp?` · CPO médio <b>${mS(cpo)}</b>`:''} · ${fmtNum(leads)} leads (CPL ${mS(cpl)}).</div>`];
   const bf={};FUNIS_SESSAO.forEach(f=>bf[f]={f,spend:0,opp:0});
   inv.forEach(r=>{(bf[r.funnel]||bf.NATIVO).spend+=r.spend;});
   lds.forEach(r=>{if(r.opp)(bf[r.funnel]||bf.NATIVO).opp++;});
