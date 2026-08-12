@@ -269,9 +269,17 @@ function norm(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/
 function currentFunnel(){ return FUNNELS.find(f=>f.key===S.funnel) || FUNNELS[0]; }
 // ── Iniciativas: Perpétuo (Nath/Tomé/Coelho/Backend) · Sessão · Direct ──────
 const INICIATIVAS=[['perpetuo','Perpétuo','🔁'],['sessao','Sessão','🎯'],['direct','Direct','💬'],['roiclub','ROI CLUB','🏆']];
-// Funis da Sessão. 'LP' é o padrão novo de campanha (desde 06/08), que manda
-// para roieducacao.com.br; os outros três são as estruturas antigas.
-const FUNIS_SESSAO=['LP','NATIVO','CARTA','FLP'];
+// Sub-funis de cada iniciativa.
+//   ATUAIS  = o que roda hoje, sempre vira aba
+//   o resto = histórico, só vira aba quando tem dado no período escolhido
+const FUNIS_SESSAO=['NATIVO','PLANO','TOMENATH','CARTA','FLP'];
+const SE_ATUAIS=['NATIVO','PLANO','TOMENATH'];
+const NOME_SE={NATIVO:'Nativo',PLANO:'Plano de Negócio',TOMENATH:'Tomé + Nath',CARTA:'Carta / Consultoria',FLP:'FLP (VSL)'};
+
+const FUNIS_ROICLUB=['TYPEFORM','CAPTURA'];
+const NOME_RC={TYPEFORM:'Typeform',CAPTURA:'Página de Captura'};
+
+const EXPERTS_ATUAIS=['Tomé','Coelho','Marcão','Elvio','Manolo'];
 function currentIniciativa(){
   if(S.view==='criativos') return 'perpetuo';
   const f=currentFunnel();
@@ -887,8 +895,8 @@ function reloadDirectApi(){ S._directApi=null; fetchDirectApi(); }
 // vez por termo e junta, descartando repetido por (dia + anúncio).
 const LEAD_ACTIONS=['offsite_conversion.fb_pixel_lead','lead','onsite_conversion.lead_grouped'];
 const FUNIL_API={
-  SESSAO:  {store:'_sessaoApi', loading:'_sessaoLoading', termos:['SESSÃO','SE-F0'], rotulo:'Sessão'},
-  ROICLUB: {store:'_rcApi',     loading:'_rcLoading',     termos:['ROICLUB','RCB'],  rotulo:'ROI CLUB'}
+  SESSAO:  {store:'_sessaoApi', loading:'_sessaoLoading', termos:['SESSÃO','SE-F0'], rotulo:'Sessão',   classificar:cn=>_classFunnel(cn)},
+  ROICLUB: {store:'_rcApi',     loading:'_rcLoading',     termos:['ROICLUB','RCB'],  rotulo:'ROI CLUB', classificar:cn=>_classRoiClub(cn)}
 };
 
 function _actVal(actions,tipos){
@@ -919,7 +927,7 @@ async function fetchFunilApi(key){
             const chave=(r.date_start||'')+'|'+(r.ad_id||'');
             if(vistos[chave]) return; vistos[chave]=1;
             const sp=parseFloat(r.spend)||0;
-            rows.push({ date:r.date_start||'', funnel:_classFunnel(r.campaign_name||''),
+            rows.push({ date:r.date_start||'', funnel:cfg.classificar(r.campaign_name||''),
               campaign:_cleanName(r.campaign_name||''), campaign_id:(r.campaign_id||'').trim(),
               adset:_cleanName(r.adset_name||''), adset_id:(r.adset_id||'').trim(),
               ad:_cleanName(r.ad_name||''), ad_id:(r.ad_id||'').trim(),
@@ -969,15 +977,42 @@ function _stripId(v){ return v?String(v).split(':').pop().trim():''; }
 function _trailId(v){ if(!v) return ''; const m=String(v).trim().match(/-(\d{6,})\s*$/); return m?m[1]:''; }
 function _nameBeforeId(v){ return v?String(v).trim().replace(/-\d{6,}\s*$/,'').trim():''; }
 function _isoDate(v){ if(!v) return ''; let s=String(v).trim(); if(!s) return ''; if(s.includes('T')) s=s.split('T')[0]; let m; if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})$/))) return `${m[1]}-${m[2]}-${m[3]}`; if((m=s.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/))) return `${m[3]}-${m[2]}-${m[1]}`; if((m=s.match(/^(\d{4})\/(\d{2})\/(\d{2})$/))) return `${m[1]}-${m[2]}-${m[3]}`; return ''; }
-// Desde 06/08 as campanhas seguem "DD/MM | EMPRESA | CONTA | FUNIL | ...".
-// Esse padrão vira o funil 'LP', porque manda para roieducacao.com.br e não
-// para o form nativo nem para as LPs antigas de carta/FLP.
-function _classFunnel(cn){ const n=(cn||'').toUpperCase();
-  if(/\|\s*SESS[AÃ]O\s*\|/.test(n)) return 'LP';
+// ── Nomenclatura das campanhas ──────────────────────────────────────────────
+// Desde 06/08 o padrão é, separado por barra vertical:
+//   DD/MM | EMPRESA | CONTA | FUNIL | SUB-FUNIL | ESTRUTURA | FASE
+// Ler pela POSIÇÃO evita os falsos positivos de procurar palavra solta: o nome
+// da conta ou da fase pode conter "TESTE", "LP" ou o nome de um expert.
+function _slotsCamp(cn){ return String(cn||'').split('|').map(s=>s.trim()); }
+function _subFunil(cn){ const p=_slotsCamp(cn); return p.length>=5 ? _sa(p[4]) : ''; }
+function _sa(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().trim(); }
+
+// Sessão. Os três primeiros são os funis que rodam hoje; CARTA e FLP ficam para
+// o histórico de julho e só aparecem como aba quando têm dado no período.
+function _classFunnel(cn){
+  const sub=_subFunil(cn), n=_sa(cn);
+  if(sub){
+    if(sub.includes('NATIVO'))                 return 'NATIVO';
+    if(sub.includes('PLANO')||sub==='LP')      return 'PLANO';   // LP antiga = mesma /sessao-estrategica2/
+    if(sub.includes('TOME')&&sub.includes('NATH')) return 'TOMENATH';
+  }
   if(n.includes('FLP')||n.includes('FUNIL_VSL')) return 'FLP';
   if(n.includes('CARTA')||n.includes('CONSULTORIA_LP')||n.includes('FUNIL_CARTA')) return 'CARTA';
   return 'NATIVO'; }
-function _classExpert(cn){ const n=(cn||'').toUpperCase(); if(n.includes('COELHO')) return 'Coelho'; if(n.includes('TOME')||n.includes('TOMÉ')) return 'Tomé'; if(n.includes('MARCAO')||n.includes('MARCÃO')) return 'Marcão'; if(n.includes('NATH')) return 'Nath'; return 'Outros'; }
+
+// ROI CLUB: Typeform ou página de captura ("FULL SALES" no nome da campanha).
+function _classRoiClub(cn){
+  const sub=_subFunil(cn), n=_sa(cn);
+  if(sub.includes('TYPEFORM')) return 'TYPEFORM';
+  if(sub.includes('FULL SALES')||sub==='LP'||sub.includes('CAPTURA')) return 'CAPTURA';
+  return n.includes('TYPEFORM') ? 'TYPEFORM' : 'CAPTURA'; }
+// Direct: o expert é o sub-funil. Elvio e Manolo entraram em ago/2026 e ainda
+// não têm campanha com gasto, mas já ficam mapeados para não caírem em "Outros".
+const EXPERTS_DIRECT=[['COELHO','Coelho'],['TOME','Tomé'],['MARCAO','Marcão'],['ELVIO','Elvio'],['MANOLO','Manolo'],['NATH','Nath']];
+function _classExpert(cn){
+  const sub=_subFunil(cn), n=_sa(cn);
+  for(const [chave,rotulo] of EXPERTS_DIRECT){ if(sub.includes(chave)) return rotulo; }
+  for(const [chave,rotulo] of EXPERTS_DIRECT){ if(n.includes(chave)) return rotulo; }
+  return 'Outros'; }
 const _NOTOPP=new Set(['até 3.000,00 reais','até r$ 3.000','até r$3.000','não tenho como iniciar um negócio hoje.','']);
 function _isOpp(a){ a=(a||'').trim().toLowerCase(); if(!a||_NOTOPP.has(a)) return false; if(a.startsWith('<test lead')) return false; return true; }
 async function fetchSheet(gid){ const r=await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`); return _csvParse(await r.text()); }
@@ -1285,10 +1320,28 @@ function renderControls(A){
 let _sheetCharts={};
 function _inWin(d,w){ return d && d>=w.since && d<=w.until; }
 function mS(v){ return 'R$ '+(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function sheetTabs(){ const s=currentFunnel().sheet;
-  if(s==='sessao')  return [['geral','Visão Geral'],['LP','LP Nova'],['NATIVO','Nativo'],['CARTA','Carta / Consultoria'],['FLP','FLP (VSL)']];
-  if(s==='roiclub') return [['geral','Visão Geral']];
-  return [['geral','Visão Geral'],['Tomé','Tomé'],['Coelho','Coelho'],['Marcão','Marcão'],['Nath','Nath']]; }
+/**
+ * Abas de sub-funil. Os funis que rodam hoje aparecem sempre, mesmo zerados,
+ * para você ver que estão zerados. Os antigos (Carta, FLP, Nath no Direct) só
+ * aparecem quando têm dado no período, para não poluir a barra nem sumir com o
+ * histórico de julho.
+ */
+function _comDado(chaves,linhas,campo){
+  const tem={}; (linhas||[]).forEach(r=>{ if(r[campo]) tem[r[campo]]=1; });
+  return chaves.filter(k=>tem[k]);
+}
+function sheetTabs(){
+  const s=currentFunnel().sheet, base=[['geral','Visão Geral']];
+  if(s==='sessao'){
+    const {inv,lds}=sheetScope();
+    const legado=_comDado(FUNIS_SESSAO.filter(k=>!SE_ATUAIS.includes(k)),[...(inv||[]),...(lds||[])],'funnel');
+    return base.concat(SE_ATUAIS.concat(legado).map(k=>[k,NOME_SE[k]]));
+  }
+  if(s==='roiclub') return base.concat(FUNIS_ROICLUB.map(k=>[k,NOME_RC[k]]));
+  const {dir}=sheetScope();
+  const extras=_comDado(['Nath','Outros'],dir,'expert');
+  return base.concat(EXPERTS_ATUAIS.concat(extras).map(k=>[k,k]));
+}
 function setSheetTab(k){ S.sheetTab=k; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; saveState(); render(); }
 function setSheetLevel(k){ S.sheetLevel=k; if(k==='campanha'){S._sheetDrillCamp=null;S._sheetDrillAdset=null;} if(k==='conjunto')S._sheetDrillAdset=null; render(); }
 function sheetDrill(from,id,name){ if(from==='campanha'){S._sheetDrillCamp=id;S._sheetDrillCampName=name;S.sheetLevel='conjunto';} else if(from==='conjunto'){S._sheetDrillAdset=id;S._sheetDrillAdsetName=name;S.sheetLevel='anuncio';} render(); }
@@ -1300,7 +1353,7 @@ function sheetScope(){
   if(sec==='roiclub'){
     // Não tem planilha nem Typeform alimentando: gasto e lead vêm do Meta.
     const src=(S._rcApi&&S._rcApi.rows)||[];
-    const inv=src.filter(r=>_inWin(r.date,w));
+    const inv=src.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
     return {w, inv, lds:[], metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0), soMeta:true};
   }
 
@@ -1335,6 +1388,11 @@ const SHEET_META={
 };
 function renderSheetView(){
   const f=currentFunnel(), sec=f.sheet, meta=SHEET_META[sec]||SHEET_META.sessao;
+  // A sub-aba fica salva no localStorage. Se a nomenclatura mudou (a chave 'LP'
+  // virou 'PLANO', por exemplo), a chave velha filtraria tudo e a tela ficaria
+  // vazia sem explicação. Volta para Visão Geral quando a aba não existe mais.
+  const abas=sheetTabs();
+  if(!abas.some(([k])=>k===S.sheetTab)) S.sheetTab='geral';
   const maxDate = sec==='direct'  ? (S._directApi&&S._directApi.maxDate)
                 : sec==='roiclub' ? (S._rcApi&&S._rcApi.maxDate)
                 : (S._sheet&&S._sheet.maxDate);
@@ -1342,7 +1400,7 @@ function renderSheetView(){
     <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">${meta.sub}</span></h2>
     ${maxDate?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}</div>
     <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="${meta.botao}">↻ Atualizar</button></div>
-    <div class="row" style="margin-top:10px;gap:6px">${sheetTabs().map(([k,l])=>`<button class="subtab ${S.sheetTab===k?'on':''}" onclick="setSheetTab('${k}')">${l}</button>`).join('')}</div>`;
+    <div class="row" style="margin-top:10px;gap:6px">${abas.map(([k,l])=>`<button class="subtab ${S.sheetTab===k?'on':''}" onclick="setSheetTab('${k}')">${l}</button>`).join('')}</div>`;
 
   if(sec==='direct'){
     // Direct vem da API do Meta (tempo real). A planilha ficava horas atrasada.
@@ -1387,26 +1445,45 @@ function renderRoiClubFull(){
     ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}
   </div></div>`;
 
-  // O alerta que importa: dinheiro saindo sem captura entrando.
+  // Comparação entre os dois caminhos, cada um com a ressalva do que ele mede.
+  const porSub={};FUNIS_ROICLUB.forEach(k=>porSub[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0});
+  ((S._rcApi&&S._rcApi.rows)||[]).filter(r=>_inWin(r.date,sheetWindow())).forEach(r=>{
+    const g=porSub[r.funnel]; if(!g) return;
+    g.spend+=r.spend; g.impr+=r.impr; g.clicks+=r.clicks; g.pv+=r.pv; g.leads+=(r.metaLeads||0);
+  });
+  const linhaSub=g=>{
+    return `<tr><td style="font-weight:600">${NOME_RC[g.k]}</td><td class="num">${mS(g.spend)}</td>
+    <td class="num">${fmtNum(g.impr)}</td><td class="num">${fmtNum(g.clicks)}</td>
+    <td class="num">${g.impr?(g.clicks/g.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${fmtNum(g.pv)}</td>
+    <td class="num" style="font-weight:700">${fmtNum(g.leads)}</td>
+    <td class="num" style="color:#137333;font-weight:700">${g.leads?mS(g.spend/g.leads):'—'}</td></tr>`;
+  };
+  const tblSub=`<div class="card"><h3 style="margin:0 0 8px">Por caminho</h3><div style="overflow-x:auto">
+    <table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Caminho</th><th class="num">Invest.</th><th class="num">Impr.</th><th class="num">Cliques</th><th class="num">CTR</th><th class="num">Pageviews</th><th class="num">Leads</th><th class="num">CPL</th></tr></thead>
+    <tbody>${FUNIS_ROICLUB.map(k=>linhaSub(porSub[k])).join('')}</tbody></table></div>
+    <div class="mini" style="margin-top:6px">Os dois caminhos são medidos pelo pixel: o Typeform também dispara o evento de Lead.
+    Ainda assim, quem sabe se o lead se qualificou é a resposta de verba, que mora no Typeform e não no Meta.</div></div>`;
+
+  // Alerta só para o caminho que o pixel consegue medir. No Typeform, gasto sem
+  // lead é o comportamento esperado e disparar alarme ali seria ruído.
   let alerta='';
-  if(spend>0 && metaLeads===0){
+  const cap=porSub.CAPTURA;
+  if(cap && cap.spend>0 && cap.leads===0){
     alerta=`<div class="card" style="border-left:4px solid #c5221f">
-      <h3 style="margin:0 0 6px">🚨 Gasto sem captura</h3>
+      <h3 style="margin:0 0 6px">🚨 Gasto sem captura na página</h3>
       <div style="font-size:13px;line-height:1.6">
-        <b>${mS(spend)}</b> investidos no período e <b>zero</b> leads registrados${pv?`, mesmo com <b>${fmtNum(pv)}</b> pageviews`:''}.
-        As campanhas mandam para <code>roieducacao.com.br/roi-club-captura/</code>. Se a página está recebendo visita
-        e não gera lead, o problema está na captura, não na mídia.
+        <b>${mS(cap.spend)}</b> investidos na página de captura e <b>zero</b> leads${cap.pv?`, mesmo com <b>${fmtNum(cap.pv)}</b> pageviews`:''}.
+        Destino: <code>roieducacao.com.br/roi-club-captura/</code>. Com visita entrando e lead não saindo, o problema está na captura, não na mídia.
         <div class="mini" style="margin-top:8px">Conferir, nesta ordem: 1) o formulário da LP está enviando; 2) o pixel dispara o evento de Lead na conversão;
         3) as UTMs estão sendo repassadas para dar para atribuir por campanha.</div>
       </div></div>`;
+  } else if(cap && cap.pv>0 && cap.leads>0 && (cap.leads/cap.pv)<0.15){
+    alerta=`<div class="card" style="border-left:4px solid #b08900">
+      <h3 style="margin:0 0 6px">⚠️ Conversão da página muito baixa</h3>
+      <div style="font-size:13px;line-height:1.6">A página de captura converteu <b>${(cap.leads/cap.pv*100).toFixed(1)}%</b>
+      dos pageviews em lead (${fmtNum(cap.leads)} de ${fmtNum(cap.pv)}). Página de captura simples costuma ficar acima de 20%.
+      Com <b>${mS(cap.spend)}</b> investidos, cada ponto percentual aqui vale mais do que qualquer ajuste de mídia.</div></div>`;
   }
-
-  // Oportunidade depende da resposta de qualificação, que o pixel não tem.
-  const nota=`<div class="card"><h3 style="margin:0 0 6px">Sobre Oportunidade e CPO</h3>
-    <div style="font-size:13px;line-height:1.6">O pixel conta lead, mas não sabe o que a pessoa respondeu, então
-    <b>Oportunidade e CPO ficam de fora até a LP devolver a resposta de verba</b> para a planilha ou para o Supabase.
-    A régua já está definida e é a mesma da Sessão: é oportunidade quem respondeu quanto planeja investir e não marcou
-    "não tenho nada disponível" nem "até R$ 3.000". Em julho, no Typeform, isso deu 30 oportunidades em 179 leads, 16,8%.</div></div>`;
 
   const camps=sh_aggS(inv,[],'campaign_id','campaign').sort((a,b)=>b.spend-a.spend);
   const linha=c=>`<tr><td style="font-weight:600">${esc(c.name)}</td><td class="num">${mS(c.spend)}</td><td class="num">${fmtNum(c.impr)}</td><td class="num">${fmtNum(c.clicks)}</td><td class="num">${c.impr?(c.clicks/c.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${fmtNum(c.pv)}</td></tr>`;
@@ -1415,7 +1492,13 @@ function renderRoiClubFull(){
     <tbody>${camps.map(linha).join('')}</tbody></table></div></div>`
     : `<div class="card"><div class="empty">Nenhuma campanha de ROI CLUB com gasto no período.</div></div>`;
 
-  return kpis+alerta+tbl+nota;
+  const nota=`<div class="card"><h3 style="margin:0 0 6px">Sobre Oportunidade e CPO</h3>
+    <div style="font-size:13px;line-height:1.6">O pixel conta lead, mas não sabe o que a pessoa respondeu, então
+    <b>Oportunidade e CPO ficam de fora até a resposta de verba chegar</b> na planilha ou no Supabase.
+    A régua é a mesma da Sessão: é oportunidade quem respondeu quanto planeja investir e não marcou
+    "não tenho nada disponível" nem "até R$ 3.000". Em julho, no Typeform, isso deu 30 oportunidades em 179 leads, 16,8%.</div></div>`;
+
+  return kpis+alerta+tblSub+tbl+nota;
 }
 
 // ── Diagnóstico de funil + ideias (Sessão e Direct) ─────────────────────────
@@ -1470,7 +1553,7 @@ function sessaoDiagnostico(inv, lds){
     <div style="overflow-x:auto;margin-top:8px"><table class="dim-tbl" style="font-size:12px"><thead><tr>
       <th style="text-align:left">Etapa</th><th class="num">Atual</th><th class="num">Mediana entre funis</th><th>Situação</th>
     </tr></thead><tbody>${et.map(x=>x.html).join('')}</tbody></table></div>
-    <div class="mini" style="margin-top:6px">A mediana é entre os funis do período (LP Nova / Nativo / Carta / FLP), não um alvo externo. <b>As duas etapas de LP contam LP Nova, Carta e FLP</b> — o Nativo é formulário dentro do Meta e não tem pageview, então entra apenas no CTR e no MQL. "Clique → pageview" usa 90% como referência de saúde técnica.</div>
+    <div class="mini" style="margin-top:6px">A mediana é entre os funis do período (os sub-funis com dado no período), não um alvo externo. <b>As duas etapas de LP contam todos os funis de página</b> — o Nativo é formulário dentro do Meta e não tem pageview, então entra apenas no CTR e no MQL. "Clique → pageview" usa 90% como referência de saúde técnica.</div>
   </div>`;
 }
 // Ideias de teste — Sessão
@@ -1485,7 +1568,7 @@ function sessaoIdeias(inv, lds){
   const comOpp=funis.filter(g=>g.opp>=2);
   if(comOpp.length>=2){
     const o=comOpp.slice().sort((a,b)=>a.cpo-b.cpo), best=o[0], worst=o[o.length-1];
-    const nm={LP:'LP Nova',NATIVO:'Nativo',CARTA:'Carta/Consultoria',FLP:'FLP (VSL)'};
+    const nm=NOME_SE;
     I.push(`<b>Migre verba do funil mais caro para o mais barato.</b> <b>${nm[best.k]||best.k}</b> entrega oportunidade a ${fmtMoney0(best.cpo)} contra ${fmtMoney0(worst.cpo)} do <b>${nm[worst.k]||worst.k}</b> — ${((worst.cpo/best.cpo-1)*100).toFixed(0)}% mais caro. Só o ${nm[worst.k]||worst.k} está levando ${fmtMoney0(worst.spend)}.`);
   }
   const pubs=agg(r=>r.adset).filter(g=>g.spend>=200&&g.opp>=1).sort((a,b)=>a.cpo-b.cpo);
@@ -1567,8 +1650,8 @@ function renderSessaoFull(){
   const byF={}; FUNIS_SESSAO.forEach(k=>byF[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0,opp:0});
   inv.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.spend+=r.spend;g.impr+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;});
   lds.forEach(r=>{const g=byF[r.funnel]||byF.NATIVO;g.leads++;if(r.opp)g.opp++;});
-  const fRow=g=>`<tr><td style="font-weight:600">${g.k}</td><td class="num">${mS(g.spend)}</td><td class="num">${fmtNum(g.leads)}</td><td class="num">${g.leads&&g.spend?mS(g.spend/g.leads):'—'}</td><td class="num" style="font-weight:700">${fmtNum(g.opp)}</td><td class="num" style="color:#137333;font-weight:700">${g.opp&&g.spend?mS(g.spend/g.opp):'—'}</td><td class="num">${g.k!=='NATIVO'?fmtNum(g.pv):'—'}</td><td class="num">${g.k!=='NATIVO'&&g.pv?(g.leads/g.pv*100).toFixed(0)+'%':'—'}</td></tr>`;
-  const tblF=`<div class="card"><h3 style="margin:0 0 8px">Por funil</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Funil</th><th class="num">Invest.</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Pageviews</th><th class="num">Tx conv LP</th></tr></thead><tbody>${FUNIS_SESSAO.map(k=>fRow(byF[k])).join('')}</tbody></table></div><div class="mini" style="margin-top:6px">Pageviews e Tx. conv LP valem para LP Nova, Carta e FLP. <b>Oportunidade</b> = respondeu o valor e não é "até R$3.000" nem "não tenho como iniciar".</div></div>`;
+  const fRow=g=>`<tr><td style="font-weight:600">${NOME_SE[g.k]||g.k}</td><td class="num">${mS(g.spend)}</td><td class="num">${fmtNum(g.leads)}</td><td class="num">${g.leads&&g.spend?mS(g.spend/g.leads):'—'}</td><td class="num" style="font-weight:700">${fmtNum(g.opp)}</td><td class="num" style="color:#137333;font-weight:700">${g.opp&&g.spend?mS(g.spend/g.opp):'—'}</td><td class="num">${g.k!=='NATIVO'?fmtNum(g.pv):'—'}</td><td class="num">${g.k!=='NATIVO'&&g.pv?(g.leads/g.pv*100).toFixed(0)+'%':'—'}</td></tr>`;
+  const tblF=`<div class="card"><h3 style="margin:0 0 8px">Por funil</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Funil</th><th class="num">Invest.</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Pageviews</th><th class="num">Tx conv LP</th></tr></thead><tbody>${FUNIS_SESSAO.map(k=>fRow(byF[k])).join('')}</tbody></table></div><div class="mini" style="margin-top:6px">Pageviews e Tx. conv LP não valem para o Nativo, que é formulário dentro do Meta. <b>Oportunidade</b> = respondeu o valor e não é "até R$3.000" nem "não tenho como iniciar".</div></div>`;
   const ins=sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl);
   const pubs=sh_rankName(inv,lds,'adset'),ads=sh_rankName(inv,lds,'ad');
   const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableS('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableS('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
@@ -1777,10 +1860,9 @@ function drawSheetCharts(){
     inv.forEach(r=>{if(ib[r.date]!=null)ib[r.date]+=r.spend;});lds.forEach(r=>{if(r.opp&&ob[r.date]!=null)ob[r.date]++;});
     const iA=days.map(d=>ib[d]),oA=days.map(d=>ob[d]),cA=days.map((d,i)=>oA[i]?iA[i]/oA[i]:null);
     _sheetCharts.bar=new Chart(barEl,{data:{labels,datasets:[{type:'bar',label:'Investimento',data:iA,backgroundColor:'#ff6a00',yAxisID:'y',order:2},{type:'bar',label:'Oportunidade',data:oA,backgroundColor:'#c9b3f0',yAxisID:'y1',order:3},{type:'line',label:'CPO',data:cA,borderColor:'#7b2ff7',backgroundColor:'#7b2ff7',tension:.35,yAxisID:'y1',order:1,spanGaps:true,pointRadius:3}]},options:shBarOpts()});
-    const NOME_F={LP:'LP Nova',NATIVO:'Nativo',CARTA:'Carta/Consult.',FLP:'FLP'};
     const bf={};FUNIS_SESSAO.forEach(k=>bf[k]=0);
     lds.forEach(r=>{if(r.opp&&bf[r.funnel]!=null)bf[r.funnel]++;});
-    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:FUNIS_SESSAO.map(k=>NOME_F[k]),datasets:[{data:FUNIS_SESSAO.map(k=>bf[k]),backgroundColor:['#5a2ca0','#ff6a00','#c9b3f0','#7b2ff7'],borderColor:S.darkMode?'#1b1b23':'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
+    if(dnEl)_sheetCharts.dn=new Chart(dnEl,{type:'doughnut',data:{labels:FUNIS_SESSAO.map(k=>NOME_SE[k]),datasets:[{data:FUNIS_SESSAO.map(k=>bf[k]),backgroundColor:['#5a2ca0','#ff6a00','#c9b3f0','#7b2ff7'],borderColor:S.darkMode?'#1b1b23':'#fff',borderWidth:2}]},options:{maintainAspectRatio:false,plugins:{legend:{position:'bottom'}}}});
   }else{
     const {dir}=sheetScope(),ib={},cb={};days.forEach(d=>{ib[d]=0;cb[d]=0;});
     dir.forEach(r=>{if(ib[r.date]!=null){ib[r.date]+=r.spend;cb[r.date]+=r.conv;}});
