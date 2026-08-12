@@ -999,6 +999,20 @@ function _classFunnel(cn){
   if(n.includes('CARTA')||n.includes('CONSULTORIA_LP')||n.includes('FUNIL_CARTA')) return 'CARTA';
   return 'NATIVO'; }
 
+/**
+ * A qual iniciativa o lead da aba "paginas" pertence.
+ * Ordem de confiança: slug da página → URL → nome da campanha. O slug ganha
+ * porque é o único preenchido quando a UTM não chega (caso dos 80 leads de
+ * 11/08), e porque diz onde a pessoa realmente estava.
+ */
+function _iniciativaDoLead(slug,url,campanha){
+  const s=_sa(slug)+' '+_sa(url);
+  if(s.includes('ROI-CLUB')||s.includes('ROICLUB')||s.includes('ROI CLUB')) return 'roiclub';
+  const c=_sa(campanha);
+  if(c.includes('ROICLUB')||c.includes('RCB')) return 'roiclub';
+  return 'sessao';
+}
+
 // ROI CLUB: Typeform ou página de captura ("FULL SALES" no nome da campanha).
 function _classRoiClub(cn){
   const sub=_subFunil(cn), n=_sa(cn);
@@ -1014,7 +1028,25 @@ function _classExpert(cn){
   for(const [chave,rotulo] of EXPERTS_DIRECT){ if(n.includes(chave)) return rotulo; }
   return 'Outros'; }
 const _NOTOPP=new Set(['até 3.000,00 reais','até r$ 3.000','até r$3.000','não tenho como iniciar um negócio hoje.','']);
-function _isOpp(a){ a=(a||'').trim().toLowerCase(); if(!a||_NOTOPP.has(a)) return false; if(a.startsWith('<test lead')) return false; return true; }
+/**
+ * Oportunidade = declarou verba acima de R$ 3.000.
+ *
+ * A lista fixa _NOTOPP só cobria as frases da Sessão. O ROI CLUB usa outra
+ * redação ("Não tenho nada disponível para investir") e 61 leads sem verba
+ * nenhuma entravam como oportunidade. Por isso a regra passou a ser por
+ * prefixo, que aguenta variação de redação entre formulários:
+ *   "não tenho..."  → sem verba, e também "não tenho como iniciar"
+ *   "até 3..."      → até R$ 3.000, o corte combinado
+ * A lista antiga fica como rede de segurança para frases fora desses padrões.
+ */
+function _isOpp(a){
+  a=(a||'').trim().toLowerCase();
+  if(!a||_NOTOPP.has(a)) return false;
+  const n=a.normalize('NFD').replace(/[̀-ͯ]/g,'');
+  if(n.startsWith('nao tenho')) return false;
+  if(n.startsWith('ate 3'))     return false;
+  if(n.startsWith('<test lead'))return false;
+  return true; }
 async function fetchSheet(gid){ const r=await fetch(`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${gid}`); return _csvParse(await r.text()); }
 async function fetchSheetData(){
   if(S._sheetLoading) return; S._sheetLoading=true; render();
@@ -1025,8 +1057,20 @@ async function fetchSheetData(){
     const invest=inv.map(r=>{const cn=r['Campaign Name']||'';const fn=_classFunnel(cn);return {date:_isoDate(r['Date']),funnel:fn,campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),adset_id:(r['Adset ID']||'').trim(),ad:_cleanName(r['Ad Name']||''),ad_id:(r['Ad ID']||'').trim(),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),pv:fn!=='NATIVO'?_num(r['Action Landing Page View']):0};});
     const qv='Quanto você tem disponível no mês para investir no seu negócio de Amazon?';
     const leads=[];
-    form.forEach(r=>{const cn=r['campaign_name']||'';leads.push({date:_isoDate(r['created_time']),funnel:cn?_classFunnel(cn):'NATIVO',campaign:_cleanName(cn)||'(sem campanha)',campaign_id:_stripId(r['campaign_id']),adset:_cleanName(r['adset_name']||''),adset_id:_stripId(r['adset_id']),ad:_cleanName(r['ad_name']||''),ad_id:_stripId(r['ad_id']),opp:_isOpp(r[qv])});});
-    pag.forEach(r=>{const uc=r['utm_campaing']||'';const cn=_nameBeforeId(uc);leads.push({date:_isoDate(r['DATA']),funnel:_classFunnel(cn),campaign:_cleanName(cn)||'(sem campanha)',campaign_id:_trailId(uc),adset:_cleanName(_nameBeforeId(r['utm_term']||'')),adset_id:_trailId(r['utm_term']||''),ad:_cleanName(_nameBeforeId(r['utm_content']||'')),ad_id:_trailId(r['utm_content']||''),opp:_isOpp(r['valor_disp'])});});
+    // Form nativo do Meta: sempre Sessão, não tem página nem slug.
+    form.forEach(r=>{const cn=r['campaign_name']||'';leads.push({date:_isoDate(r['created_time']),funnel:cn?_classFunnel(cn):'NATIVO',iniciativa:'sessao',slug:'',url:'',campaign:_cleanName(cn)||'(sem campanha)',campaign_id:_stripId(r['campaign_id']),adset:_cleanName(r['adset_name']||''),adset_id:_stripId(r['adset_id']),ad:_cleanName(r['ad_name']||''),ad_id:_stripId(r['ad_id']),opp:_isOpp(r[qv])});});
+    // A aba "paginas" traz slug_pagina (coluna M) e url_pagina. O slug diz em qual
+    // página o lead caiu, o que é mais confiável que o nome da campanha: em 11/08,
+    // 80 dos 88 leads de ROI CLUB chegaram sem utm_campaing e só o slug os
+    // identifica. Quando o slug falta, cai para a URL e depois para a campanha.
+    pag.forEach(r=>{const uc=r['utm_campaing']||'';const cn=_nameBeforeId(uc);
+      const slug=(r['slug_pagina']||'').trim(), url=(r['url_pagina']||'').trim();
+      leads.push({date:_isoDate(r['DATA']),funnel:_classFunnel(cn),
+        slug, url, iniciativa:_iniciativaDoLead(slug,url,cn),
+        campaign:_cleanName(cn)||'(sem campanha)',campaign_id:_trailId(uc),
+        adset:_cleanName(_nameBeforeId(r['utm_term']||'')),adset_id:_trailId(r['utm_term']||''),
+        ad:_cleanName(_nameBeforeId(r['utm_content']||'')),ad_id:_trailId(r['utm_content']||''),
+        opp:_isOpp(r['valor_disp'])});});
     const direct=cdir.map(r=>{const cn=r['Campaign Name']||'';return {date:_isoDate(r['Date']),expert:_classExpert(cn),campaign:_cleanName(cn),campaign_id:(r['Campaign ID']||'').trim(),adset:_cleanName(r['Adset Name']||''),adset_id:(r['Adset ID']||'').trim(),ad:_cleanName(r['Ad Name']||''),ad_id:(r['Ad ID']||'').trim(),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Action Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])};});
     const directDaily=fdir.map(r=>({date:_isoDate(r['Date']),spend:_num(r['Spend (Cost, Amount Spent)']),impr:_num(r['Impressions']),clicks:_num(r['Inline Link Clicks']),conv:_num(r['Action Messaging Conversations Started (Onsite Conversion)'])}));
     const dts=[...invest,...leads,...direct].map(x=>x.date).filter(Boolean).sort();
@@ -1351,10 +1395,13 @@ function sheetScope(){
   const w=sheetWindow(), sec=currentFunnel().sheet, t=S.sheetTab==='geral'?null:S.sheetTab;
 
   if(sec==='roiclub'){
-    // Não tem planilha nem Typeform alimentando: gasto e lead vêm do Meta.
+    // Investimento do Meta; lead e oportunidade da aba "paginas", identificados
+    // pelo slug. O pixel também conta lead, mas está muito abaixo do real
+    // (4 contra 88 em agosto), então serve só de conferência, não de fonte.
     const src=(S._rcApi&&S._rcApi.rows)||[];
     const inv=src.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
-    return {w, inv, lds:[], metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0), soMeta:true};
+    const lds=((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w));
+    return {w, inv, lds, metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0)};
   }
 
   if(sec==='sessao'){
@@ -1363,7 +1410,8 @@ function sheetScope(){
     const api=(S._sessaoApi&&S._sessaoApi.rows)||[];
     const invFonte=api.length?api:((S._sheet&&S._sheet.invest)||[]);
     const inv=invFonte.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
-    const lds=((S._sheet&&S._sheet.leads)||[]).filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
+    // exclui o que é ROI CLUB: são leads de outra iniciativa e inflavam a Sessão
+    const lds=((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa!=='roiclub'&&_inWin(r.date,w)&&(!t||r.funnel===t));
     return {w, inv, lds, metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0), invDoMeta:api.length>0};
   }
   const fonteDir=(S._directApi&&S._directApi.rows)?S._directApi.rows:((S._sheet&&S._sheet.direct)||[]);
@@ -1410,8 +1458,11 @@ function renderSheetView(){
   }
 
   if(sec==='roiclub'){
+    // Precisa das duas fontes: gasto no Meta, lead e oportunidade na planilha.
     if(S._rcApi==null&&!S._rcLoading) setTimeout(()=>fetchFunilApi('ROICLUB'),30);
+    if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30);
     if(S._rcLoading||S._rcApi==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Buscando ROI CLUB no Meta…</div></div>`;
+    if(S._sheetLoading||S._sheet==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando leads da planilha…</div></div>`;
     return head+`</div>`+renderRoiClubFull();
   }
 
@@ -1424,51 +1475,79 @@ function renderSheetView(){
 }
 
 /**
- * ROI CLUB. Não existe planilha nem Typeform alimentando este funil hoje: as
- * campanhas mandam para roieducacao.com.br/roi-club-captura/ e a página ainda
- * não devolve lead para lugar nenhum. Então gasto E lead vêm do pixel do Meta.
- * No instante em que a LP disparar o evento de lead, os números aparecem aqui
- * sozinhos, sem precisar mexer no dashboard.
+ * ROI CLUB.
+ *   Investimento, pageview e impressão .... API do Meta
+ *   Lead e oportunidade ................... aba "paginas", pelo slug_pagina
+ *
+ * O pixel também conta lead, mas conta muito menos que o real: em agosto marcou
+ * 4 enquanto a planilha registrou 88. Por isso ele fica como conferência, não
+ * como fonte. Oportunidade só existe porque a planilha traz a resposta de verba.
  */
 function renderRoiClubFull(){
-  const {inv,metaLeads}=sheetScope();
+  const {inv,lds,metaLeads}=sheetScope();
   const spend=sh_sum(inv,'spend'),impr=sh_sum(inv,'impr'),clicks=sh_sum(inv,'clicks'),pv=sh_sum(inv,'pv');
-  const cpl=metaLeads?spend/metaLeads:0, ctr=impr?clicks/impr*100:0, cpc=clicks?spend/clicks:0;
+  const leads=lds.length, opp=lds.filter(r=>r.opp).length;
+  const cpl=leads?spend/leads:0, cpo=opp?spend/opp:0, ctr=impr?clicks/impr*100:0, cpc=clicks?spend/clicks:0;
   const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
 
   const kpis=`<div class="card"><div class="kpis">
     ${kpi('Investimento',mS(spend),'gasto em mídia')}
-    ${kpi('Leads (pixel)',fmtNum(metaLeads),'evento do Meta',metaLeads>0)}
-    ${kpi('CPL',metaLeads?mS(cpl):'—','custo por lead')}
+    ${kpi('Leads',fmtNum(leads),'planilha, pelo slug')}
+    ${kpi('CPL',leads?mS(cpl):'—','custo por lead')}
+    ${kpi('Oportunidades',fmtNum(opp),leads?(100*opp/leads).toFixed(0)+'% dos leads':'',opp>0)}
+    ${kpi('CPO',opp?mS(cpo):'—','custo por oport.')}
     ${kpi('Pageviews',fmtNum(pv),'')}
-    ${kpi('Tx. conv LP',pv&&metaLeads?(metaLeads/pv*100).toFixed(1)+'%':'—','lead / pageview')}
+    ${kpi('Tx. conv LP',pv&&leads?(leads/pv*100).toFixed(1)+'%':'—','lead / pageview')}
     ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}
   </div></div>`;
 
-  // Comparação entre os dois caminhos, cada um com a ressalva do que ele mede.
-  const porSub={};FUNIS_ROICLUB.forEach(k=>porSub[k]={k,spend:0,impr:0,clicks:0,pv:0,leads:0});
-  ((S._rcApi&&S._rcApi.rows)||[]).filter(r=>_inWin(r.date,sheetWindow())).forEach(r=>{
+  // Investimento por caminho vem do Meta; lead da planilha só sabe distinguir a
+  // página de captura (tem slug). O Typeform não passa pela planilha, então ali
+  // o número de lead é o do pixel, e a coluna diz de onde veio cada um.
+  const w=sheetWindow();
+  const porSub={};FUNIS_ROICLUB.forEach(k=>porSub[k]={k,spend:0,impr:0,clicks:0,pv:0,pixel:0,plan:0,opp:0});
+  ((S._rcApi&&S._rcApi.rows)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
     const g=porSub[r.funnel]; if(!g) return;
-    g.spend+=r.spend; g.impr+=r.impr; g.clicks+=r.clicks; g.pv+=r.pv; g.leads+=(r.metaLeads||0);
+    g.spend+=r.spend; g.impr+=r.impr; g.clicks+=r.clicks; g.pv+=r.pv; g.pixel+=(r.metaLeads||0);
   });
+  lds.forEach(r=>{ const g=porSub.CAPTURA; g.plan++; if(r.opp) g.opp++; });
+
   const linhaSub=g=>{
+    const daPlan=g.k==='CAPTURA';
+    const n=daPlan?g.plan:g.pixel;
     return `<tr><td style="font-weight:600">${NOME_RC[g.k]}</td><td class="num">${mS(g.spend)}</td>
     <td class="num">${fmtNum(g.impr)}</td><td class="num">${fmtNum(g.clicks)}</td>
     <td class="num">${g.impr?(g.clicks/g.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${fmtNum(g.pv)}</td>
-    <td class="num" style="font-weight:700">${fmtNum(g.leads)}</td>
-    <td class="num" style="color:#137333;font-weight:700">${g.leads?mS(g.spend/g.leads):'—'}</td></tr>`;
+    <td class="num" style="font-weight:700">${fmtNum(n)}</td>
+    <td class="num">${n?mS(g.spend/n):'—'}</td>
+    <td class="num" style="font-weight:700">${daPlan?fmtNum(g.opp):'—'}</td>
+    <td class="num" style="color:#137333;font-weight:700">${daPlan&&g.opp?mS(g.spend/g.opp):'—'}</td>
+    <td class="mini">${daPlan?'planilha':'pixel'}</td></tr>`;
   };
   const tblSub=`<div class="card"><h3 style="margin:0 0 8px">Por caminho</h3><div style="overflow-x:auto">
-    <table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Caminho</th><th class="num">Invest.</th><th class="num">Impr.</th><th class="num">Cliques</th><th class="num">CTR</th><th class="num">Pageviews</th><th class="num">Leads</th><th class="num">CPL</th></tr></thead>
+    <table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Caminho</th><th class="num">Invest.</th><th class="num">Impr.</th><th class="num">Cliques</th><th class="num">CTR</th><th class="num">Pageviews</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th>Fonte</th></tr></thead>
     <tbody>${FUNIS_ROICLUB.map(k=>linhaSub(porSub[k])).join('')}</tbody></table></div>
-    <div class="mini" style="margin-top:6px">Os dois caminhos são medidos pelo pixel: o Typeform também dispara o evento de Lead.
-    Ainda assim, quem sabe se o lead se qualificou é a resposta de verba, que mora no Typeform e não no Meta.</div></div>`;
+    <div class="mini" style="margin-top:6px">A página de captura passa pela planilha, então tem lead identificado e oportunidade.
+    O Typeform não passa, então ali o lead é o que o pixel viu e não há como saber a verba declarada.</div></div>`;
 
-  // Alerta só para o caminho que o pixel consegue medir. No Typeform, gasto sem
-  // lead é o comportamento esperado e disparar alarme ali seria ruído.
-  let alerta='';
+  // O pixel subcontando é um problema de mensuração que vale avisar: quem otimiza
+  // campanha por evento de lead está entregando o algoritmo com sinal errado.
+  let divergencia='';
   const cap=porSub.CAPTURA;
-  if(cap && cap.spend>0 && cap.leads===0){
+  if(cap.plan>0 && cap.pixel < cap.plan*0.5){
+    divergencia=`<div class="card" style="border-left:4px solid #b08900">
+      <h3 style="margin:0 0 6px">⚠️ O pixel está vendo muito menos lead que a planilha</h3>
+      <div style="font-size:13px;line-height:1.6">A planilha registrou <b>${fmtNum(cap.plan)}</b> leads na página de captura
+      e o pixel marcou <b>${fmtNum(cap.pixel)}</b>. Os números da tela usam a planilha, então estão certos.
+      O problema é do outro lado: <b>o Meta está otimizando a entrega com um sinal quase mudo</b>, porque só enxerga
+      ${cap.plan?(cap.pixel/cap.plan*100).toFixed(0):0}% das conversões. Enquanto isso não for corrigido, a campanha
+      aprende devagar e o custo por lead tende a ficar acima do que poderia.</div></div>`;
+  }
+
+  // Alerta só para a página de captura, que é a que a planilha mede. No Typeform
+  // não dá para saber a conversão real, então alarmar ali seria ruído.
+  let alerta='';
+  if(cap && cap.spend>0 && cap.plan===0){
     alerta=`<div class="card" style="border-left:4px solid #c5221f">
       <h3 style="margin:0 0 6px">🚨 Gasto sem captura na página</h3>
       <div style="font-size:13px;line-height:1.6">
@@ -1477,11 +1556,11 @@ function renderRoiClubFull(){
         <div class="mini" style="margin-top:8px">Conferir, nesta ordem: 1) o formulário da LP está enviando; 2) o pixel dispara o evento de Lead na conversão;
         3) as UTMs estão sendo repassadas para dar para atribuir por campanha.</div>
       </div></div>`;
-  } else if(cap && cap.pv>0 && cap.leads>0 && (cap.leads/cap.pv)<0.15){
+  } else if(cap && cap.pv>0 && cap.plan>0 && (cap.plan/cap.pv)<0.15){
     alerta=`<div class="card" style="border-left:4px solid #b08900">
       <h3 style="margin:0 0 6px">⚠️ Conversão da página muito baixa</h3>
-      <div style="font-size:13px;line-height:1.6">A página de captura converteu <b>${(cap.leads/cap.pv*100).toFixed(1)}%</b>
-      dos pageviews em lead (${fmtNum(cap.leads)} de ${fmtNum(cap.pv)}). Página de captura simples costuma ficar acima de 20%.
+      <div style="font-size:13px;line-height:1.6">A página de captura converteu <b>${(cap.plan/cap.pv*100).toFixed(1)}%</b>
+      dos pageviews em lead (${fmtNum(cap.plan)} de ${fmtNum(cap.pv)}). Página de captura simples costuma ficar acima de 20%.
       Com <b>${mS(cap.spend)}</b> investidos, cada ponto percentual aqui vale mais do que qualquer ajuste de mídia.</div></div>`;
   }
 
@@ -1492,13 +1571,18 @@ function renderRoiClubFull(){
     <tbody>${camps.map(linha).join('')}</tbody></table></div></div>`
     : `<div class="card"><div class="empty">Nenhuma campanha de ROI CLUB com gasto no período.</div></div>`;
 
-  const nota=`<div class="card"><h3 style="margin:0 0 6px">Sobre Oportunidade e CPO</h3>
-    <div style="font-size:13px;line-height:1.6">O pixel conta lead, mas não sabe o que a pessoa respondeu, então
-    <b>Oportunidade e CPO ficam de fora até a resposta de verba chegar</b> na planilha ou no Supabase.
-    A régua é a mesma da Sessão: é oportunidade quem respondeu quanto planeja investir e não marcou
-    "não tenho nada disponível" nem "até R$ 3.000". Em julho, no Typeform, isso deu 30 oportunidades em 179 leads, 16,8%.</div></div>`;
+  const nota=`<div class="card"><h3 style="margin:0 0 6px">De onde vem cada número</h3>
+    <div style="font-size:13px;line-height:1.6">
+      <b>Investimento, pageviews, impressões e cliques</b> vêm da API do Meta, em tempo real.<br>
+      <b>Leads e oportunidades</b> vêm da aba <code>paginas</code> da planilha, identificados pelo <code>slug_pagina</code>
+      igual a <code>roi-club-captura</code>. É a única fonte que sabe o que a pessoa respondeu.<br>
+      <b>Oportunidade</b> segue a mesma régua da Sessão: respondeu quanto planeja investir e não marcou
+      "não tenho nada disponível" nem "até R$ 3.000".
+      <div class="mini" style="margin-top:8px">Atribuir lead por campanha ainda não é confiável: a maior parte dos leads
+      chega sem <code>utm_campaing</code> preenchida, então os totais estão certos mas a quebra por campanha não.</div>
+    </div></div>`;
 
-  return kpis+alerta+tblSub+tbl+nota;
+  return kpis+alerta+divergencia+tblSub+tbl+nota;
 }
 
 // ── Diagnóstico de funil + ideias (Sessão e Direct) ─────────────────────────
