@@ -184,6 +184,26 @@ let S = loadState() || {
 // Nunca restaurar estado "conectado" – força nova autenticação
 S.connected = false;
 S.running = false;
+S.stopReq = false;   // pedido de parada feito pelo botão Parar
+
+/**
+ * Parada limpa. Não aborta a chamada que já está no ar, porque cortar no meio
+ * de um POST deixaria objeto criado no Meta sem registro no log. O que ela faz
+ * é impedir o próximo passo e deixar escrito exatamente onde parou.
+ */
+function pedirParada(){
+  if(!S.running || S.stopReq) return;
+  S.stopReq = true;
+  log('⏸ Parada solicitada. Terminando o item atual e encerrando…','w');
+  render();
+}
+/** Checagem entre passos. Devolve true quando é para sair do laço. */
+function pararAqui(onde){
+  if(!S.stopReq) return false;
+  log(`⏹ Interrompido ${onde}.`,'w');
+  return true;
+}
+
 // Sempre começa sem conta selecionada — usuário escolhe manualmente
 S.selectedAccount = '';
 if(!Array.isArray(S.regOptions)) S.regOptions = [];
@@ -579,6 +599,8 @@ async function run(){
   if(errs.length){ alert('Corrija antes de criar:\n\n'+errs.join('\n')); return; }
 
   S.running = true;
+  S.stopReq = false;
+  S.criados = {campanhas:0, conjuntos:0, anuncios:0};
   S.log = [];
   S.tab = 'log';
   render();
@@ -589,6 +611,7 @@ async function run(){
   try {
    const campDups = Math.max(1, parseInt(c.duplicateCount)||1);
    for(let campIdx=0; campIdx<campDups; campIdx++){
+    if(pararAqui(`antes da campanha ${campIdx+1} de ${campDups}`)) break;
     if(campDups>1) log(`━━━━━ Campanha ${campIdx+1} de ${campDups} ━━━━━`,'i');
 
     // ── 1. Campanha
@@ -615,22 +638,29 @@ async function run(){
     log('[Campaign body] '+JSON.stringify(campBody),'i');
     const campR = await api(`/${acct}/campaigns`,'POST',campBody);
     log(`✓ Campanha criada: ${campR.id}`,'s');
+    S.criados.campanhas++;
 
     // ── 2. Adsets
     // Quando oneAdsetPerAd, cria N grupos (1 ad por grupo). Senão, 1 grupo com todos.
     const adGroups = c.oneAdsetPerAd ? S.ads.map(a=>[a]) : [S.ads];
 
+    // A parada precisa subir por todos os laços aninhados: um break só sai do
+    // mais interno e a execução seguiria para o próximo conjunto.
     for(const adset of S.adsets){
+      if(S.stopReq) break;
       const dups = Math.max(1, parseInt(adset.duplicateCount)||1);
 
       for(let d=0; d<dups; d++){
+        if(S.stopReq) break;
         for(let g=0; g<adGroups.length; g++){
+        if(S.stopReq) break;
           const adsInGroup = adGroups[g];
           let adsetName = dups>1 ? `${adset.name} (${d+1})` : adset.name;
           if(c.oneAdsetPerAd && adGroups.length > 1){
             const adNameSuffix = adsInGroup[0]?.name || `Anúncio ${g+1}`;
             adsetName = `${adsetName} - ${adNameSuffix}`;
           }
+        if(pararAqui(`antes do conjunto "${adsetName}"`)) break;
         log(`Criando conjunto: ${adsetName}…`,'i');
 
         const optGoal = adset.optimizationGoal || OPT_GOAL[c.objective] || 'OFFSITE_CONVERSIONS';
@@ -726,9 +756,11 @@ async function run(){
         log('[Adset body] '+JSON.stringify(adsetBody),'i');
         const adsetR = await api(`/${acct}/adsets`,'POST',adsetBody);
         log(`✓ Conjunto criado: ${adsetR.id}`,'s');
+        S.criados.conjuntos++;
 
         // ── 3. Anúncios (do grupo deste conjunto)
         for(const ad of adsInGroup){
+          if(pararAqui(`antes do anúncio "${ad.name}"`)) break;
           log(`Criando anúncio: ${ad.name}…`,'i');
           try {
             const linkUrl = https(ad.linkUrl);
@@ -952,6 +984,7 @@ async function run(){
             if(ad.utm?.trim()) adBody.url_tags = ad.utm.trim();
             const adR = await api(`/${acct}/ads`,'POST',adBody);
             log(`✓ Anúncio criado: ${adR.id}`,'s');
+            S.criados.anuncios++;
 
           } catch(e){
             log(`✗ Erro no anúncio "${ad.name}": ${e.message}`,'e');
@@ -967,7 +1000,15 @@ async function run(){
    } // fim for(let campIdx=0; campIdx<campDups; campIdx++)
 
     log('','i');
-    log(campDups>1 ? `🎉 ${campDups} CAMPANHAS CRIADAS COM SUCESSO!` : '🎉 CAMPANHA CRIADA COM SUCESSO!','s');
+    const R=S.criados;
+    if(S.stopReq){
+      log('⏹ EXECUÇÃO INTERROMPIDA POR VOCÊ.','w');
+      log(`O que ficou criado no Meta: ${R.campanhas} campanha(s), ${R.conjuntos} conjunto(s), ${R.anuncios} anúncio(s).`,'w');
+      log('Nada foi desfeito. Confira no gerenciador antes de rodar de novo, para não duplicar.','w');
+    } else {
+      log(campDups>1 ? `🎉 ${campDups} CAMPANHAS CRIADAS COM SUCESSO!` : '🎉 CAMPANHA CRIADA COM SUCESSO!','s');
+      log(`Total: ${R.campanhas} campanha(s), ${R.conjuntos} conjunto(s), ${R.anuncios} anúncio(s).`,'s');
+    }
 
   } catch(e){
     log(`✗ ERRO: ${e.message}`,'e');
@@ -1704,7 +1745,12 @@ function buildReview(){
   <hr>
   <button class="btn btn-green btn-full" onclick="run()" ${errs.length||S.running?'disabled':''}>
     ${S.running?'Criando…':'🚀 Criar Campanha'}
-  </button>`;
+  </button>
+  ${S.running?`<button class="btn btn-full" style="margin-top:8px;background:#c5221f;color:#fff"
+     onclick="pedirParada()" ${S.stopReq?'disabled':''}>
+     ${S.stopReq?'⏸ Parando após o item atual…':'⏹ Parar'}
+   </button>
+   <div class="mini" style="margin-top:6px;text-align:center">Parar não desfaz o que já foi criado no Meta.</div>`:''}`;
 }
 
 // ── Aba Log ───────────────────────────────────────────────────────────────────
