@@ -507,6 +507,9 @@ async function uploadVideo(file, accountId){
     log(`  ↳ ${pct}% (${(parseInt(tr.start_offset)/1024/1024).toFixed(1)}/${sizeMB} MB)`,'i');
     startOffset = parseInt(tr.start_offset);
     endOffset = parseInt(tr.end_offset);
+    // Vídeo grande leva minutos. Sem esta checagem, clicar em Parar durante o
+    // upload não teria efeito nenhum até o arquivo inteiro subir.
+    if(S.stopReq){ log('⏹ Upload do vídeo interrompido.','w'); throw new Error('PARADA_SOLICITADA'); }
   }
 
   // Fase 3: finish
@@ -987,6 +990,7 @@ async function run(){
             S.criados.anuncios++;
 
           } catch(e){
+            if(e.message==='PARADA_SOLICITADA') break;
             log(`✗ Erro no anúncio "${ad.name}": ${e.message}`,'e');
             throw e;
           }
@@ -1011,7 +1015,7 @@ async function run(){
     }
 
   } catch(e){
-    log(`✗ ERRO: ${e.message}`,'e');
+    if(e.message!=='PARADA_SOLICITADA') log(`✗ ERRO: ${e.message}`,'e');
   }
 
   S.running = false;
@@ -1756,7 +1760,13 @@ function buildReview(){
 // ── Aba Log ───────────────────────────────────────────────────────────────────
 function buildLog(){
   return `
-  <h2>Log de Execução</h2>
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h2 style="margin:0">Log de Execução</h2>
+    ${S.running?`<button class="btn btn-sm" style="background:#c5221f;color:#fff;padding:6px 16px"
+       onclick="pedirParada()" ${S.stopReq?'disabled':''}>
+       ${S.stopReq?'⏸ Parando…':'⏹ Parar'}</button>`:''}
+  </div>
+  ${S.running?`<div class="mini" style="margin:4px 0 8px">Parar interrompe entre um item e o outro. O que já foi criado no Meta continua lá.</div>`:''}
   <div id="logbox" class="log-wrap" style="min-height:200px">
     ${S.log.map(l=>`<div class="lg ${l.type}">[${l.t}] ${esc(l.msg)}</div>`).join('')}
   </div>
