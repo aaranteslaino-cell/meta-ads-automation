@@ -566,18 +566,32 @@ function buildTargeting(adset){
 function validate(){
   const errs = [];
   const c = S.camp;
-  if(!c.name.trim()) errs.push('Nome da campanha é obrigatório');
-  if(c.budgetType==='CBO' && (!c.budget || isNaN(parseFloat(c.budget)) || parseFloat(c.budget)<=0)) errs.push('Orçamento da campanha inválido');
-  if(c.budgetType==='ABO') S.adsets.forEach((a,i)=>{ if(!a.budget || isNaN(parseFloat(a.budget)) || parseFloat(a.budget)<=0) errs.push(`Conjunto ${i+1}: orçamento obrigatório para ABO`); });
-  if(!S.selectedAccount) errs.push('Selecione uma conta de anúncio');
-  if(!S.adsets.length) errs.push('Adicione pelo menos um conjunto');
-  if(!S.ads.length) errs.push('Adicione pelo menos um anúncio');
+  const D = S.destino || {modo:'nova'};
+  const criaCampanha = D.modo==='nova';
+  const criaConjunto = D.modo!=='conjunto';
 
-  S.adsets.forEach((a,i)=>{
-    const n=i+1;
-    if(!a.name?.trim()) errs.push(`Conjunto ${n}: nome obrigatório`);
-    if(['OUTCOME_SALES','OUTCOME_LEADS'].includes(c.objective) && !a.pixelId?.trim()) errs.push(`Conjunto ${n}: Pixel ID obrigatório para ${c.objective}`);
-  });
+  if(!S.selectedAccount) errs.push('Selecione uma conta de anúncio');
+
+  // Só exige o que vai mesmo ser criado. Cobrar nome e orçamento de campanha
+  // quando ela já existe travava o botão sem motivo.
+  if(criaCampanha){
+    if(!c.name.trim()) errs.push('Nome da campanha é obrigatório');
+    if(c.budgetType==='CBO' && (!c.budget || isNaN(parseFloat(c.budget)) || parseFloat(c.budget)<=0)) errs.push('Orçamento da campanha inválido');
+  } else if(!D.campaignId){
+    errs.push('Escolha a campanha existente onde vai criar');
+  }
+  if(D.modo==='conjunto' && !D.adsetId) errs.push('Escolha o conjunto existente onde vai criar os anúncios');
+
+  if(criaConjunto){
+    if(c.budgetType==='ABO') S.adsets.forEach((a,i)=>{ if(!a.budget || isNaN(parseFloat(a.budget)) || parseFloat(a.budget)<=0) errs.push(`Conjunto ${i+1}: orçamento obrigatório para ABO`); });
+    if(!S.adsets.length) errs.push('Adicione pelo menos um conjunto');
+    S.adsets.forEach((a,i)=>{
+      const n=i+1;
+      if(!a.name?.trim()) errs.push(`Conjunto ${n}: nome obrigatório`);
+      if(['OUTCOME_SALES','OUTCOME_LEADS'].includes(c.objective) && !a.pixelId?.trim()) errs.push(`Conjunto ${n}: Pixel ID obrigatório para ${c.objective}`);
+    });
+  }
+  if(!S.ads.length) errs.push('Adicione pelo menos um anúncio');
 
   S.ads.forEach((a,i)=>{
     const n=i+1;
@@ -610,6 +624,7 @@ async function run(){
 
   const acct = S.selectedAccount;
   const c = S.camp;
+  const DEST = S.destino || {modo:'nova'};
 
   try {
    const campDups = Math.max(1, parseInt(c.duplicateCount)||1);
@@ -618,6 +633,12 @@ async function run(){
     if(campDups>1) log(`━━━━━ Campanha ${campIdx+1} de ${campDups} ━━━━━`,'i');
 
     // ── 1. Campanha
+    // Com destino em estrutura existente, não cria: reaproveita o id escolhido.
+    let campR;
+    if(DEST.modo!=='nova'){
+      campR = { id: DEST.campaignId };
+      log(`Usando campanha existente: ${DEST.campaignId}`,'i');
+    } else {
     log('Criando campanha…','i');
     const campName = campDups>1 ? `${c.name} (${campIdx+1})` : c.name;
     const campBody = {
@@ -639,9 +660,10 @@ async function run(){
       campBody.is_adset_budget_sharing_enabled = !!c.shareAdsetBudget;
     }
     log('[Campaign body] '+JSON.stringify(campBody),'i');
-    const campR = await api(`/${acct}/campaigns`,'POST',campBody);
+    campR = await api(`/${acct}/campaigns`,'POST',campBody);
     log(`✓ Campanha criada: ${campR.id}`,'s');
     S.criados.campanhas++;
+    }
 
     // ── 2. Adsets
     // Quando oneAdsetPerAd, cria N grupos (1 ad por grupo). Senão, 1 grupo com todos.
@@ -649,7 +671,10 @@ async function run(){
 
     // A parada precisa subir por todos os laços aninhados: um break só sai do
     // mais interno e a execução seguiria para o próximo conjunto.
-    for(const adset of S.adsets){
+    // Destino em conjunto existente: pula toda a criação de conjunto e vai
+    // direto para os anúncios, uma única vez.
+    const listaAdsets = (DEST.modo==='conjunto') ? [{__existente:true}] : S.adsets;
+    for(const adset of listaAdsets){
       if(S.stopReq) break;
       const dups = Math.max(1, parseInt(adset.duplicateCount)||1);
 
@@ -664,6 +689,11 @@ async function run(){
             adsetName = `${adsetName} - ${adNameSuffix}`;
           }
         if(pararAqui(`antes do conjunto "${adsetName}"`)) break;
+        let adsetR = null;
+        if(DEST.modo==='conjunto'){
+          adsetR = { id: DEST.adsetId };
+          log(`Usando conjunto existente: ${DEST.adsetId}`,'i');
+        } else {
         log(`Criando conjunto: ${adsetName}…`,'i');
 
         const optGoal = adset.optimizationGoal || OPT_GOAL[c.objective] || 'OFFSITE_CONVERSIONS';
@@ -757,9 +787,10 @@ async function run(){
         if(catalogAd) adsetBody.product_catalog_id = catalogAd.catalogId;
 
         log('[Adset body] '+JSON.stringify(adsetBody),'i');
-        const adsetR = await api(`/${acct}/adsets`,'POST',adsetBody);
+        adsetR = await api(`/${acct}/adsets`,'POST',adsetBody);
         log(`✓ Conjunto criado: ${adsetR.id}`,'s');
         S.criados.conjuntos++;
+        }
 
         // ── 3. Anúncios (do grupo deste conjunto)
         for(const ad of adsInGroup){
@@ -1227,10 +1258,110 @@ function buildTab(){
 }
 
 // ── Aba Campanha ──────────────────────────────────────────────────────────────
+/**
+ * Destino da criação.
+ *   nova     → cria campanha, conjuntos e anúncios (comportamento original)
+ *   campanha → usa campanha existente, cria conjuntos e anúncios dentro dela
+ *   conjunto → usa campanha e conjunto existentes, cria só os anúncios
+ *
+ * Muda só onde a coisa nasce. Toda a montagem de criativo continua igual, por
+ * isso o resto das abas não precisou mudar.
+ */
+function buildDestino(){
+  const d=S.destino||{};
+  const carregando=S._destLoading?'<span class="mini"> carregando…</span>':'';
+  const camps=(S._destCamps||[]), sets=(S._destAdsets||[]);
+  const opt=(v,l,sel)=>`<option value="${esc(v)}" ${sel===v?'selected':''}>${esc(l)}</option>`;
+
+  let extra='';
+  if(d.modo==='campanha'||d.modo==='conjunto'){
+    extra+=`<div class="fg" style="margin-top:8px">
+      <label>Campanha existente${carregando}</label>
+      <select onchange="setDestinoCampanha(this.value)">
+        ${opt('','— escolha —',d.campaignId)}
+        ${camps.map(x=>opt(x.id,`${x.name}  ·  ${x.effective_status}`,d.campaignId)).join('')}
+      </select></div>`;
+  }
+  if(d.modo==='conjunto'){
+    extra+=`<div class="fg" style="margin-top:8px">
+      <label>Conjunto existente</label>
+      <select onchange="S.destino.adsetId=this.value;saveState();render()" ${d.campaignId?'':'disabled'}>
+        ${opt('','— escolha —',d.adsetId)}
+        ${sets.map(x=>opt(x.id,`${x.name}  ·  ${x.effective_status}`,d.adsetId)).join('')}
+      </select>
+      <div class="mini" style="margin-top:4px">Segmentação e orçamento do conjunto não são alterados. Só entram anúncios novos.</div></div>`;
+  }
+
+  return `<div class="fg" style="background:#f5f7fb;padding:12px;border-radius:8px;margin-bottom:14px">
+    <label style="font-weight:700">Onde criar</label>
+    <select onchange="setDestinoModo(this.value)">
+      ${opt('nova','Campanha nova (cria tudo do zero)',d.modo||'nova')}
+      ${opt('campanha','Campanha existente (cria conjuntos e anúncios dentro)',d.modo)}
+      ${opt('conjunto','Conjunto existente (cria só os anúncios)',d.modo)}
+    </select>
+    ${extra}
+  </div>`;
+}
+
+function setDestinoModo(m){
+  S.destino={modo:m,campaignId:'',adsetId:''};
+  S._destCamps=null; S._destAdsets=null;
+  saveState(); render();
+  if(m!=='nova') carregarCampanhasExistentes();
+}
+function setDestinoCampanha(id){
+  S.destino.campaignId=id; S.destino.adsetId='';
+  S._destAdsets=null; saveState(); render();
+  if(id && S.destino.modo==='conjunto') carregarConjuntosExistentes(id);
+}
+
+/** Campanhas da conta selecionada, as ativas primeiro. */
+async function carregarCampanhasExistentes(){
+  if(!S.selectedAccount || S._destLoading) return;
+  S._destLoading=true; render();
+  try{
+    const r=await api(`/${S.selectedAccount}/campaigns?fields=name,effective_status,objective&limit=500`);
+    const d=(r.data||[]).sort((a,b)=>{
+      const pa=a.effective_status==='ACTIVE'?0:1, pb=b.effective_status==='ACTIVE'?0:1;
+      return pa!==pb ? pa-pb : String(a.name).localeCompare(String(b.name));
+    });
+    S._destCamps=d;
+    log(`${d.length} campanha(s) encontrada(s) na conta.`,'i');
+  }catch(e){ S._destCamps=[]; log(`Erro ao listar campanhas: ${e.message}`,'e'); }
+  S._destLoading=false; render();
+}
+async function carregarConjuntosExistentes(campId){
+  S._destLoading=true; render();
+  try{
+    const r=await api(`/${campId}/adsets?fields=name,effective_status&limit=500`);
+    S._destAdsets=r.data||[];
+    log(`${(r.data||[]).length} conjunto(s) nessa campanha.`,'i');
+  }catch(e){ S._destAdsets=[]; log(`Erro ao listar conjuntos: ${e.message}`,'e'); }
+  S._destLoading=false; render();
+}
+
 function buildCamp(){
   const c=S.camp;
+  const d=S.destino||{modo:'nova'};
+  // Em campanha existente, os campos de campanha não valem: quem manda é a que
+  // já está no ar. Mostrá-los editáveis daria a impressão de que seriam aplicados.
+  if(d.modo==='campanha'||d.modo==='conjunto'){
+    const nomeCamp=((S._destCamps||[]).find(x=>x.id===d.campaignId)||{}).name||'';
+    const nomeSet=((S._destAdsets||[]).find(x=>x.id===d.adsetId)||{}).name||'';
+    return `<h2>Campanha</h2>${buildDestino()}
+      <div class="fg" style="background:#fffbe6;border:1px solid #ffe58f;padding:12px;border-radius:8px">
+        <b>Usando estrutura que já existe.</b>
+        <div class="mini" style="margin-top:6px;line-height:1.7">
+          Campanha: <b>${esc(nomeCamp||'(não escolhida)')}</b><br>
+          ${d.modo==='conjunto'?`Conjunto: <b>${esc(nomeSet||'(não escolhido)')}</b><br>`:''}
+          Objetivo, orçamento e segmentação continuam os que já estão no Meta. Nada disso é alterado.
+          ${d.modo==='campanha'?'<br>Os conjuntos que você montar na próxima aba serão criados dentro dessa campanha.':'<br>Vá direto para a aba Anúncios.'}
+        </div>
+      </div>`;
+  }
   return `
   <h2>Campanha</h2>
+  ${buildDestino()}
   <div class="row">
     <div class="fg">
       <label>Nome</label>
