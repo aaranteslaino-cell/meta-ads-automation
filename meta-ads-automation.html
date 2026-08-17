@@ -1303,6 +1303,7 @@ function buildDestino(){
       </select>
       <div class="mini" style="margin-top:4px">Segmentação e orçamento do conjunto não são alterados. Só entram anúncios novos.</div></div>`;
   }
+  if(d.campaignId) extra+=buildEstruturaAtual();
 
   return `<div class="fg" style="background:#f5f7fb;padding:12px;border-radius:8px;margin-bottom:14px">
     <label style="font-weight:700">Onde criar</label>
@@ -1323,8 +1324,62 @@ function setDestinoModo(m){
 }
 function setDestinoCampanha(id){
   S.destino.campaignId=id; S.destino.adsetId='';
-  S._destAdsets=null; saveState(); render();
-  if(id && S.destino.modo==='conjunto') carregarConjuntosExistentes(id);
+  S._destAdsets=null; S._destAds=null; saveState(); render();
+  // Carrega nos dois modos: mesmo indo criar conjunto novo, ver o que já existe
+  // dentro evita subir duplicado sem perceber.
+  if(id) carregarEstruturaCampanha(id);
+}
+
+/**
+ * Conjuntos ativos da campanha e os anúncios de cada um.
+ * Dois pedidos só: os anúncios vêm de uma vez no nível da campanha e são
+ * agrupados aqui pelo adset_id, em vez de um pedido por conjunto.
+ */
+async function carregarEstruturaCampanha(campId){
+  S._destLoading=true; render();
+  try{
+    const fAdset=encodeURIComponent(JSON.stringify([{field:'adset.effective_status',operator:'IN',value:['ACTIVE']}]));
+    const sets=await _listarTudo(`/${campId}/adsets?fields=name,effective_status,daily_budget,lifetime_budget&limit=200&filtering=${fAdset}`);
+    sets.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    S._destAdsets=sets;
+
+    const ads=await _listarTudo(`/${campId}/ads?fields=name,effective_status,adset_id&limit=500`);
+    const porSet={};
+    ads.forEach(a=>{ (porSet[a.adset_id]=porSet[a.adset_id]||[]).push(a); });
+    S._destAds=porSet;
+
+    log(`Estrutura carregada: ${sets.length} conjunto(s) ativo(s), ${ads.length} anúncio(s).`,'i');
+  }catch(e){
+    S._destAdsets=[]; S._destAds={};
+    log(`Erro ao carregar a estrutura: ${e.message}`,'e');
+  }
+  S._destLoading=false; render();
+}
+
+/** Árvore do que já existe dentro da campanha escolhida. */
+function buildEstruturaAtual(){
+  const sets=S._destAdsets, porSet=S._destAds||{};
+  if(!sets) return '';
+  if(!sets.length) return `<div class="mini" style="margin-top:8px">Esta campanha não tem conjunto ativo.</div>`;
+  const dinheiro=v=>v?('R$ '+(parseInt(v)/100).toLocaleString('pt-BR',{minimumFractionDigits:2})):'';
+  const linhas=sets.map(sx=>{
+    const ads=porSet[sx.id]||[];
+    const ativos=ads.filter(a=>a.effective_status==='ACTIVE').length;
+    const orc=dinheiro(sx.daily_budget)||dinheiro(sx.lifetime_budget);
+    const lista=ads.length?`<div style="margin:4px 0 0 14px">${ads.slice(0,40).map(a=>
+        `<div class="mini" style="opacity:${a.effective_status==='ACTIVE'?1:.5}">
+           ${a.effective_status==='ACTIVE'?'●':'○'} ${esc(a.name)}</div>`).join('')}
+        ${ads.length>40?`<div class="mini">… e mais ${ads.length-40}</div>`:''}</div>`
+      : `<div class="mini" style="margin-left:14px;opacity:.6">sem anúncios</div>`;
+    return `<div style="padding:6px 0;border-bottom:1px solid #eee">
+      <div style="font-weight:600;font-size:13px">${esc(sx.name)}
+        <span class="mini" style="font-weight:400">· ${ads.length} anúncio(s), ${ativos} ativo(s)${orc?' · '+orc:''}</span></div>
+      ${lista}</div>`;
+  }).join('');
+  return `<details style="margin-top:10px" open>
+    <summary style="cursor:pointer;font-weight:600;font-size:13px">O que já existe nesta campanha (${sets.length} conjunto(s))</summary>
+    <div style="max-height:280px;overflow:auto;margin-top:6px">${linhas}</div>
+  </details>`;
 }
 
 /** Campanhas da conta selecionada, as ativas primeiro. */
@@ -1357,6 +1412,7 @@ async function carregarCampanhasExistentes(){
   }catch(e){ S._destCamps=[]; log(`Erro ao listar campanhas: ${e.message}`,'e'); }
   S._destLoading=false; render();
 }
+/** Mantida para uso avulso; o fluxo normal usa carregarEstruturaCampanha. */
 async function carregarConjuntosExistentes(campId){
   S._destLoading=true; render();
   try{
