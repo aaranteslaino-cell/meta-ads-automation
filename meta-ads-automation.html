@@ -1273,14 +1273,26 @@ function buildDestino(){
   const camps=(S._destCamps||[]), sets=(S._destAdsets||[]);
   const opt=(v,l,sel)=>`<option value="${esc(v)}" ${sel===v?'selected':''}>${esc(l)}</option>`;
 
+  const busca=(S._destBusca||'').toLowerCase();
+  const campsF = busca ? camps.filter(x=>String(x.name).toLowerCase().includes(busca)) : camps;
+
   let extra='';
   if(d.modo==='campanha'||d.modo==='conjunto'){
+    const vazio = !S._destLoading && S._destCamps && !camps.length;
     extra+=`<div class="fg" style="margin-top:8px">
-      <label>Campanha existente${carregando}</label>
+      <label>Campanha existente (só ativas)${carregando}</label>
+      ${camps.length>8?`<input placeholder="filtrar pelo nome…" value="${esc(S._destBusca||'')}"
+         oninput="S._destBusca=this.value;render()" style="margin-bottom:6px">`:''}
       <select onchange="setDestinoCampanha(this.value)">
         ${opt('','— escolha —',d.campaignId)}
-        ${camps.map(x=>opt(x.id,`${x.name}  ·  ${x.effective_status}`,d.campaignId)).join('')}
-      </select></div>`;
+        ${campsF.map(x=>opt(x.id,x.name,d.campaignId)).join('')}
+      </select>
+      ${vazio?`<div class="mini" style="color:#c5221f;margin-top:4px">Nenhuma campanha ativa nesta conta.
+        Troque a conta no topo, ou ative a campanha no gerenciador.</div>`:''}
+      ${busca&&!campsF.length&&camps.length?`<div class="mini" style="margin-top:4px">Nenhuma das ${camps.length} ativas casa com "${esc(S._destBusca)}".</div>`:''}
+      ${!S._destCamps&&!S._destLoading?`<div class="mini" style="margin-top:4px">
+        <a href="#" onclick="carregarCampanhasExistentes();return false">carregar campanhas</a></div>`:''}
+      </div>`;
   }
   if(d.modo==='conjunto'){
     extra+=`<div class="fg" style="margin-top:8px">
@@ -1305,7 +1317,7 @@ function buildDestino(){
 
 function setDestinoModo(m){
   S.destino={modo:m,campaignId:'',adsetId:''};
-  S._destCamps=null; S._destAdsets=null;
+  S._destCamps=null; S._destAdsets=null; S._destBusca='';
   saveState(); render();
   if(m!=='nova') carregarCampanhasExistentes();
 }
@@ -1316,26 +1328,43 @@ function setDestinoCampanha(id){
 }
 
 /** Campanhas da conta selecionada, as ativas primeiro. */
+/**
+ * Só campanhas ATIVAS. Conta antiga acumula centenas de campanhas encerradas e
+ * um seletor com tudo é inutilizável. Pausada também fica de fora: subir
+ * anúncio dentro de campanha pausada quase sempre é engano.
+ * Filtra pelo servidor (effective_status), então não gasta banda com o resto.
+ */
+async function _listarTudo(caminho){
+  let url=caminho, out=[], voltas=0;
+  while(url && voltas++<20){
+    const r=await api(url);
+    out=out.concat(r.data||[]);
+    const nx=r.paging && r.paging.next;
+    if(!nx) break;
+    url=nx.replace(/^https:\/\/graph\.facebook\.com\/v\d+\.\d+/,'');
+  }
+  return out;
+}
 async function carregarCampanhasExistentes(){
   if(!S.selectedAccount || S._destLoading) return;
   S._destLoading=true; render();
   try{
-    const r=await api(`/${S.selectedAccount}/campaigns?fields=name,effective_status,objective&limit=500`);
-    const d=(r.data||[]).sort((a,b)=>{
-      const pa=a.effective_status==='ACTIVE'?0:1, pb=b.effective_status==='ACTIVE'?0:1;
-      return pa!==pb ? pa-pb : String(a.name).localeCompare(String(b.name));
-    });
+    const filtro=encodeURIComponent(JSON.stringify([{field:'campaign.effective_status',operator:'IN',value:['ACTIVE']}]));
+    const d=await _listarTudo(`/${S.selectedAccount}/campaigns?fields=name,effective_status,objective&limit=200&filtering=${filtro}`);
+    d.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
     S._destCamps=d;
-    log(`${d.length} campanha(s) encontrada(s) na conta.`,'i');
+    log(`${d.length} campanha(s) ativa(s) na conta.`,'i');
   }catch(e){ S._destCamps=[]; log(`Erro ao listar campanhas: ${e.message}`,'e'); }
   S._destLoading=false; render();
 }
 async function carregarConjuntosExistentes(campId){
   S._destLoading=true; render();
   try{
-    const r=await api(`/${campId}/adsets?fields=name,effective_status&limit=500`);
-    S._destAdsets=r.data||[];
-    log(`${(r.data||[]).length} conjunto(s) nessa campanha.`,'i');
+    const filtro=encodeURIComponent(JSON.stringify([{field:'adset.effective_status',operator:'IN',value:['ACTIVE']}]));
+    const d=await _listarTudo(`/${campId}/adsets?fields=name,effective_status&limit=200&filtering=${filtro}`);
+    d.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    S._destAdsets=d;
+    log(`${d.length} conjunto(s) ativo(s) nessa campanha.`,'i');
   }catch(e){ S._destAdsets=[]; log(`Erro ao listar conjuntos: ${e.message}`,'e'); }
   S._destLoading=false; render();
 }
@@ -1964,6 +1993,15 @@ async function changeAcct(id){
     await loadAccountAssets(id);
   } else {
     S.pixels = []; S.catalogs = [];
+  }
+  // A lista de destino é por conta. Sem limpar aqui, ela ficava com as campanhas
+  // da conta anterior, ou vazia quando a conta era escolhida depois do modo.
+  S._destCamps = null; S._destAdsets = null;
+  if(S.destino && S.destino.modo !== 'nova'){
+    S.destino.campaignId = ''; S.destino.adsetId = '';
+    saveState(); render();
+    if(id) carregarCampanhasExistentes();
+    return;
   }
   saveState(); render();
 }
