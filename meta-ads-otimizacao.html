@@ -276,8 +276,12 @@ const FUNIS_SESSAO=['NATIVO','PLANO','TOMENATH','CARTA','FLP'];
 const SE_ATUAIS=['NATIVO','PLANO','TOMENATH'];
 const NOME_SE={NATIVO:'Nativo',PLANO:'Plano de Negócio',TOMENATH:'Tomé + Nath',CARTA:'Carta / Consultoria',FLP:'FLP (VSL)'};
 
-const FUNIS_ROICLUB=['TYPEFORM','CAPTURA'];
-const NOME_RC={TYPEFORM:'Typeform',CAPTURA:'Página de Captura'};
+// Desde 12/08 o Typeform virou dois: o original (vagaroiclub, do Tomé) e o do
+// Coelho (/to/QL6RHz7f). São formulários e campanhas separados, então viram
+// caminhos separados. Sem isso o Coelho somava no balde do Tomé.
+const FUNIS_ROICLUB=['TYPEFORM_TOME','TYPEFORM_COELHO','CAPTURA'];
+const NOME_RC={TYPEFORM_TOME:'Typeform Tomé',TYPEFORM_COELHO:'Typeform Coelho',CAPTURA:'Página de Captura'};
+const RC_EH_TYPEFORM=k=>k==='TYPEFORM_TOME'||k==='TYPEFORM_COELHO';
 
 const EXPERTS_ATUAIS=['Tomé','Coelho','Marcão','Elvio','Manolo'];
 function currentIniciativa(){
@@ -1077,9 +1081,9 @@ function _iniciativaDoLead(slug,url,campanha){
 // ROI CLUB: Typeform ou página de captura ("FULL SALES" no nome da campanha).
 function _classRoiClub(cn){
   const sub=_subFunil(cn), n=_sa(cn);
-  if(sub.includes('TYPEFORM')) return 'TYPEFORM';
-  if(sub.includes('FULL SALES')||sub==='LP'||sub.includes('CAPTURA')) return 'CAPTURA';
-  return n.includes('TYPEFORM') ? 'TYPEFORM' : 'CAPTURA'; }
+  if(sub.includes('TYPEFORM')||n.includes('TYPEFORM'))
+    return (sub.includes('COELHO')||n.includes('COELHO')) ? 'TYPEFORM_COELHO' : 'TYPEFORM_TOME';
+  return 'CAPTURA'; }
 // Direct: o expert é o sub-funil. Elvio e Manolo entraram em ago/2026 e ainda
 // não têm campanha com gasto, mas já ficam mapeados para não caírem em "Outros".
 const EXPERTS_DIRECT=[['COELHO','Coelho'],['TOME','Tomé'],['MARCAO','Marcão'],['ELVIO','Elvio'],['MANOLO','Manolo'],['NATH','Nath']];
@@ -1555,7 +1559,7 @@ function renderSheetView(){
 function _rcLeadsTypeform(){
   const w=sheetWindow();
   return ((S._rcApi&&S._rcApi.rows)||[])
-    .filter(r=>r.funnel==='TYPEFORM'&&_inWin(r.date,w))
+    .filter(r=>RC_EH_TYPEFORM(r.funnel)&&_inWin(r.date,w))
     .reduce((s,r)=>s+(r.metaLeads||0),0);
 }
 
@@ -1569,7 +1573,7 @@ function renderRoiClubFull(){
   //   Typeform          → pixel do Meta (não passa pela planilha, então sem oportunidade)
   // Na Visão Geral os dois somam, e a oportunidade só existe para a parte que
   // veio da planilha. Antes disso a aba Typeform repetia os leads da página.
-  const soTypeform = aba==='TYPEFORM';
+  const soTypeform = RC_EH_TYPEFORM(aba);
   const leads = soTypeform ? metaLeads : (lds.length + (aba?0:_rcLeadsTypeform()));
   const opp   = lds.filter(r=>r.opp).length;
   const temOpp = !soTypeform;
@@ -1603,7 +1607,7 @@ function renderRoiClubFull(){
     .forEach(r=>{ const g=porSub.CAPTURA; g.plan++; if(r.opp) g.opp++; });
 
   const linhaSub=g=>{
-    const daPlan=g.k==='CAPTURA';
+    const daPlan=g.k==='CAPTURA';   // só a página de captura escreve na planilha
     const n=daPlan?g.plan:g.pixel;
     return `<tr><td style="font-weight:600">${NOME_RC[g.k]}</td><td class="num">${mS(g.spend)}</td>
     <td class="num">${fmtNum(g.impr)}</td><td class="num">${fmtNum(g.clicks)}</td>
