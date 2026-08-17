@@ -1678,8 +1678,9 @@ function renderRoiClubFull(){
   const tblSub=`<div class="card"><h3 style="margin:0 0 8px">Por caminho</h3><div style="overflow-x:auto">
     <table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Caminho</th><th class="num">Invest.</th><th class="num">Impr.</th><th class="num">Cliques</th><th class="num">CTR</th><th class="num">Pageviews</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th>Fonte</th></tr></thead>
     <tbody>${FUNIS_ROICLUB.map(k=>linhaSub(porSub[k])).join('')}</tbody></table></div>
-    <div class="mini" style="margin-top:6px">A página de captura passa pela planilha, então tem lead identificado e oportunidade.
-    O Typeform não passa, então ali o lead é o que o pixel viu e não há como saber a verba declarada.</div></div>`;
+    <div class="mini" style="margin-top:6px">Lead e oportunidade vêm da fonte que identifica a pessoa:
+    a aba <code>paginas</code> para a página de captura, a aba <code>${TF_ABA}</code> para os dois Typeform.
+    Onde aparecer <b>pixel</b> na coluna Fonte, o número é o do evento do Meta, que subconta.</div></div>`;
 
   // O pixel subcontando é um problema de mensuração que vale avisar: quem otimiza
   // campanha por evento de lead está entregando o algoritmo com sinal errado.
