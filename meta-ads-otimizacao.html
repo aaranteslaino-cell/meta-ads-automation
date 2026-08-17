@@ -178,6 +178,11 @@ const FUNNELS = [
 ];
 // Planilha do Google (Sessão Estratégica + Direct) — mesma fonte do Dashboard iniciAmazon
 const SHEET_ID='1fafPK17RgaKcYDoF1tGwaArOR1xUy_q2x_wVaQAQSvM';
+// Ponte do Typeform. A API do Typeform recusa chamada de navegador (CORS), então
+// um Apps Script busca lá e grava nesta aba, que o navegador consegue ler.
+// Ver apps-script-typeform-ponte.js.
+const TF_SHEET_ID='1Xk3jipROXslXYMdp6x994NzbEMt_puoacSKe-MlYFJM';
+const TF_ABA='typeform_leads';
 const SHEET_TABS={formulario:'0',paginas:'1149544245',investimento:'609047758',funil_direct:'1714865460',campanhas_direct:'1772428914'};
 
 // ── Estado ──────────────────────────────────────────────────────────────────
@@ -238,7 +243,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -1036,6 +1041,41 @@ function _csvParse(text){
   if(!rows.length) return [];
   const hdr=rows[0]; return rows.slice(1).filter(r=>r.length>1||(r[0]||'').trim()).map(r=>{ const o={}; hdr.forEach((h,i)=>o[h]=r[i]!=null?r[i]:''); return o; });
 }
+/**
+ * Leads vindos do Typeform, pela aba que o Apps Script alimenta.
+ * Uma linha por resposta, com funil e oportunidade já resolvidos lá, para os
+ * dois lados usarem a mesma régua e nunca divergirem.
+ */
+async function fetchTypeformLeads(){
+  if(S._tfLoading) return; S._tfLoading=true;
+  try{
+    const url=`https://docs.google.com/spreadsheets/d/${TF_SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(TF_ABA)}`;
+    const resp=await fetch(url);
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const linhas=_csvParse(await resp.text());
+    const rows=linhas.filter(r=>r['data']).map(r=>{
+      const uc=r['utm_campaign']||'';
+      return { date:_isoDate(r['data']), funnel:r['funil']||'', iniciativa:r['iniciativa']||'',
+        opp:String(r['oportunidade']).trim()==='1',
+        campaign:_cleanName(_nameBeforeId(uc))||'(sem campanha)', campaign_id:_trailId(uc),
+        adset:_cleanName(_nameBeforeId(r['utm_term']||'')), adset_id:_trailId(r['utm_term']||''),
+        ad:_cleanName(_nameBeforeId(r['utm_content']||'')), ad_id:_trailId(r['utm_content']||''),
+        fonte:'typeform', form:r['form_nome']||'' };
+    });
+    const dts=rows.map(x=>x.date).filter(Boolean).sort();
+    S._tfLeads={rows, maxDate:dts.length?dts[dts.length-1]:'', quando:new Date()};
+  }catch(e){
+    console.warn('[Typeform] ponte indisponível',e);
+    S._tfLeads={rows:[],erro:String(e&&e.message||e)};
+  }
+  S._tfLoading=false; render();
+}
+/** Leads do Typeform de uma iniciativa, no período, opcionalmente de um funil. */
+function tfLeads(iniciativa,funil,w){
+  return ((S._tfLeads&&S._tfLeads.rows)||[])
+    .filter(r=>r.iniciativa===iniciativa&&_inWin(r.date,w)&&(!funil||r.funnel===funil));
+}
+
 function _num(v){ if(v==null) return 0; let s=String(v).trim(); if(!s) return 0; s=s.replace('R$','').replace(/ /g,'').trim(); if(s.includes(',')) s=s.replace(/\./g,'').replace(',','.'); const n=parseFloat(s); return isNaN(n)?0:n; }
 function _cleanName(n){ if(!n) return ''; n=String(n).replace(/\s*[—–-]+\s*C[oó]pia/ig,'').replace(/\s*\(\d+\)\s*$/,''); return n.trim(); }
 function _stripId(v){ return v?String(v).split(':').pop().trim():''; }
@@ -1465,12 +1505,14 @@ function sheetScope(){
     // (4 contra 88 em agosto), então serve só de conferência, não de fonte.
     const src=(S._rcApi&&S._rcApi.rows)||[];
     const inv=src.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
-    // Todo lead que passa pela planilha veio da página de captura: o Typeform
-    // não escreve nela. Sem esse filtro, a aba Typeform mostrava os leads da
-    // página e a taxa de conversão passava de 500%.
-    const lds=((S._sheet&&S._sheet.leads)||[])
-      .filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w)&&(!t||t==='CAPTURA'));
-    return {w, inv, lds, metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0)};
+    // Duas fontes de lead, uma por caminho:
+    //   página de captura → aba "paginas" (slug roi-club-captura)
+    //   Typeform          → aba "typeform_leads", alimentada pelo Apps Script
+    const capt=(!t||t==='CAPTURA')
+      ? ((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w))
+      : [];
+    const tfs=(!t||RC_EH_TYPEFORM(t)) ? tfLeads('roiclub', t||null, w) : [];
+    return {w, inv, lds:capt.concat(tfs), metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0)};
   }
 
   if(sec==='sessao'){
@@ -1479,8 +1521,10 @@ function sheetScope(){
     const api=(S._sessaoApi&&S._sessaoApi.rows)||[];
     const invFonte=api.length?api:((S._sheet&&S._sheet.invest)||[]);
     const inv=invFonte.filter(r=>_inWin(r.date,w)&&(!t||r.funnel===t));
-    // exclui o que é ROI CLUB: são leads de outra iniciativa e inflavam a Sessão
-    const lds=((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa!=='roiclub'&&_inWin(r.date,w)&&(!t||r.funnel===t));
+    // exclui o que é ROI CLUB: são leads de outra iniciativa e inflavam a Sessão.
+    // O Plano de Negócio vive no Typeform, então entra pela ponte.
+    const daPlanilha=((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa!=='roiclub'&&_inWin(r.date,w)&&(!t||r.funnel===t));
+    const lds=daPlanilha.concat(tfLeads('sessao', t||null, w));
     return {w, inv, lds, metaLeads:inv.reduce((s,r)=>s+(r.metaLeads||0),0), invDoMeta:api.length>0};
   }
   const fonteDir=(S._directApi&&S._directApi.rows)?S._directApi.rows:((S._sheet&&S._sheet.direct)||[]);
@@ -1499,9 +1543,9 @@ function sh_aggD(dir,idKey,nameKey){
   return Object.values(m).map(x=>({...x,cc:x.conv?x.spend/x.conv:null,ctr:x.impr?x.clicks/x.impr*100:0,cpc:x.clicks?x.spend/x.clicks:0}));
 }
 const SHEET_META={
-  sessao:  {sub:'funil de lead · Oportunidade & CPO', botao:"reloadSheet();reloadFunilApi('SESSAO')"},
+  sessao:  {sub:'funil de lead · Oportunidade & CPO', botao:"reloadSheet();reloadFunilApi('SESSAO');S._tfLeads=null;fetchTypeformLeads()"},
   direct:  {sub:'funil de mensagem · Conversas & Custo · API do Meta (tempo real)', botao:'reloadDirectApi()'},
-  roiclub: {sub:'funil de lead · gasto e lead pela API do Meta (tempo real)', botao:"reloadFunilApi('ROICLUB')"}
+  roiclub: {sub:'funil de lead · gasto no Meta, lead na planilha e no Typeform', botao:"reloadFunilApi('ROICLUB');S._tfLeads=null;fetchTypeformLeads()"}
 };
 function renderSheetView(){
   const f=currentFunnel(), sec=f.sheet, meta=SHEET_META[sec]||SHEET_META.sessao;
@@ -1532,7 +1576,9 @@ function renderSheetView(){
     garantirJanela('ROICLUB');
     if(S._rcApi==null&&!S._rcLoading) setTimeout(()=>fetchFunilApi('ROICLUB'),30);
     if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30);
+    if(S._tfLeads==null&&!S._tfLoading) setTimeout(()=>fetchTypeformLeads(),30);
     if(S._rcLoading||S._rcApi==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Buscando ROI CLUB no Meta…</div></div>`;
+    if(S._tfLoading) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Lendo leads do Typeform…</div></div>`;
     if(S._sheetLoading||S._sheet==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando leads da planilha…</div></div>`;
     return head+`</div>`+renderRoiClubFull();
   }
@@ -1540,6 +1586,7 @@ function renderSheetView(){
   // Sessão: leads da planilha, investimento do Meta. Espera as duas fontes.
   garantirJanela('SESSAO');
   if(S._sessaoApi==null&&!S._sessaoLoading) setTimeout(()=>fetchFunilApi('SESSAO'),30);
+  if(S._tfLeads==null&&!S._tfLoading) setTimeout(()=>fetchTypeformLeads(),30);
   if(S._sheetLoading||S._sheet==null){ if(S._sheet==null&&!S._sheetLoading) setTimeout(()=>fetchSheetData(),30); return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Carregando planilha…</div></div>`; }
   if(S._sheet.error){ return head+`<div class="empty" style="margin-top:12px">Erro ao carregar a planilha: ${esc(S._sheet.error)}</div></div>`; }
   if(S._sessaoLoading||S._sessaoApi==null) return head+`<div class="empty" style="margin-top:12px"><span class="loading"></span> Buscando investimento no Meta…</div></div>`;
@@ -1566,57 +1613,67 @@ function _rcLeadsTypeform(){
 function renderRoiClubFull(){
   const {inv,lds,metaLeads}=sheetScope();
   const aba=S.sheetTab==='geral'?null:S.sheetTab;
+  const w=sheetWindow();
   const spend=sh_sum(inv,'spend'),impr=sh_sum(inv,'impr'),clicks=sh_sum(inv,'clicks'),pv=sh_sum(inv,'pv');
 
-  // Cada caminho tem a sua fonte de lead:
-  //   Página de captura → planilha (tem a resposta de verba, logo tem oportunidade)
-  //   Typeform          → pixel do Meta (não passa pela planilha, então sem oportunidade)
-  // Na Visão Geral os dois somam, e a oportunidade só existe para a parte que
-  // veio da planilha. Antes disso a aba Typeform repetia os leads da página.
+  // Com a ponte do Typeform funcionando, todo caminho tem lead identificado e
+  // resposta de verba, então todos têm oportunidade e CPO. Sem ela, o Typeform
+  // cai para o contador do pixel, que subconta muito, e fica sem CPO.
+  const ponte = !!(S._tfLeads && !S._tfLeads.erro && (S._tfLeads.rows||[]).length);
   const soTypeform = RC_EH_TYPEFORM(aba);
-  const leads = soTypeform ? metaLeads : (lds.length + (aba?0:_rcLeadsTypeform()));
+  const leads = ponte ? lds.length
+                      : (soTypeform ? metaLeads : lds.length + (aba?0:_rcLeadsTypeform()));
   const opp   = lds.filter(r=>r.opp).length;
-  const temOpp = !soTypeform;
+  const temOpp = ponte || !soTypeform;
   const cpl=leads?spend/leads:0, cpo=opp?spend/opp:0, ctr=impr?clicks/impr*100:0, cpc=clicks?spend/clicks:0;
-  const fonteLead = soTypeform ? 'pixel do Meta' : (aba?'planilha, pelo slug':'planilha + pixel');
+  const fonteLead = ponte ? (soTypeform?'Typeform, pela ponte':(aba?'planilha, pelo slug':'planilha + Typeform'))
+                          : (soTypeform?'pixel do Meta':(aba?'planilha, pelo slug':'planilha + pixel'));
   const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
 
   const kpis=`<div class="card"><div class="kpis">
     ${kpi('Investimento',mS(spend),'gasto em mídia')}
     ${kpi('Leads',fmtNum(leads),fonteLead)}
     ${kpi('CPL',leads?mS(cpl):'—','custo por lead')}
-    ${kpi('Oportunidades',temOpp?fmtNum(opp):'—',temOpp&&leads?(100*opp/leads).toFixed(0)+'% dos leads':'não passa pela planilha',temOpp&&opp>0)}
+    ${kpi('Oportunidades',temOpp?fmtNum(opp):'—',temOpp&&leads?(100*opp/leads).toFixed(0)+'% dos leads':'ponte do Typeform desligada',temOpp&&opp>0)}
     ${kpi('CPO',temOpp&&opp?mS(cpo):'—','custo por oport.')}
     ${kpi('Pageviews',fmtNum(pv),'')}
     ${kpi('Tx. conv LP',pv&&leads?(leads/pv*100).toFixed(1)+'%':'—','lead / pageview')}
     ${kpi('CTR',ctr.toFixed(2)+'%','')}${kpi('CPC',mS(cpc),'')}${kpi('Impressões',fmtNum(impr),'')}
   </div></div>`;
 
-  // Investimento por caminho vem do Meta; lead da planilha só sabe distinguir a
-  // página de captura (tem slug). O Typeform não passa pela planilha, então ali
-  // o número de lead é o do pixel, e a coluna diz de onde veio cada um.
-  const w=sheetWindow();
+  // Aviso quando a ponte não respondeu: sem ele, o Typeform apareceria com o
+  // número do pixel e passaria por real.
+  const semPonte = ponte?'':`<div class="card" style="border-left:4px solid #b08900">
+    <h3 style="margin:0 0 6px">⚠️ Ponte do Typeform sem dados</h3>
+    <div style="font-size:13px;line-height:1.6">A aba <code>${TF_ABA}</code> não respondeu ou está vazia${S._tfLeads&&S._tfLeads.erro?` (<code>${esc(S._tfLeads.erro)}</code>)`:''}.
+    Os caminhos de Typeform estão mostrando o que o pixel viu, que costuma ser uma fração do real, e ficam sem oportunidade.
+    <div class="mini" style="margin-top:6px">Rode <code>sincronizarTypeform</code> no Apps Script e confira se a planilha
+    está compartilhada como "qualquer pessoa com o link · leitor".</div></div></div>`;
+
+  // Tabela comparativa: sempre mostra os três caminhos, independente da aba.
   const porSub={};FUNIS_ROICLUB.forEach(k=>porSub[k]={k,spend:0,impr:0,clicks:0,pv:0,pixel:0,plan:0,opp:0});
   ((S._rcApi&&S._rcApi.rows)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
     const g=porSub[r.funnel]; if(!g) return;
     g.spend+=r.spend; g.impr+=r.impr; g.clicks+=r.clicks; g.pv+=r.pv; g.pixel+=(r.metaLeads||0);
   });
-  // A tabela compara os dois caminhos sempre, então não usa lds (que segue a aba
-  // selecionada e ficaria vazio ao olhar o Typeform).
-  ((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w))
-    .forEach(r=>{ const g=porSub.CAPTURA; g.plan++; if(r.opp) g.opp++; });
+  const todosLeads=((S._sheet&&S._sheet.leads)||[])
+      .filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w))
+      .map(r=>({opp:r.opp,funnel:'CAPTURA'}))
+    .concat(tfLeads('roiclub',null,w).map(r=>({opp:r.opp,funnel:r.funnel})));
+  todosLeads.forEach(r=>{ const g=porSub[r.funnel]; if(!g) return; g.plan++; if(r.opp) g.opp++; });
 
   const linhaSub=g=>{
-    const daPlan=g.k==='CAPTURA';   // só a página de captura escreve na planilha
-    const n=daPlan?g.plan:g.pixel;
+    const temFonte=g.plan>0;                      // fonte que identifica o lead
+    const n=temFonte?g.plan:g.pixel;
+    const fonte=temFonte?(g.k==='CAPTURA'?'planilha':'Typeform'):(g.pixel?'pixel':'—');
     return `<tr><td style="font-weight:600">${NOME_RC[g.k]}</td><td class="num">${mS(g.spend)}</td>
     <td class="num">${fmtNum(g.impr)}</td><td class="num">${fmtNum(g.clicks)}</td>
     <td class="num">${g.impr?(g.clicks/g.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${fmtNum(g.pv)}</td>
-    <td class="num" style="font-weight:700">${fmtNum(n)}</td>
+    <td class="num" style="font-weight:700">${n?fmtNum(n):'—'}</td>
     <td class="num">${n?mS(g.spend/n):'—'}</td>
-    <td class="num" style="font-weight:700">${daPlan?fmtNum(g.opp):'—'}</td>
-    <td class="num" style="color:#137333;font-weight:700">${daPlan&&g.opp?mS(g.spend/g.opp):'—'}</td>
-    <td class="mini">${daPlan?'planilha':'pixel'}</td></tr>`;
+    <td class="num" style="font-weight:700">${temFonte?fmtNum(g.opp):'—'}</td>
+    <td class="num" style="color:#137333;font-weight:700">${temFonte&&g.opp?mS(g.spend/g.opp):'—'}</td>
+    <td class="mini" style="${fonte==='pixel'?'color:#b08900':''}">${fonte}</td></tr>`;
   };
   const tblSub=`<div class="card"><h3 style="margin:0 0 8px">Por caminho</h3><div style="overflow-x:auto">
     <table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Caminho</th><th class="num">Invest.</th><th class="num">Impr.</th><th class="num">Cliques</th><th class="num">CTR</th><th class="num">Pageviews</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th>Fonte</th></tr></thead>
@@ -1676,7 +1733,7 @@ function renderRoiClubFull(){
       chega sem <code>utm_campaing</code> preenchida, então os totais estão certos mas a quebra por campanha não.</div>
     </div></div>`;
 
-  return kpis+alerta+divergencia+tblSub+tbl+nota;
+  return kpis+semPonte+alerta+divergencia+tblSub+tbl+nota;
 }
 
 // ── Diagnóstico de funil + ideias (Sessão e Direct) ─────────────────────────
