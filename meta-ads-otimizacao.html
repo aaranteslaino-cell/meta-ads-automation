@@ -273,7 +273,7 @@ function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 function norm(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
 function currentFunnel(){ return FUNNELS.find(f=>f.key===S.funnel) || FUNNELS[0]; }
 // ── Iniciativas: Perpétuo (Nath/Tomé/Coelho/Backend) · Sessão · Direct ──────
-const INICIATIVAS=[['perpetuo','Perpétuo','🔁'],['sessao','Sessão','🎯'],['direct','Direct','💬'],['roiclub','ROI CLUB','🏆']];
+const INICIATIVAS=[['perpetuo','Perpétuo','🔁'],['sessao','Sessão','🎯'],['roiclub','ROI CLUB','🏆'],['direct','Direct','💬']];
 // Sub-funis de cada iniciativa.
 //   ATUAIS  = o que roda hoje, sempre vira aba
 //   o resto = histórico, só vira aba quando tem dado no período escolhido
