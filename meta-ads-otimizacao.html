@@ -1430,10 +1430,32 @@ function renderConnect(){
 }
 
 const PERIODS=[['today','Hoje'],['yesterday','Ontem'],['last_3d','3 dias'],['last_7d','7 dias'],['last_14d','14 dias'],['last_30d','30 dias'],['this_month','Este mês']];
+/**
+ * Quais tokens estão de fato servindo conta.
+ *
+ * Os tokens são lidos em ordem e conta repetida é descartada, então o primeiro
+ * token que enxerga a conta é o que fica. Token que só vê contas já cobertas
+ * por outro não serve para nada, e sem isso escrito na tela não há como saber:
+ * ele aparece na lista como se estivesse trabalhando.
+ */
+function tokensEmUso(){
+  if(!S.tokens||S.tokens.length<2) return '';
+  const cont={}; (S.accounts||[]).forEach(a=>{ cont[a._tokenId]=(cont[a._tokenId]||0)+1; });
+  const partes=S.tokens.map(t=>{
+    const n=cont[t.id]||0;
+    return `<span style="${n?'':'opacity:.55'}">${esc(t.label||'(sem nome)')}: <b>${n}</b>${n?'':' (redundante)'}</span>`;
+  });
+  const ociosos=S.tokens.filter(t=>!cont[t.id]).length;
+  return `<div class="mini" style="margin-top:3px;text-transform:none">
+    Contas por token: ${partes.join(' · ')}
+    ${ociosos?` <span style="color:#b08900">· ${ociosos} token(s) sem conta própria, dá para remover</span>`:''}</div>`;
+}
+
 function renderControls(A){
   return `<div class="card">
     <div class="row" style="justify-content:space-between">
-      <div class="connected"><span class="dot"></span> Conectado · ${S.accounts.length} conta(s) ${S.lastRefresh?`· <span class="mini">atualizado ${S.lastRefresh.toLocaleTimeString('pt-BR')}</span>`:''}</div>
+      <div class="connected"><span class="dot"></span> Conectado · ${S.accounts.length} conta(s) ${S.lastRefresh?`· <span class="mini">atualizado ${S.lastRefresh.toLocaleTimeString('pt-BR')}</span>`:''}
+        ${tokensEmUso()}</div>
       <div class="row">
         <button class="theme-tgl" onclick="toggleDark()" title="Alternar modo claro/escuro">${S.darkMode?'☀️':'🌙'}</button>
         <button class="btn btn-gray" onclick="refreshData()" ${S.refreshing?'disabled':''}>${S.refreshing?'<span class="loading"></span> ':''}Atualizar</button>
@@ -2107,7 +2129,7 @@ function renderRoiClubFull(){
       chega sem <code>utm_campaing</code> preenchida, então os totais estão certos mas a quebra por campanha não.</div>
     </div></div>`;
 
-  return kpis+semPonte+alerta+divergencia+tblSub+tbl+nota;
+  return kpis+semPonte+alerta+divergencia+tblSub+sheetDecisoes()+tbl+nota;
 }
 
 // ── Diagnóstico de funil + ideias (Sessão e Direct) ─────────────────────────
@@ -2313,7 +2335,7 @@ function renderSessaoFull(){
   const ins=sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl);
   const pubs=sh_rankName(inv,lds,'adset'),ads=sh_rankName(inv,lds,'ad');
   const ranks=`<div class="row" style="gap:16px;align-items:stretch">${sh_rankTableS('🏆 Melhores Públicos (compilado)',pubs)}${sh_rankTableS('🏆 Melhores Anúncios (compilado)',ads)}</div>`;
-  return kpis+alerta+charts+tblF+sessaoDiagnostico(inv,lds)+ins+sessaoIdeias(inv,lds)+ranks+fontes+sheetDetailCard();
+  return kpis+alerta+charts+tblF+sessaoDiagnostico(inv,lds)+ins+sheetDecisoes()+sessaoIdeias(inv,lds)+ranks+fontes+sheetDetailCard();
 }
 function sheetInsightsSessao(inv,lds,spend,opp,leads,cpo,cpl){
   const rows=[`<div class="ins-row"><span class="rk-tag rk-res">Resumo</span> Investimento de <b>${mS(spend)}</b> gerou <b>${fmtNum(opp)}</b> oportunidades${opp?` · CPO médio <b>${mS(cpo)}</b>`:''} · ${fmtNum(leads)} leads (CPL ${mS(cpl)}).</div>`];
@@ -2476,6 +2498,77 @@ function _sheetBarraBusca(){
     ${S.sheetBusca?`<button class="btn btn-gray btn-sm" style="padding:3px 10px" onclick="setSheetBusca('')">limpar</button>`:''}
     ${_sheetSelecionavel()?`<span class="mini">selecione campanhas para agir em massa</span>`:`<span class="mini">a ação em massa fica no nível de campanha</span>`}
   </div>`;
+}
+
+// ── Decisões dos funis de lead ──────────────────────────────────────────────
+//
+// O Perpétuo decide por ROAS contra ROAS alvo. Aqui o equivalente é CPO contra
+// CPO alvo, e esse alvo é seu, não meu: quanto vale uma oportunidade depende do
+// preço do produto e da taxa de fechamento do time, que o dashboard não sabe.
+// Sem alvo preenchido, as listas não aparecem, em vez de eu arbitrar um número.
+
+function cpoAlvoDe(sec){ return parseFloat((S.cpoAlvo||{})[sec])||0; }
+function setCpoAlvo(sec,v){ S.cpoAlvo=S.cpoAlvo||{}; S.cpoAlvo[sec]=v; saveState(); render(); }
+
+/** Gasto mínimo para julgar: sem isso, campanha de R$ 20 sem oportunidade vira "cortar". */
+function gastoMinLead(){
+  const d=periodDays(S.period);
+  return ({1:40,3:100,7:180,14:320,30:600})[d] || 180;
+}
+
+function sheetDecisoes(){
+  const sec=currentFunnel().sheet;
+  if(sec!=='sessao'&&sec!=='roiclub') return '';
+  const alvo=cpoAlvoDe(sec), min=gastoMinLead();
+
+  const campo=`<div class="row" style="gap:8px;align-items:center;flex-wrap:wrap">
+    <label class="mini" style="margin:0">CPO alvo</label>
+    <input type="number" step="1" min="0" placeholder="ex: 150" value="${esc((S.cpoAlvo||{})[sec]||'')}"
+      oninput="setCpoAlvo('${sec}',this.value)" style="width:110px;padding:4px 8px;font-size:12px">
+    <span class="mini">quanto você aceita pagar por oportunidade. Abaixo disso é para escalar, acima é para revisar.</span>
+  </div>`;
+
+  if(!alvo) return `<div class="card"><h3 style="margin:0 0 8px">🎯 Decisões</h3>${campo}
+    <div class="mini" style="margin-top:8px">Preencha o CPO alvo para eu montar as listas de escalar e cortar.</div></div>`;
+
+  const {inv,lds}=sheetScope();
+  const rows=sh_aggS(inv,lds,'campaign_id','campaign').filter(r=>r.spend>0);
+
+  const escalar=[], cortar=[], observar=[];
+  rows.forEach(r=>{
+    const cpo=r.opp?r.spend/r.opp:null;
+    if(r.spend<min){ observar.push({...r,cpo,motivo:`gastou ${mS(r.spend)}, abaixo do mínimo de ${mS(min)} para julgar`}); return; }
+    if(cpo==null){ cortar.push({...r,cpo,motivo:`${mS(r.spend)} sem nenhuma oportunidade`}); return; }
+    if(cpo<=alvo) escalar.push({...r,cpo,motivo:`CPO ${mS(cpo)}, ${((1-cpo/alvo)*100).toFixed(0)}% abaixo do alvo`});
+    else if(cpo<=alvo*1.3) observar.push({...r,cpo,motivo:`CPO ${mS(cpo)}, até 30% acima do alvo`});
+    else cortar.push({...r,cpo,motivo:`CPO ${mS(cpo)}, ${((cpo/alvo-1)*100).toFixed(0)}% acima do alvo`});
+  });
+  const ord=(a,b)=>(a.cpo==null?1:b.cpo==null?-1:a.cpo-b.cpo);
+  escalar.sort(ord); cortar.sort((a,b)=>b.spend-a.spend); observar.sort((a,b)=>b.spend-a.spend);
+
+  const lista=(titulo,arr,cor,vazio)=>{
+    if(!arr.length) return `<div style="flex:1;min-width:260px"><h4 style="margin:0 0 6px;color:${cor}">${titulo} (0)</h4><div class="mini">${vazio}</div></div>`;
+    const ids=arr.map(x=>x.id).filter(Boolean);
+    return `<div style="flex:1;min-width:260px">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <h4 style="margin:0 0 6px;color:${cor}">${titulo} (${arr.length})</h4>
+        ${ids.length?`<button class="btn btn-gray btn-sm" style="padding:2px 8px;font-size:11px"
+          onclick="sheetSelAll(${JSON.stringify(ids).replace(/"/g,'&quot;')})">selecionar</button>`:''}
+      </div>
+      ${arr.slice(0,8).map(x=>`<div class="ins-row" style="align-items:flex-start">
+        <div><div style="font-weight:600;font-size:12px">${esc(String(x.name).slice(0,56))}</div>
+        <div class="mini">${mS(x.spend)} · ${x.leads} lead(s) · ${x.opp} oport. · ${x.motivo}</div></div></div>`).join('')}
+      ${arr.length>8?`<div class="mini">… e mais ${arr.length-8}</div>`:''}</div>`;
+  };
+
+  return `<div class="card"><h3 style="margin:0 0 8px">🎯 Decisões</h3>${campo}
+    <div class="row" style="gap:18px;align-items:flex-start;margin-top:12px">
+      ${lista('✅ Escalar',escalar,'#137333','Nenhuma campanha abaixo do alvo.')}
+      ${lista('🟡 Observar',observar,'#b08900','Nada em zona cinzenta.')}
+      ${lista('🔴 Revisar ou cortar',cortar,'#c5221f','Nenhuma acima do alvo.')}
+    </div>
+    <div class="mini" style="margin-top:10px">Campanha com menos de <b>${mS(min)}</b> de gasto no período entra em Observar, não em Cortar:
+    com pouco gasto, não ter oportunidade ainda não quer dizer nada. O botão <b>selecionar</b> marca a lista inteira para a ação em massa.</div></div>`;
 }
 
 function sheetDetailCard(){
