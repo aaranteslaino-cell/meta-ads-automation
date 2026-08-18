@@ -310,7 +310,10 @@ function matchFunnel(name){
   if(refine && !n.includes(refine)) return false;
   return true;
 }
-function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; const _f=FUNNELS.find(f=>f.key===k); if(_f&&!_f.sheet) S.lastPerp=k; saveState(); render(); if(_f&&!_f.sheet&&!_f.backend) refreshFunnelTotal(); }
+function setFunnel(k){ S.funnel=k; S.view='dash'; S.selCampaign='';
+  // A seleção não atravessa iniciativas: com a barra de ações flutuante, dava
+  // para pausar campanha de Sessão estando na tela do Direct, sem ver qual.
+  S._sel={}; S.sheetBusca=''; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._pesquisa=null; S.sheetTab='geral'; S.sheetLevel='campanha'; S._sheetDrillCamp=null; S._sheetDrillAdset=null; const _f=FUNNELS.find(f=>f.key===k); if(_f&&!_f.sheet) S.lastPerp=k; saveState(); render(); if(_f&&!_f.sheet&&!_f.backend) refreshFunnelTotal(); }
 function setView(v){ if(S.view===v) return; S.view=v; S._topAds=null; S._topPub=null; saveState(); render(); }
 function toggleDark(){ S.darkMode=!S.darkMode; document.body.classList.toggle('dark',S.darkMode); saveState(); render(); }
 function setCriativosFunnel(k){ S.criativosFunnel=k; S._topAds=null; S._topPub=null; saveState(); render(); }
@@ -2089,12 +2092,9 @@ function renderRoiClubFull(){
       Com <b>${mS(cap.spend)}</b> investidos, cada ponto percentual aqui vale mais do que qualquer ajuste de mídia.</div></div>`;
   }
 
-  const camps=sh_aggS(inv,[],'campaign_id','campaign').sort((a,b)=>b.spend-a.spend);
-  const linha=c=>`<tr><td style="font-weight:600">${esc(c.name)}</td><td class="num">${mS(c.spend)}</td><td class="num">${fmtNum(c.impr)}</td><td class="num">${fmtNum(c.clicks)}</td><td class="num">${c.impr?(c.clicks/c.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${fmtNum(c.pv)}</td></tr>`;
-  const tbl=camps.length?`<div class="card"><h3 style="margin:0 0 8px">Campanhas</h3><div style="overflow-x:auto">
-    <table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">Campanha</th><th class="num">Invest.</th><th class="num">Impr.</th><th class="num">Cliques</th><th class="num">CTR</th><th class="num">Pageviews</th></tr></thead>
-    <tbody>${camps.map(linha).join('')}</tbody></table></div></div>`
-    : `<div class="card"><div class="empty">Nenhuma campanha de ROI CLUB com gasto no período.</div></div>`;
+  // Detalhamento igual ao das outras iniciativas: drill por campanha, conjunto e
+  // anúncio, busca por nome ou ID e seleção para ação em massa.
+  const tbl=sheetDetailCard();
 
   const nota=`<div class="card"><h3 style="margin:0 0 6px">De onde vem cada número</h3>
     <div style="font-size:13px;line-height:1.6">
@@ -2438,6 +2438,46 @@ function sh_rankNameD(dir,dim){
 function sh_rankTableD(title,rows){
   return `<div class="card" style="flex:1;min-width:300px"><h3 style="margin:0 0 8px">${title}</h3><div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th>#</th><th style="text-align:left">Nome</th><th class="num">Invest.</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th></tr></thead><tbody>${rows.length?rows.map((r,i)=>`<tr><td style="color:#7b2ff7;font-weight:700">${i+1}º</td><td style="text-align:left" title="${esc(r.name)}">${esc(r.name.slice(0,38))}${r.name.length>38?'…':''}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.conv)}</td><td class="num" style="color:#137333;font-weight:700">${mS(r.cc)}</td></tr>`).join(''):`<tr><td colspan="5" class="empty">Sem dados.</td></tr>`}</tbody></table></div></div>`;
 }
+/**
+ * Busca e seleção nas views de funil, iguais às do Perpétuo.
+ * A seleção reaproveita S._sel e execBulk: as campanhas de Sessão, ROI CLUB e
+ * Direct já estão em S.data, então pausar, escalar e duplicar funcionam sem
+ * nenhum caminho novo de execução, e o log de otimização registra igual.
+ */
+function setSheetBusca(v){ S.sheetBusca=v; render(); }
+function _sheetFiltra(rows){
+  const q=(S.sheetBusca||'').trim().toLowerCase();
+  if(!q) return rows;
+  return rows.filter(r=>String(r.name||'').toLowerCase().includes(q)||String(r.id||'').includes(q));
+}
+/** Só no nível de campanha: é lá que a ação em massa faz sentido. */
+function _sheetSelecionavel(){ return S.sheetLevel==='campanha'; }
+function _sheetChkTh(rows){
+  if(!_sheetSelecionavel()) return '';
+  const ids=rows.map(r=>r.id).filter(Boolean);
+  const todas=ids.length&&ids.every(id=>S._sel&&S._sel[id]);
+  return `<th style="width:28px"><input type="checkbox" ${todas?'checked':''} onclick="sheetSelAll(${JSON.stringify(ids).replace(/"/g,'&quot;')})" title="Selecionar todas" style="cursor:pointer;width:16px;height:16px;accent-color:#7b2ff7"></th>`;
+}
+function _sheetChkTd(r){
+  if(!_sheetSelecionavel()) return '';
+  if(!r.id) return '<td style="width:28px"></td>';
+  return `<td style="width:28px"><input type="checkbox" ${S._sel&&S._sel[r.id]?'checked':''} onclick="toggleSel('${esc(r.id)}',event)" style="cursor:pointer;width:16px;height:16px;accent-color:#7b2ff7"></td>`;
+}
+function sheetSelAll(ids){
+  S._sel=S._sel||{};
+  const todas=ids.length&&ids.every(id=>S._sel[id]);
+  if(todas) ids.forEach(id=>delete S._sel[id]); else ids.forEach(id=>S._sel[id]=true);
+  render();
+}
+function _sheetBarraBusca(){
+  return `<div class="row" style="margin:8px 0;gap:6px;align-items:center">
+    <input placeholder="buscar por nome ou ID…" value="${esc(S.sheetBusca||'')}"
+      oninput="setSheetBusca(this.value)" style="max-width:340px;padding:5px 10px;font-size:12px">
+    ${S.sheetBusca?`<button class="btn btn-gray btn-sm" style="padding:3px 10px" onclick="setSheetBusca('')">limpar</button>`:''}
+    ${_sheetSelecionavel()?`<span class="mini">selecione campanhas para agir em massa</span>`:`<span class="mini">a ação em massa fica no nível de campanha</span>`}
+  </div>`;
+}
+
 function sheetDetailCard(){
   const lvls=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']];
   const seg=`<div class="row" style="gap:4px">${lvls.map(([k,l])=>`<button class="subtab ${S.sheetLevel===k?'on':''}" onclick="setSheetLevel('${k}')">${l}</button>`).join('')}</div>`;
@@ -2448,31 +2488,32 @@ function sheetDetailCard(){
     if(S._sheetDrillAdset&&S.sheetLevel==='anuncio')p.push(esc((S._sheetDrillAdsetName||'').slice(0,40)));
     crumb=`<div class="mini" style="margin:6px 0">${p.join(' › ')}</div>`;
   }
-  const body=currentFunnel().sheet==='sessao'?sheetDetailSessao():sheetDetailDirect();
-  return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">📋 Detalhamento</h3>${seg}</div>${crumb}${body}</div>`;
+  const sec=currentFunnel().sheet;
+  const body=(sec==='sessao'||sec==='roiclub')?sheetDetailSessao():sheetDetailDirect();
+  return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">📋 Detalhamento</h3>${seg}</div>${crumb}${_sheetBarraBusca()}${body}</div>`;
 }
 function sheetDetailSessao(){
   let {inv,lds}=sheetScope(),idKey='campaign_id',nameKey='campaign';
   if(S.sheetLevel==='conjunto'){idKey='adset_id';nameKey='adset';if(S._sheetDrillCamp){inv=inv.filter(r=>r.campaign_id===S._sheetDrillCamp);lds=lds.filter(r=>r.campaign_id===S._sheetDrillCamp);}}
   if(S.sheetLevel==='anuncio'){idKey='ad_id';nameKey='ad';if(S._sheetDrillCamp){inv=inv.filter(r=>r.campaign_id===S._sheetDrillCamp);lds=lds.filter(r=>r.campaign_id===S._sheetDrillCamp);}if(S._sheetDrillAdset){inv=inv.filter(r=>r.adset_id===S._sheetDrillAdset);lds=lds.filter(r=>r.adset_id===S._sheetDrillAdset);}}
-  const rows=sh_aggS(inv,lds,idKey,nameKey).sort((a,b)=>b.spend-a.spend);
+  const rows=_sheetFiltra(sh_aggS(inv,lds,idKey,nameKey).sort((a,b)=>b.spend-a.spend));
   const T={spend:sh_sum(rows,'spend'),leads:sh_sum(rows,'leads'),opp:sh_sum(rows,'opp'),impr:sh_sum(rows,'impr'),clicks:sh_sum(rows,'clicks')};
   const canDrill=S.sheetLevel!=='anuncio';
   const nc=r=>{const nm=esc(r.name.slice(0,52))+(r.name.length>52?'…':'');return (canDrill&&r.id)?`<span class="drill" onclick="sheetDrill('${S.sheetLevel}','${esc(r.id)}',this.dataset.n)" data-n="${esc(r.name)}">${nm} ›</span>`:nm;};
-  return `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">${S.sheetLevel==='campanha'?'Campanha':S.sheetLevel==='conjunto'?'Conjunto':'Anúncio'}</th><th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
-  ${rows.length?rows.map(r=>`<tr><td style="text-align:left">${nc(r)}</td><td class="mini" style="text-align:left">${esc(r.id||'—')}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.opp)}</td><td class="num" style="color:#137333;font-weight:700">${r.opp?mS(r.cpo):'—'}</td><td class="num">${fmtNum(r.leads)}</td><td class="num">${r.leads?mS(r.cpl):'—'}</td><td class="num">${r.ctr.toFixed(2)}%</td><td class="num">${mS(r.cpc)}</td><td class="num">${fmtNum(r.impr)}</td></tr>`).join(''):`<tr><td colspan="10" class="empty">Sem dados no período/filtro.</td></tr>`}
-  </tbody><tfoot><tr style="border-top:2px solid #7b2ff7;font-weight:700"><td>TOTAL (${rows.length})</td><td></td><td class="num">${mS(T.spend)}</td><td class="num">${fmtNum(T.opp)}</td><td class="num" style="color:#137333">${T.opp?mS(T.spend/T.opp):'—'}</td><td class="num">${fmtNum(T.leads)}</td><td class="num">${T.leads?mS(T.spend/T.leads):'—'}</td><td class="num">${T.impr?(T.clicks/T.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${T.clicks?mS(T.spend/T.clicks):'—'}</td><td class="num">${fmtNum(T.impr)}</td></tr></tfoot></table></div>`;
+  return `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr>${_sheetChkTh(rows)}<th style="text-align:left">${S.sheetLevel==='campanha'?'Campanha':S.sheetLevel==='conjunto'?'Conjunto':'Anúncio'}</th><th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr${S._sel&&S._sel[r.id]?' style="background:#f3eefe"':''}>${_sheetChkTd(r)}<td style="text-align:left">${nc(r)}</td><td class="mini" style="text-align:left">${esc(r.id||'—')}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.opp)}</td><td class="num" style="color:#137333;font-weight:700">${r.opp?mS(r.cpo):'—'}</td><td class="num">${fmtNum(r.leads)}</td><td class="num">${r.leads?mS(r.cpl):'—'}</td><td class="num">${r.ctr.toFixed(2)}%</td><td class="num">${mS(r.cpc)}</td><td class="num">${fmtNum(r.impr)}</td></tr>`).join(''):`<tr><td colspan="11" class="empty">${S.sheetBusca?'Nada encontrado para "'+esc(S.sheetBusca)+'".':'Sem dados no período/filtro.'}</td></tr>`}
+  </tbody><tfoot><tr style="border-top:2px solid #7b2ff7;font-weight:700">${_sheetSelecionavel()?'<td></td>':''}<td>TOTAL (${rows.length})</td><td></td><td class="num">${mS(T.spend)}</td><td class="num">${fmtNum(T.opp)}</td><td class="num" style="color:#137333">${T.opp?mS(T.spend/T.opp):'—'}</td><td class="num">${fmtNum(T.leads)}</td><td class="num">${T.leads?mS(T.spend/T.leads):'—'}</td><td class="num">${T.impr?(T.clicks/T.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${T.clicks?mS(T.spend/T.clicks):'—'}</td><td class="num">${fmtNum(T.impr)}</td></tr></tfoot></table></div>`;
 }
 function sheetDetailDirect(){
   let {dir}=sheetScope(),idKey='campaign_id',nameKey='campaign';
   if(S.sheetLevel==='conjunto'){idKey='adset_id';nameKey='adset';if(S._sheetDrillCamp)dir=dir.filter(r=>r.campaign_id===S._sheetDrillCamp);}
   if(S.sheetLevel==='anuncio'){idKey='ad_id';nameKey='ad';if(S._sheetDrillCamp)dir=dir.filter(r=>r.campaign_id===S._sheetDrillCamp);if(S._sheetDrillAdset)dir=dir.filter(r=>r.adset_id===S._sheetDrillAdset);}
-  const rows=sh_aggD(dir,idKey,nameKey).sort((a,b)=>b.spend-a.spend);
+  const rows=_sheetFiltra(sh_aggD(dir,idKey,nameKey).sort((a,b)=>b.spend-a.spend));
   const T={spend:sh_sum(rows,'spend'),conv:sh_sum(rows,'conv'),impr:sh_sum(rows,'impr'),clicks:sh_sum(rows,'clicks')};
   const canDrill=S.sheetLevel!=='anuncio';
   const nc=r=>{const nm=esc(r.name.slice(0,52))+(r.name.length>52?'…':'');return (canDrill&&r.id)?`<span class="drill" onclick="sheetDrill('${S.sheetLevel}','${esc(r.id)}',this.dataset.n)" data-n="${esc(r.name)}">${nm} ›</span>`:nm;};
-  return `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr><th style="text-align:left">${S.sheetLevel==='campanha'?'Campanha':S.sheetLevel==='conjunto'?'Conjunto':'Anúncio'}</th><th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
-  ${rows.length?rows.map(r=>`<tr><td style="text-align:left">${nc(r)}</td><td class="mini" style="text-align:left">${esc(r.id||'—')}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.conv)}</td><td class="num" style="color:#137333;font-weight:700">${r.conv?mS(r.cc):'—'}</td><td class="num">${r.ctr.toFixed(2)}%</td><td class="num">${mS(r.cpc)}</td><td class="num">${fmtNum(r.impr)}</td></tr>`).join(''):`<tr><td colspan="8" class="empty">Sem dados no período/filtro.</td></tr>`}
+  return `<div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px"><thead><tr>${_sheetChkTh(rows)}<th style="text-align:left">${S.sheetLevel==='campanha'?'Campanha':S.sheetLevel==='conjunto'?'Conjunto':'Anúncio'}</th><th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Conversas</th><th class="num">Custo/Conv.</th><th class="num">CTR</th><th class="num">CPC</th><th class="num">Impr.</th></tr></thead><tbody>
+  ${rows.length?rows.map(r=>`<tr${S._sel&&S._sel[r.id]?' style="background:#f3eefe"':''}>${_sheetChkTd(r)}<td style="text-align:left">${nc(r)}</td><td class="mini" style="text-align:left">${esc(r.id||'—')}</td><td class="num">${mS(r.spend)}</td><td class="num">${fmtNum(r.conv)}</td><td class="num" style="color:#137333;font-weight:700">${r.conv?mS(r.cc):'—'}</td><td class="num">${r.ctr.toFixed(2)}%</td><td class="num">${mS(r.cpc)}</td><td class="num">${fmtNum(r.impr)}</td></tr>`).join(''):`<tr><td colspan="9" class="empty">Sem dados no período/filtro.</td></tr>`}
   </tbody><tfoot><tr style="border-top:2px solid #7b2ff7;font-weight:700"><td>TOTAL (${rows.length})</td><td></td><td class="num">${mS(T.spend)}</td><td class="num">${fmtNum(T.conv)}</td><td class="num" style="color:#137333">${T.conv?mS(T.spend/T.conv):'—'}</td><td class="num">${T.impr?(T.clicks/T.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${T.clicks?mS(T.spend/T.clicks):'—'}</td><td class="num">${fmtNum(T.impr)}</td></tr></tfoot></table></div>`;
 }
 /**
