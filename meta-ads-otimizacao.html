@@ -243,7 +243,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -273,7 +273,7 @@ function getTokenById(id){ return S.tokens.find(t=>t.id===id)?.token || ''; }
 function norm(s){ return String(s==null?'':s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(); }
 function currentFunnel(){ return FUNNELS.find(f=>f.key===S.funnel) || FUNNELS[0]; }
 // ── Iniciativas: Perpétuo (Nath/Tomé/Coelho/Backend) · Sessão · Direct ──────
-const INICIATIVAS=[['perpetuo','Perpétuo','🔁'],['sessao','Sessão','🎯'],['roiclub','ROI CLUB','🏆'],['direct','Direct','💬']];
+const INICIATIVAS=[['geral','Visão Geral','📊'],['perpetuo','Perpétuo','🔁'],['sessao','Sessão','🎯'],['roiclub','ROI CLUB','🏆'],['direct','Direct','💬']];
 // Sub-funis de cada iniciativa.
 //   ATUAIS  = o que roda hoje, sempre vira aba
 //   o resto = histórico, só vira aba quando tem dado no período escolhido
@@ -291,11 +291,13 @@ const RC_EH_TYPEFORM=k=>k==='TYPEFORM_TOME'||k==='TYPEFORM_COELHO';
 const EXPERTS_ATUAIS=['Tomé','Coelho','Marcão','Elvio','Manolo'];
 function currentIniciativa(){
   if(S.view==='criativos') return 'perpetuo';
+  if(S.view==='geral') return 'geral';
   const f=currentFunnel();
   return f.sheet ? f.sheet : 'perpetuo';   // sessao | direct | roiclub
 }
 function setIniciativa(k){
   if(k===currentIniciativa()) return;
+  if(k==='geral'){ S.view='geral'; S.selCampaign=''; saveState(); render(); return; }
   if(k==='sessao'){ S.view='dash'; setFunnel('SESSAO'); }
   else if(k==='direct'){ S.view='dash'; setFunnel('DIRECT'); }
   else if(k==='roiclub'){ S.view='dash'; setFunnel('ROICLUB'); }
@@ -1372,12 +1374,13 @@ function render(){
   const _tops=[...document.querySelectorAll('.tbl-wrap')].map(el=>({t:el.scrollTop,l:el.scrollLeft}));
   if(!S.connected){ root.innerHTML=renderConnect(); return; }
   const A=analyze();
-  const _body = (S.view!=='criativos' && currentFunnel().sheet) ? renderSheetView()
+  const _body = (S.view==='geral') ? renderGeralView()
+    : (S.view!=='criativos' && currentFunnel().sheet) ? renderSheetView()
     : (S.refreshing && !S.data.length ? `<div class="card"><div class="empty"><span class="loading"></span> Buscando campanhas e receita…</div></div>` : (S.view==='criativos' ? renderTopAdsAudiences(A) : renderDashboard(A)));
   root.innerHTML = renderControls(A) + _body;
   window.scrollTo(_sx,_sy);
   [...document.querySelectorAll('.tbl-wrap')].forEach((el,i)=>{ if(_tops[i]){ el.scrollTop=_tops[i].t; el.scrollLeft=_tops[i].l; } });
-  if(S.view!=='criativos' && currentFunnel().sheet) agendarSheetCharts();
+  if(S.view!=='criativos' && S.view!=='geral' && currentFunnel().sheet) agendarSheetCharts();
   renderBulkBar();
 }
 function renderBulkBar(){
@@ -1547,6 +1550,286 @@ const SHEET_META={
   direct:  {sub:'funil de mensagem · Conversas & Custo · API do Meta (tempo real)', botao:'reloadDirectApi()'},
   roiclub: {sub:'funil de lead · gasto no Meta, lead na planilha e no Typeform', botao:"reloadFunilApi('ROICLUB');S._tfLeads=null;fetchTypeformLeads()"}
 };
+// ════════════════════════════════════════════════════════════════════════════
+//  VISÃO GERAL · todas as iniciativas lado a lado
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Cada iniciativa mede coisa diferente, e forçar todas na mesma métrica daria
+// número bonito e errado. Perpétuo termina em venda, então fecha em ROAS.
+// Sessão e ROI CLUB terminam em oportunidade, então fecham em CPO. Direct
+// termina em conversa. O que dá para somar entre elas é o investimento.
+
+/**
+ * Receita de cada funil do Perpétuo, direto do Supabase.
+ *
+ * A receita que já está em S._rev vem filtrada pelo funil ABERTO, e o `_receita`
+ * de cada campanha idem. Somar o gasto dos três funis contra a receita de um só
+ * dava ROAS 0.36x quando o real era outro, o tipo de número que faz cortar
+ * campanha boa. Aqui cada funil é consultado no seu próprio recorte.
+ */
+async function fetchGeralReceita(){
+  if(S._geralRevLoading) return;
+  S._geralRevLoading=true; render();
+  const {since,until}=periodRange(S.period);
+  const out={}; const alvos=FUNNELS.filter(f=>!f.sheet&&!f.backend&&f.match);
+  try{
+    for(const f of alvos){
+      const r=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',
+        headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},
+        body:JSON.stringify({p_since:since,p_until:until,p_funil:f.match})});
+      if(!r.ok) continue;
+      const o=(await r.json())[0]||{};
+      out[f.key]={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0};
+    }
+    S._geralRev={porFunil:out, periodo:S.period, since, until};
+  }catch(e){ S._geralRev={porFunil:{},erro:String(e&&e.message||e)}; }
+  S._geralRevLoading=false; render();
+}
+
+/** Campanha que pertence a Sessão, ROI CLUB ou Direct, pelo padrão de nome. */
+function _ehOutraIniciativa(nome){
+  const sub=_subFunil(nome), n=_sa(nome);
+  if(/\|\s*(DIRECT|SESSAO|ROICLUB)\s*\|/.test(n)) return true;
+  if(n.includes('RCB_')||n.includes('SE-F0')) return true;
+  if(sub&&(sub.includes('TYPEFORM')||sub.includes('FULL SALES'))) return true;
+  return false;
+}
+
+/** Perpétuo: gasto das campanhas de venda e receita consultada por funil. */
+function geralPerpetuo(){
+  const usd=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+  const alvos=FUNNELS.filter(f=>!f.sheet&&!f.backend&&f.match);
+  const bate=n=>alvos.some(f=>_sa(n).includes(_sa(f.match)));
+  const T={spend:0,receita:0,front:0,imp:0,clicks:0,campanhas:0,semReceita:false};
+  (S.data||[]).forEach(r=>{
+    const sp=((r._currency||'BRL')==='USD')?(r.spend||0)*usd:(r.spend||0);
+    if(sp<=0||!bate(r.name||'')) return;
+    // "COELHO" e "TOME" também aparecem em DIRECT | COELHO e ROICLUB | TYPEFORM
+    // COELHO. Sem esta exclusão o Perpétuo somava R$ 14.637 de gasto que é de
+    // outra iniciativa, inflando a fatia dele e afundando o ROAS.
+    if(_ehOutraIniciativa(r.name||'')) return;
+    T.spend+=sp; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.campanhas++;
+  });
+  const rev=(S._geralRev&&S._geralRev.porFunil)||null;
+  if(rev){
+    Object.values(rev).forEach(v=>{ T.receita+=v.receita||0; T.front+=v.front||0; });
+    T.roas=T.spend>0?T.receita/T.spend:null;
+    T.cpa=T.front>0?T.spend/T.front:null;
+    T.lucro=T.receita-T.spend;
+  } else {
+    // sem a consulta pronta, não inventa ROAS com receita parcial
+    T.semReceita=true; T.roas=null; T.cpa=null; T.lucro=null;
+  }
+  return T;
+}
+
+/** Funil de lead (Sessão ou ROI CLUB): gasto do Meta, lead da planilha e do Typeform. */
+function geralFunilLead(qual){
+  const w=sheetWindow();
+  const api=(qual==='sessao'?(S._sessaoApi&&S._sessaoApi.rows):(S._rcApi&&S._rcApi.rows))||[];
+  const inv=api.filter(r=>_inWin(r.date,w));
+  const T={spend:0,imp:0,clicks:0,pv:0,pixel:0};
+  inv.forEach(r=>{T.spend+=r.spend;T.imp+=r.impr;T.clicks+=r.clicks;T.pv+=r.pv||0;T.pixel+=r.metaLeads||0;});
+
+  const plan=((S._sheet&&S._sheet.leads)||[]).filter(r=>
+    _inWin(r.date,w) && (qual==='roiclub' ? r.iniciativa==='roiclub' : r.iniciativa!=='roiclub'));
+  const tf=tfLeads(qual,null,w);
+
+  T.leads=plan.length+tf.length;
+  T.opp=plan.filter(r=>r.opp).length+tf.filter(r=>r.opp).length;
+  T.cpl=T.leads?T.spend/T.leads:null;
+  T.cpo=T.opp?T.spend/T.opp:null;
+  T.mql=T.leads?T.opp/T.leads*100:null;
+  return T;
+}
+
+function geralDirect(){
+  const w=sheetWindow();
+  const src=((S._directApi&&S._directApi.rows)||[]).filter(r=>_inWin(r.date,w));
+  const T={spend:0,conv:0,imp:0,clicks:0};
+  src.forEach(r=>{T.spend+=r.spend;T.conv+=r.conv||0;T.imp+=r.impr;T.clicks+=r.clicks;});
+  T.cc=T.conv?T.spend/T.conv:null;
+  return T;
+}
+
+function renderGeralView(){
+  // dispara tudo o que a tela precisa, cada fonte só uma vez
+  if(S._sessaoApi==null&&!S._sessaoLoading) setTimeout(()=>fetchFunilApi('SESSAO'),30);
+  if(S._rcApi==null&&!S._rcLoading)         setTimeout(()=>fetchFunilApi('ROICLUB'),60);
+  if(S._directApi==null&&!S._directLoading) setTimeout(()=>fetchDirectApi(),90);
+  if(S._sheet==null&&!S._sheetLoading)      setTimeout(()=>fetchSheetData(),120);
+  if(S._tfLeads==null&&!S._tfLoading)       setTimeout(()=>fetchTypeformLeads(),150);
+  if((S._geralRev==null||S._geralRev.periodo!==S.period)&&!S._geralRevLoading) setTimeout(()=>fetchGeralReceita(),180);
+
+  const carregando=[
+    (S._sessaoLoading||S._sessaoApi==null)&&'Sessão',
+    (S._rcLoading||S._rcApi==null)&&'ROI CLUB',
+    (S._directLoading||S._directApi==null)&&'Direct',
+    (S._sheetLoading||S._sheet==null)&&'planilha',
+    (S._tfLoading||S._tfLeads==null)&&'Typeform',
+    (S._geralRevLoading||S._geralRev==null)&&'receita'
+  ].filter(Boolean);
+
+  const w=sheetWindow();
+  const P=geralPerpetuo(), SE=geralFunilLead('sessao'), RC=geralFunilLead('roiclub'), DI=geralDirect();
+  const investTotal=P.spend+SE.spend+RC.spend+DI.spend;
+  const pct=v=>investTotal>0?(v/investTotal*100).toFixed(0)+'%':'—';
+
+  const topo=`<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><h2 style="margin:0">📊 Visão Geral <span class="mini" style="text-transform:none;font-weight:400">todas as iniciativas · ${w.since===w.until?w.since:w.since+' a '+w.until}</span></h2>
+      ${carregando.length?`<div class="mini" style="margin-top:4px"><span class="loading"></span> carregando ${carregando.join(', ')}…</div>`
+        :`<div class="mini" style="margin-top:4px">Investimento total no período: <b>${mS(investTotal)}</b></div>`}</div>
+      <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="recarregarGeral()">↻ Atualizar</button>
+    </div></div>`;
+
+  const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
+  const bloco=(emoji,nome,ini,kpis,obs)=>`<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h3 style="margin:0">${emoji} ${nome}</h3>
+      <button class="btn btn-gray btn-sm" style="padding:3px 10px" onclick="setIniciativa('${ini}')">abrir →</button>
+    </div>
+    <div class="kpis">${kpis}</div>${obs||''}</div>`;
+
+  const perp=bloco('🔁','Perpétuo','perpetuo',
+    kpi('Investimento',mS(P.spend),pct(P.spend)+' da verba')+
+    kpi('Receita',P.semReceita?'—':mS(P.receita),P.semReceita?'buscando no Supabase…':'funil, via Supabase')+
+    kpi('ROAS',P.roas==null?'—':P.roas.toFixed(2)+'x','',P.roas>=1)+
+    kpi('Lucro',P.lucro==null?'—':mS(P.lucro),(!P.semReceita&&P.receita>0)?(P.lucro/P.receita*100).toFixed(0)+'% de margem':'',P.lucro>0)+
+    kpi('Vendas front',P.semReceita?'—':fmtNum(P.front),'')+
+    kpi('CPA',P.cpa==null?'—':mS(P.cpa),'custo por venda'),
+    geralObs('perpetuo',{P,SE,RC,DI}));
+
+  const kpisLead=(T)=>kpi('Investimento',mS(T.spend),pct(T.spend)+' da verba')+
+    kpi('Leads',fmtNum(T.leads),'')+
+    kpi('CPL',T.cpl==null?'—':mS(T.cpl),'custo por lead')+
+    kpi('Oportunidades',fmtNum(T.opp),T.mql==null?'':T.mql.toFixed(0)+'% dos leads',T.opp>0)+
+    kpi('CPO',T.cpo==null?'—':mS(T.cpo),'custo por oport.');
+
+  const sess=bloco('🎯','Sessão Estratégica','sessao',kpisLead(SE),geralObs('sessao',{P,SE,RC,DI}));
+  const rc  =bloco('🏆','ROI CLUB','roiclub',kpisLead(RC),geralObs('roiclub',{P,SE,RC,DI}));
+  const dir =bloco('💬','Direct','direct',
+    kpi('Investimento',mS(DI.spend),pct(DI.spend)+' da verba')+
+    kpi('Conversas',fmtNum(DI.conv),'mensagens iniciadas')+
+    kpi('Custo/conversa',DI.cc==null?'—':mS(DI.cc),'',DI.conv>0)+
+    kpi('CTR',DI.imp?(DI.clicks/DI.imp*100).toFixed(2)+'%':'—','')+
+    kpi('Impressões',fmtNum(DI.imp),''),
+    geralObs('direct',{P,SE,RC,DI}));
+
+  return topo+perp+sess+rc+dir+geralComparativo({P,SE,RC,DI,investTotal});
+}
+
+/**
+ * Leitura automática de cada iniciativa. Escreve só o que os números sustentam,
+ * e avisa quando a base é pequena demais para decidir: com poucas conversões,
+ * um caso a mais muda o percentual inteiro e vira decisão errada.
+ */
+function geralObs(qual,D){
+  const linhas=[];
+  const li=(tag,txt,cor)=>`<div class="ins-row"><span class="rk-tag" style="background:${cor||'#ede9fe'};color:#4c1d95">${tag}</span> ${txt}</div>`;
+  const w=sheetWindow();
+
+  if(qual==='perpetuo'){
+    const P=D.P;
+    if(!P.spend) return '';
+    if(P.roas!=null){
+      linhas.push(P.roas>=1
+        ? li('Saudável',`ROAS <b>${P.roas.toFixed(2)}x</b>, cada real investido volta ${mS(P.roas)}. Lucro de <b>${mS(P.lucro)}</b> no período.`,'#dcfce7')
+        : li('Atenção',`ROAS <b>${P.roas.toFixed(2)}x</b>: o funil devolve menos do que entra. Prejuízo de <b>${mS(Math.abs(P.lucro))}</b> no período.`,'#fee2e2'));
+    }
+    if(P.front>0){
+      const tk=P.receita/P.front;
+      linhas.push(li('Unidade',`Ticket médio <b>${mS(tk)}</b> contra CPA de <b>${mS(P.cpa)}</b>. ${tk>P.cpa?`Sobra ${mS(tk-P.cpa)} por venda antes de produto e imposto.`:`Cada venda custa ${mS(P.cpa-tk)} a mais do que entra.`}`));
+    }
+    if(P.front>0&&P.front<20) linhas.push(li('Ressalva',`Só <b>${P.front}</b> vendas no período. Com essa base, ROAS e CPA oscilam muito de um dia para o outro.`,'#fef3c7'));
+  }
+
+  if(qual==='sessao'||qual==='roiclub'){
+    const T=qual==='sessao'?D.SE:D.RC, O=qual==='sessao'?D.RC:D.SE;
+    const nome=qual==='sessao'?'Sessão':'ROI CLUB', outro=qual==='sessao'?'ROI CLUB':'Sessão';
+    if(!T.spend&&!T.leads) return '';
+    if(T.cpl!=null&&T.cpo!=null){
+      linhas.push(li('Resumo',`<b>${mS(T.spend)}</b> gerou <b>${fmtNum(T.leads)}</b> leads a ${mS(T.cpl)} e <b>${fmtNum(T.opp)}</b> oportunidades a <b>${mS(T.cpo)}</b>.`));
+    }
+    if(T.mql!=null){
+      linhas.push(T.mql>=10
+        ? li('Qualificação',`<b>${T.mql.toFixed(0)}%</b> dos leads declaram verba acima de R$ 3.000. Está acima do que a outra ponta entrega.`,'#dcfce7')
+        : li('Qualificação',`Só <b>${T.mql.toFixed(0)}%</b> dos leads declaram verba acima de R$ 3.000. O volume está barato, mas a maior parte não tem como comprar.`,'#fef3c7'));
+    }
+    if(T.cpo!=null&&O.cpo!=null){
+      const dif=(T.cpo/O.cpo-1)*100;
+      linhas.push(li('Comparação',Math.abs(dif)<10
+        ? `CPO praticamente igual ao do ${outro} (${mS(T.cpo)} contra ${mS(O.cpo)}).`
+        : `CPO <b>${Math.abs(dif).toFixed(0)}% ${dif<0?'mais barato':'mais caro'}</b> que o do ${outro} (${mS(T.cpo)} contra ${mS(O.cpo)}).`));
+    }
+    // melhor caminho dentro do ROI CLUB
+    if(qual==='roiclub'){
+      const porC={};
+      FUNIS_ROICLUB.forEach(k=>porC[k]={k,spend:0,leads:0,opp:0});
+      ((S._rcApi&&S._rcApi.rows)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{ if(porC[r.funnel]) porC[r.funnel].spend+=r.spend; });
+      ((S._sheet&&S._sheet.leads)||[]).filter(r=>r.iniciativa==='roiclub'&&_inWin(r.date,w))
+        .forEach(r=>{ porC.CAPTURA.leads++; if(r.opp) porC.CAPTURA.opp++; });
+      tfLeads('roiclub',null,w).forEach(r=>{ const g=porC[r.funnel]; if(g){ g.leads++; if(r.opp) g.opp++; } });
+      const comCPO=Object.values(porC).filter(x=>x.opp>0&&x.spend>0).map(x=>({...x,cpo:x.spend/x.opp}));
+      if(comCPO.length>1){
+        comCPO.sort((a,b)=>a.cpo-b.cpo);
+        const b=comCPO[0], p=comCPO[comCPO.length-1];
+        linhas.push(li('Onde está o melhor',`<b>${NOME_RC[b.k]}</b> entrega oportunidade a ${mS(b.cpo)}, contra ${mS(p.cpo)} do ${NOME_RC[p.k]}. Diferença de <b>${((p.cpo/b.cpo-1)*100).toFixed(0)}%</b>.`,'#dcfce7'));
+      }
+    }
+    if(T.opp>0&&T.opp<15) linhas.push(li('Ressalva',`Base pequena: <b>${T.opp}</b> oportunidades. Uma a mais ou a menos mexe bastante no CPO.`,'#fef3c7'));
+    if(T.spend>0&&!T.leads) linhas.push(li('Alerta',`<b>${mS(T.spend)}</b> investidos e nenhum lead identificado. Ou não captou, ou a captura não chega em nenhuma fonte que o dashboard leia.`,'#fee2e2'));
+  }
+
+  if(qual==='direct'){
+    const T=D.DI;
+    if(!T.spend&&!T.conv) return '';
+    if(T.cc!=null) linhas.push(li('Resumo',`<b>${mS(T.spend)}</b> gerou <b>${fmtNum(T.conv)}</b> conversas a <b>${mS(T.cc)}</b> cada.`));
+    // melhor e pior expert
+    const be={};
+    ((S._directApi&&S._directApi.rows)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
+      const g=be[r.expert]=be[r.expert]||{spend:0,conv:0}; g.spend+=r.spend; g.conv+=r.conv||0; });
+    const lista=Object.entries(be).filter(([,v])=>v.conv>0&&v.spend>0).map(([k,v])=>({k,cc:v.spend/v.conv,conv:v.conv}));
+    if(lista.length>1){
+      lista.sort((a,b)=>a.cc-b.cc);
+      const b=lista[0], p=lista[lista.length-1];
+      linhas.push(li('Por expert',`<b>${b.k}</b> tem a conversa mais barata (${mS(b.cc)}) e <b>${p.k}</b> a mais cara (${mS(p.cc)}).`,'#dcfce7'));
+    }
+    linhas.push(li('Limite',`O Direct para na conversa. Quantas viram agendamento e venda não está no Meta, então custo por conversa não é custo de aquisição.`,'#f1f5f9'));
+  }
+
+  if(!linhas.length) return '';
+  return `<div style="margin-top:10px">${linhas.join('')}</div>`;
+}
+
+/** Uma linha por iniciativa, para comparar a distribuição da verba. */
+function geralComparativo(D){
+  const {P,SE,RC,DI,investTotal}=D;
+  const linha=(nome,spend,fecha,valor,obs)=>`<tr>
+    <td style="font-weight:600">${nome}</td>
+    <td class="num">${mS(spend)}</td>
+    <td class="num">${investTotal>0?(spend/investTotal*100).toFixed(0)+'%':'—'}</td>
+    <td>${fecha}</td>
+    <td class="num" style="font-weight:700">${valor}</td>
+    <td class="mini">${obs}</td></tr>`;
+  return `<div class="card"><h3 style="margin:0 0 8px">Onde está a verba</h3><div style="overflow-x:auto">
+    <table class="dim-tbl" style="font-size:12px"><thead><tr>
+      <th style="text-align:left">Iniciativa</th><th class="num">Investimento</th><th class="num">Fatia</th>
+      <th style="text-align:left">Métrica de fechamento</th><th class="num">Valor</th><th>Fonte do resultado</th></tr></thead><tbody>
+    ${linha('🔁 Perpétuo',P.spend,'ROAS',P.roas==null?'—':P.roas.toFixed(2)+'x','Supabase')}
+    ${linha('🎯 Sessão',SE.spend,'CPO',SE.cpo==null?'—':mS(SE.cpo),'planilha + Typeform')}
+    ${linha('🏆 ROI CLUB',RC.spend,'CPO',RC.cpo==null?'—':mS(RC.cpo),'planilha + Typeform')}
+    ${linha('💬 Direct',DI.spend,'Custo/conversa',DI.cc==null?'—':mS(DI.cc),'pixel do Meta')}
+    </tbody></table></div>
+    <div class="mini" style="margin-top:6px">Os valores da coluna não são comparáveis entre si: ROAS, CPO e custo por conversa medem etapas diferentes.
+    O que compara é a fatia da verba contra o resultado que cada uma entrega na régua dela.</div></div>`;
+}
+
+function recarregarGeral(){
+  S._sessaoApi=null; S._rcApi=null; S._directApi=null; S._sheet=null; S._tfLeads=null; S._geralRev=null;
+  render();
+}
+
 function renderSheetView(){
   const f=currentFunnel(), sec=f.sheet, meta=SHEET_META[sec]||SHEET_META.sessao;
   // A sub-aba fica salva no localStorage. Se a nomenclatura mudou (a chave 'LP'
