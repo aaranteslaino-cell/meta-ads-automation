@@ -1652,6 +1652,96 @@ function geralDirect(){
   return T;
 }
 
+/**
+ * Quebra de cada iniciativa nos sub-funis que ela tem dentro.
+ * Devolve linhas já com as métricas da régua daquela iniciativa, para a tabela
+ * não precisar saber de onde veio cada número.
+ */
+function geralQuebra(qual){
+  const w=sheetWindow(), usd=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+
+  if(qual==='perpetuo'){
+    const rev=(S._geralRev&&S._geralRev.porFunil)||{};
+    return FUNNELS.filter(f=>!f.sheet&&!f.backend&&f.match).map(f=>{
+      let spend=0;
+      (S.data||[]).forEach(r=>{
+        const sp=((r._currency||'BRL')==='USD')?(r.spend||0)*usd:(r.spend||0);
+        if(sp<=0) return;
+        if(!_sa(r.name||'').includes(_sa(f.match))) return;
+        if(_ehOutraIniciativa(r.name||'')) return;
+        spend+=sp;
+      });
+      const v=rev[f.key]||{receita:0,front:0};
+      return {nome:f.emoji+' '+f.label, spend, receita:v.receita, qtd:v.front,
+              cpX:(v.front&&spend>0)?spend/v.front:null, roas:spend>0?v.receita/spend:null};
+    }).filter(x=>x.spend>0||x.receita>0);
+  }
+
+  if(qual==='sessao'||qual==='roiclub'){
+    const api=(qual==='sessao'?(S._sessaoApi&&S._sessaoApi.rows):(S._rcApi&&S._rcApi.rows))||[];
+    const chaves=qual==='sessao'?FUNIS_SESSAO:FUNIS_ROICLUB;
+    const nomes =qual==='sessao'?NOME_SE:NOME_RC;
+    const g={}; chaves.forEach(k=>g[k]={nome:nomes[k]||k,spend:0,leads:0,opp:0,pv:0});
+    api.filter(r=>_inWin(r.date,w)).forEach(r=>{ const x=g[r.funnel]; if(x){ x.spend+=r.spend; x.pv+=r.pv||0; } });
+
+    // leads da planilha: no ROI CLUB são todos da página de captura
+    ((S._sheet&&S._sheet.leads)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
+      if(qual==='roiclub'){ if(r.iniciativa!=='roiclub') return; const x=g.CAPTURA; if(x){x.leads++; if(r.opp)x.opp++;} }
+      else { if(r.iniciativa==='roiclub') return; const x=g[r.funnel]; if(x){x.leads++; if(r.opp)x.opp++;} }
+    });
+    tfLeads(qual,null,w).forEach(r=>{ const x=g[r.funnel]; if(x){ x.leads++; if(r.opp) x.opp++; } });
+
+    return chaves.map(k=>g[k]).filter(x=>x.spend>0||x.leads>0)
+      .map(x=>({...x, cpX:(x.leads&&x.spend>0)?x.spend/x.leads:null, cpo:(x.opp&&x.spend>0)?x.spend/x.opp:null,
+                mql:x.leads?x.opp/x.leads*100:null}));
+  }
+
+  // direct: um por expert
+  const g={};
+  ((S._directApi&&S._directApi.rows)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
+    const x=g[r.expert]=g[r.expert]||{nome:r.expert,spend:0,conv:0,imp:0,clicks:0};
+    x.spend+=r.spend; x.conv+=r.conv||0; x.imp+=r.impr; x.clicks+=r.clicks;
+  });
+  return Object.values(g).filter(x=>x.spend>0||x.conv>0)
+    .map(x=>({...x, cpX:(x.conv&&x.spend>0)?x.spend/x.conv:null}))
+    .sort((a,b)=>b.spend-a.spend);
+}
+
+/** Tabela de quebra, com as colunas certas para cada tipo de funil. */
+function geralTabelaQuebra(qual){
+  const linhas=geralQuebra(qual);
+  if(!linhas.length) return '';
+  const tot=linhas.reduce((s,r)=>s+r.spend,0);
+  const fatia=v=>tot>0?(v/tot*100).toFixed(0)+'%':'—';
+
+  let cabec,corpo;
+  if(qual==='perpetuo'){
+    cabec=`<th style="text-align:left">Funil</th><th class="num">Invest.</th><th class="num">Fatia</th><th class="num">Receita</th><th class="num">ROAS</th><th class="num">Vendas</th><th class="num">CPA</th>`;
+    corpo=linhas.sort((a,b)=>b.spend-a.spend).map(r=>`<tr><td style="font-weight:600">${esc(r.nome)}</td>
+      <td class="num">${mS(r.spend)}</td><td class="num">${fatia(r.spend)}</td>
+      <td class="num">${mS(r.receita)}</td>
+      <td class="num" style="font-weight:700;color:${r.roas==null?'#888':(r.roas>=1?'#137333':'#c5221f')}">${r.roas==null?'—':r.roas.toFixed(2)+'x'}</td>
+      <td class="num">${fmtNum(r.qtd)}</td><td class="num">${r.cpX==null?'—':mS(r.cpX)}</td></tr>`).join('');
+  } else if(qual==='direct'){
+    cabec=`<th style="text-align:left">Expert</th><th class="num">Invest.</th><th class="num">Fatia</th><th class="num">Conversas</th><th class="num">Custo/conv.</th><th class="num">CTR</th>`;
+    corpo=linhas.map(r=>`<tr><td style="font-weight:600">${esc(r.nome)}</td>
+      <td class="num">${mS(r.spend)}</td><td class="num">${fatia(r.spend)}</td>
+      <td class="num">${fmtNum(r.conv)}</td>
+      <td class="num" style="font-weight:700;color:#137333">${r.cpX==null?'—':mS(r.cpX)}</td>
+      <td class="num">${r.imp?(r.clicks/r.imp*100).toFixed(2)+'%':'—'}</td></tr>`).join('');
+  } else {
+    cabec=`<th style="text-align:left">Sub-funil</th><th class="num">Invest.</th><th class="num">Fatia</th><th class="num">Leads</th><th class="num">CPL</th><th class="num">Oport.</th><th class="num">CPO</th><th class="num">MQL</th>`;
+    corpo=linhas.sort((a,b)=>b.spend-a.spend).map(r=>`<tr><td style="font-weight:600">${esc(r.nome)}</td>
+      <td class="num">${mS(r.spend)}</td><td class="num">${fatia(r.spend)}</td>
+      <td class="num">${fmtNum(r.leads)}</td><td class="num">${r.cpX==null?'—':mS(r.cpX)}</td>
+      <td class="num" style="font-weight:700">${fmtNum(r.opp)}</td>
+      <td class="num" style="font-weight:700;color:#137333">${r.cpo==null?'—':mS(r.cpo)}</td>
+      <td class="num">${r.mql==null?'—':r.mql.toFixed(0)+'%'}</td></tr>`).join('');
+  }
+  return `<div style="overflow-x:auto;margin-top:10px">
+    <table class="dim-tbl" style="font-size:12px"><thead><tr>${cabec}</tr></thead><tbody>${corpo}</tbody></table></div>`;
+}
+
 function renderGeralView(){
   // dispara tudo o que a tela precisa, cada fonte só uma vez
   if(S._sessaoApi==null&&!S._sessaoLoading) setTimeout(()=>fetchFunilApi('SESSAO'),30);
@@ -1689,7 +1779,7 @@ function renderGeralView(){
       <h3 style="margin:0">${emoji} ${nome}</h3>
       <button class="btn btn-gray btn-sm" style="padding:3px 10px" onclick="setIniciativa('${ini}')">abrir →</button>
     </div>
-    <div class="kpis">${kpis}</div>${obs||''}</div>`;
+    <div class="kpis">${kpis}</div>${geralTabelaQuebra(ini)}${obs||''}</div>`;
 
   const perp=bloco('🔁','Perpétuo','perpetuo',
     kpi('Investimento',mS(P.spend),pct(P.spend)+' da verba')+
@@ -4148,7 +4238,13 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._directApi=null; S._sessaoApi=null; S._rcApi=null; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState(); if(S.view!=='criativos'&&currentFunnel().sheet){ render(); } else { refreshData(); } }
+function setPeriod(p){ S.period=p; S._directApi=null; S._sessaoApi=null; S._rcApi=null; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState();
+  // A Visão Geral usa S.data para o gasto do Perpétuo, então precisa rebuscar
+  // sempre. Sem isto, quem viesse de Sessão ou Direct veria o Perpétuo com o
+  // gasto do período anterior enquanto o resto da tela já mostrava o novo.
+  if(S.view==='geral'){ S._geralRev=null; refreshData(); }
+  else if(S.view!=='criativos'&&currentFunnel().sheet){ render(); }
+  else { refreshData(); } }
 function setCustomDate(which, value){
   if(!value) return;
   if(which==='since') S.customSince=value; else S.customUntil=value;
