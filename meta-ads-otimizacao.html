@@ -1434,11 +1434,45 @@ function renderBulkBar(){
   } else if(bar){ bar.remove(); }
 }
 
+/**
+ * Remove um token daqui e das origens.
+ *
+ * Os tokens são lidos de mam_state (monitor) e maa_state (automação), então
+ * apagar só de S.tokens não adianta: eles voltam no próximo carregamento.
+ * Por isso apaga também na origem. Isso é irreversível pelo dashboard: o valor
+ * do token some do navegador e só volta gerando outro no Business Manager.
+ */
+function removerToken(id){
+  const t=(S.tokens||[]).find(x=>String(x.id)===String(id));
+  if(!t) return;
+  const nome=t.label||'sem nome';
+  if(!confirm(`Remover o token "${nome}" (${String(t.token).slice(0,18)}…)?\n\n`+
+              `Ele será apagado deste navegador, incluindo do monitor e da automação.\n`+
+              `O valor não fica guardado em lugar nenhum: para ter de volta, você precisa gerar outro no Business Manager.`)) return;
+
+  S.tokens=(S.tokens||[]).filter(x=>String(x.id)!==String(id));
+  ['mam_state','maa_state'].forEach(k=>{
+    try{
+      const src=JSON.parse(localStorage.getItem(k));
+      if(!src||!Array.isArray(src.tokens)) return;
+      src.tokens=src.tokens.filter(x=>x.token!==t.token);
+      localStorage.setItem(k,JSON.stringify(src));
+    }catch(e){}
+  });
+  S._diag=null; S._diagResumo=''; S.connected=false; S.accounts=[]; S.data=[];
+  saveState(); render();
+}
+
 function renderConnect(){
   return `<div class="card">
     <h2>Conectar</h2>
     <div class="info-box" style="margin-bottom:12px">Os tokens são compartilhados com o monitor e a automação. ${S.tokens.length?`Encontrei <b>${S.tokens.length}</b> token(s).`:'Nenhum token encontrado ainda — conecte no monitor primeiro.'}</div>
-    ${S.tokens.map(t=>`<div class="token-item"><span class="lbl">${esc(t.label||'token')}</span><span class="id">${esc(String(t.token).slice(0,18))}…</span></div>`).join('')}
+    ${S.tokens.map(t=>`<div class="token-item" style="display:flex;align-items:center;gap:8px">
+      <span class="lbl">${esc(t.label||'token')}</span>
+      <span class="id" style="flex:1">${esc(String(t.token).slice(0,18))}…</span>
+      <button class="btn btn-sm" style="background:none;border:none;color:#c5221f;cursor:pointer;font-size:16px;padding:0 6px"
+        title="Remover este token" onclick="removerToken('${esc(t.id)}')">✕</button>
+    </div>`).join('')}
     <div class="row" style="margin-top:10px">
       <button id="btn-connect" class="btn btn-purple" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
       <button class="btn btn-gray" onclick="diagTokens()" ${S.tokens.length?'':'disabled'} title="Testa cada token: validade, app, business, escopos e o erro exato de acesso às contas.">🩺 Diagnosticar tokens</button>
