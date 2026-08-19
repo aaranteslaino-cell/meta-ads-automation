@@ -456,11 +456,25 @@ async function diagTokens(){
       try{ const b=await api('/me/businesses',{fields:'id,name',limit:50},tk.token); d.biz=(b.data||[]).map(x=>x.name); }catch(e){}
       try{ const r=await api('/me/adaccounts',{fields:'id,name,account_status',limit:500},tk.token);
         d.contas=(r.data||[]).length;
+        d.ids=(r.data||[]).map(a=>a.id);
         d.desativadas=(r.data||[]).filter(a=>a.account_status!==1).map(a=>a.name);
       }catch(e){ d.erro=e.message; const m=e.message.match(/^\((\d+)/); d.erroCode=m?m[1]:null; }
     }
     out.push(d);
   }
+  // Contas exclusivas: as que só este token enxerga. É o que decide se dá para
+  // remover um token sem perder cobertura. Quem tem zero exclusivas é dispensável.
+  out.forEach(d=>{
+    if(!d.ids){ d.exclusivas=null; return; }
+    const outros=new Set();
+    out.forEach(o=>{ if(o!==d&&o.ids) o.ids.forEach(id=>outros.add(id)); });
+    d.exclusivas=d.ids.filter(id=>!outros.has(id)).length;
+  });
+  const comExclusiva=out.filter(d=>d.exclusivas>0).length;
+  S._diagResumo = out.length<2 ? '' :
+    (comExclusiva<=1
+      ? `Dá para ficar com <b>1 token só</b>: apenas ${comExclusiva} tem conta exclusiva. Os demais só repetem contas que outro já cobre.`
+      : `<b>Não dá para ficar com um só</b>: ${comExclusiva} tokens têm conta que nenhum outro enxerga. Remover qualquer um deles faz conta sumir do dashboard.`);
   S._diag=out; S._diagLoading=false; render();
 }
 function _diagVeredito(d){
@@ -480,8 +494,12 @@ function renderDiag(){
   if(S._diagLoading) return `<div class="info-box" style="margin-top:12px"><span class="loading"></span> Testando cada token…</div>`;
   if(!S._diag) return '';
   return `<div style="margin-top:14px"><b>Diagnóstico dos tokens</b>
-    ${S._diag.map(d=>{const v=_diagVeredito(d);return `<div style="border:1px solid #eee;border-left:3px solid ${v.cor};border-radius:8px;padding:10px 12px;margin-top:8px">
-      <div style="font-weight:700">${esc(d.label)} ${d.me?`<span class="mini" style="font-weight:400">· ${esc(d.me)}</span>`:''}</div>
+    ${S._diagResumo?`<div class="info-box" style="margin-top:8px">${S._diagResumo}</div>`:''}
+    ${S._diag.map(d=>{const v=_diagVeredito(d);
+      const disp = d.exclusivas===0 ? `<span style="color:#b08900;font-weight:700"> · pode remover</span>` : '';
+      return `<div style="border:1px solid #eee;border-left:3px solid ${v.cor};border-radius:8px;padding:10px 12px;margin-top:8px">
+      <div style="font-weight:700">${esc(d.label)} ${d.me?`<span class="mini" style="font-weight:400">· ${esc(d.me)}</span>`:''}${disp}</div>
+      ${d.contas!=null?`<div class="mini" style="margin-top:3px">Enxerga <b>${d.contas}</b> conta(s)${d.exclusivas!=null?` · <b>${d.exclusivas}</b> que nenhum outro token alcança`:''}</div>`:''}
       <div style="color:${v.cor};font-size:12.5px;margin-top:3px">${esc(v.txt)}</div>
       <div class="mini" style="margin-top:4px">
         ${d.app?`App: <b>${esc(d.app)}</b>${d.appId?` (${esc(d.appId)})`:''} · `:''}
