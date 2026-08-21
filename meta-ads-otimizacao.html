@@ -1713,6 +1713,12 @@ function geralFunilLead(qual){
   const tf=tfLeads(qual,null,w);
 
   T.leads=plan.length+tf.length;
+  if(qual==='sessao'){
+    // form nativo: o Meta conta certo, a planilha parou de espelhar em 01/08
+    const planNat=plan.filter(r=>r.funnel==='NATIVO').length;
+    const metaNat=inv.filter(r=>r.funnel==='NATIVO').reduce((a,r)=>a+(r.metaLeads||0),0);
+    if(metaNat>planNat) T.leads += (metaNat-planNat);
+  }
   T.opp=plan.filter(r=>r.opp).length+tf.filter(r=>r.opp).length;
   T.cpl=T.leads?T.spend/T.leads:null;
   T.cpo=T.opp?T.spend/T.opp:null;
@@ -1768,6 +1774,11 @@ function geralQuebra(qual){
     });
     tfLeads(qual,null,w).forEach(r=>{ const x=g[r.funnel]; if(x){ x.leads++; if(r.opp) x.opp++; } });
 
+    if(qual==='sessao'&&g.NATIVO){
+      const api2=api.filter(r=>_inWin(r.date,w)&&r.funnel==='NATIVO');
+      const metaNat=api2.reduce((a,r)=>a+(r.metaLeads||0),0);
+      if(metaNat>g.NATIVO.leads){ g.NATIVO.leads=metaNat; g.NATIVO.doMeta=true; }
+    }
     return chaves.map(k=>g[k]).filter(x=>x.spend>0||x.leads>0)
       .map(x=>({...x, cpX:(x.leads&&x.spend>0)?x.spend/x.leads:null, cpo:(x.opp&&x.spend>0)?x.spend/x.opp:null,
                 mql:x.leads?x.opp/x.leads*100:null}));
@@ -1811,9 +1822,9 @@ function geralTabelaQuebra(qual){
     corpo=linhas.sort((a,b)=>b.spend-a.spend).map(r=>`<tr><td style="font-weight:600">${esc(r.nome)}</td>
       <td class="num">${mS(r.spend)}</td><td class="num">${fatia(r.spend)}</td>
       <td class="num">${fmtNum(r.leads)}</td><td class="num">${r.cpX==null?'—':mS(r.cpX)}</td>
-      <td class="num" style="font-weight:700">${fmtNum(r.opp)}</td>
-      <td class="num" style="font-weight:700;color:#137333">${r.cpo==null?'—':mS(r.cpo)}</td>
-      <td class="num">${r.mql==null?'—':r.mql.toFixed(0)+'%'}</td></tr>`).join('');
+      <td class="num" style="font-weight:700">${r.doMeta?'<span title="a resposta de verba do form nativo não é acessível pelo token">—</span>':fmtNum(r.opp)}</td>
+      <td class="num" style="font-weight:700;color:#137333">${r.doMeta||r.cpo==null?'—':mS(r.cpo)}</td>
+      <td class="num">${r.doMeta||r.mql==null?'—':r.mql.toFixed(0)+'%'}</td></tr>`).join('');
   }
   return `<div style="overflow-x:auto;margin-top:10px">
     <table class="dim-tbl" style="font-size:12px"><thead><tr>${cabec}</tr></thead><tbody>${corpo}</tbody></table></div>`;
@@ -2200,8 +2211,10 @@ function _etapaHtml(nome, valor, mediana, dica){
 function sessaoDiagnostico(inv, lds){
   const porFunil={};
   FUNIS_SESSAO.forEach(f=>porFunil[f]={f,imp:0,clicks:0,pv:0,leads:0,opp:0,spend:0});
-  inv.forEach(r=>{const g=porFunil[r.funnel]||porFunil.NATIVO;g.imp+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;g.spend+=r.spend;});
+  inv.forEach(r=>{const g=porFunil[r.funnel]||porFunil.NATIVO;g.imp+=r.impr;g.clicks+=r.clicks;g.pv+=r.pv;g.spend+=r.spend;g.metaLeads=(g.metaLeads||0)+(r.metaLeads||0);});
   lds.forEach(r=>{const g=porFunil[r.funnel]||porFunil.NATIVO;g.leads++;if(r.opp)g.opp++;});
+  // o Nativo é contado pelo Meta, senão o diagnóstico mostra menos lead que o KPI
+  if(porFunil.NATIVO && (porFunil.NATIVO.metaLeads||0)>porFunil.NATIVO.leads) porFunil.NATIVO.leads=porFunil.NATIVO.metaLeads;
   const ativos=Object.values(porFunil).filter(g=>g.imp>0||g.leads>0);
   if(!ativos.length) return '';
 
@@ -2214,7 +2227,10 @@ function sessaoDiagnostico(inv, lds){
   // As etapas de LP só existem em Carta/FLP — o Nativo é formulário dentro do Meta
   // e tem pageview zerado. Misturar as duas bases dá número sem sentido, então
   // essas duas etapas somam apenas os funis que realmente têm pageview.
-  const comLP=ativos.filter(g=>g.pv>0);
+  // Exclui o Nativo pelo nome, não por pageview: o Meta às vezes reporta
+  // landing_page_view nele, e aí os cliques do Nativo entravam no denominador
+  // e derrubavam a taxa de "clique → pageview" para um número irreal.
+  const comLP=ativos.filter(g=>g.f!=='NATIVO'&&g.pv>0);
   const L=comLP.reduce((a,g)=>({clicks:a.clicks+g.clicks,pv:a.pv+g.pv,leads:a.leads+g.leads}),{clicks:0,pv:0,leads:0});
 
   const et=[];
@@ -2317,15 +2333,27 @@ function directIdeias(dir){
   return `<div class="card"><h3 style="margin:0 0 10px">🧪 Ideias de teste <span class="mini" style="text-transform:none;font-weight:400">geradas dos seus próprios dados no período</span></h3>${I.map(x=>`<div class="act">${x}</div>`).join('')}</div>`;
 }
 
+/** Leads de form nativo que só o Meta tem, para somar ao total da Sessão. */
+function byFTopo0(inv,lds){
+  const t=(S.sheetTab==='geral'?null:S.sheetTab);
+  if(t&&t!=='NATIVO') return 0;
+  const plan=lds.filter(r=>r.funnel==='NATIVO').length;
+  const meta=inv.filter(r=>r.funnel==='NATIVO').reduce((a,r)=>a+(r.metaLeads||0),0);
+  return meta>plan ? meta-plan : 0;
+}
+
 function renderSessaoFull(){
   const {inv,lds}=sheetScope();
   const spend=sh_sum(inv,'spend'),impr=sh_sum(inv,'impr'),clicks=sh_sum(inv,'clicks');
-  const leads=lds.length,opp=lds.filter(r=>r.opp).length;
+  const extraNativo=(()=>{const g=byFTopo0(inv,lds);return g;})();
+  const leads=lds.length+extraNativo, opp=lds.filter(r=>r.opp).length;
   const cpl=leads?spend/leads:0,cpo=opp?spend/opp:0,ctr=impr?clicks/impr*100:0,cpc=clicks?spend/clicks:0;
   const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
-  const byFTopo={}; FUNIS_SESSAO.forEach(k=>byFTopo[k]={spend:0,leads:0});
-  inv.forEach(r=>{const g=byFTopo[r.funnel]||byFTopo.NATIVO;g.spend+=r.spend;});
+  const byFTopo={}; FUNIS_SESSAO.forEach(k=>byFTopo[k]={k,spend:0,leads:0,pixel:0});
+  inv.forEach(r=>{const g=byFTopo[r.funnel]||byFTopo.NATIVO;g.spend+=r.spend;g.pixel+=(r.metaLeads||0);});
   lds.forEach(r=>{const g=byFTopo[r.funnel]||byFTopo.NATIVO;g.leads++;});
+  // o nativo entra pelo Meta, então não conta como "gasto sem lead"
+  FUNIS_SESSAO.forEach(k=>{ const g=byFTopo[k]; if(g&&k==='NATIVO'&&g.pixel>g.leads) g.leads=g.pixel; });
   const gastoSemLead=FUNIS_SESSAO.reduce((a,k)=>a+((byFTopo[k]&&byFTopo[k].spend>0&&byFTopo[k].leads===0)?byFTopo[k].spend:0),0);
   const parcial=gastoSemLead>0;
   const avisoCusto=parcial?'inclui gasto sem lead medido':'';
@@ -2349,8 +2377,9 @@ function renderSessaoFull(){
   // Onde a planilha não alcança, mostra o que o pixel viu e diz que é do pixel,
   // em vez de exibir um zero que passaria por "não captou nada".
   const fRow=g=>{
-    const temPlanilha=g.leads>0, n=temPlanilha?g.leads:g.pixel;
-    const fonte=temPlanilha?'planilha':(g.pixel?'pixel':(g.spend?'sem fonte':'—'));
+    const L=leadsNativo(g);
+    const temPlanilha=g.leads>0 && !L.doMeta, n=L.n||(g.leads?g.leads:g.pixel);
+    const fonte=L.doMeta?'Meta (form nativo)':(temPlanilha?'planilha':(g.pixel?'pixel':(g.spend?'sem fonte':'—')));
     return `<tr><td style="font-weight:600">${NOME_SE[g.k]||g.k}</td>
     <td class="num">${mS(g.spend)}</td>
     <td class="num">${n?fmtNum(n):'—'}</td>
@@ -2558,6 +2587,24 @@ function _sheetBarraBusca(){
 // CPO alvo, e esse alvo é seu, não meu: quanto vale uma oportunidade depende do
 // preço do produto e da taxa de fechamento do time, que o dashboard não sabe.
 // Sem alvo preenchido, as listas não aparecem, em vez de eu arbitrar um número.
+
+/**
+ * Lead do formulário nativo: quem manda é o Meta.
+ *
+ * O form nativo roda dentro do Meta, então ele é o dono do dado. A aba
+ * "formulario" da planilha era um espelho, e parou de receber em 01/08: o
+ * dashboard mostrava 2 leads onde o Meta contava 168, e o CPL saía 80 vezes
+ * mais caro. Onde o Meta contar mais, é o Meta que vale.
+ *
+ * A resposta de verba continua só na planilha: ler as respostas do formulário
+ * nativo exige as permissões leads_retrieval e pages_manage_ads, que o token
+ * não tem. Por isso a oportunidade fica limitada ao que a planilha alcançou.
+ */
+function leadsNativo(g){
+  if(!g) return {n:0, doMeta:false};
+  const meta=g.pixel||0, plan=g.leads||0;
+  return (g.k==='NATIVO'&&meta>plan) ? {n:meta, doMeta:true} : {n:plan, doMeta:false};
+}
 
 function cpoAlvoDe(sec){ return parseFloat((S.cpoAlvo||{})[sec])||0; }
 function setCpoAlvo(sec,v){ S.cpoAlvo=S.cpoAlvo||{}; S.cpoAlvo[sec]=v; saveState(); render(); }
