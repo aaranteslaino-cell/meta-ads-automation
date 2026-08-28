@@ -306,6 +306,13 @@ function setIniciativa(k){
 function matchFunnel(name){
   const f=currentFunnel(), n=norm(name);
   if(f.match && !n.includes(norm(f.match))) return false;
+  // "TOME" e "COELHO" também aparecem em DIRECT | TOME e ROICLUB | TYPEFORM
+  // COELHO. Sem esta exclusão, o Perpétuo mostrava gasto de outra iniciativa
+  // como se fosse dele: no dia 28/08 o Tomé exibia R$ 284 dos quais R$ 0 eram
+  // Perpétuo. Funis sem match (Todos, Backend) não filtram nada aqui.
+  // Vale também para "Todos": ele é "todos os funis do Perpétuo", não "todas as
+  // campanhas da empresa". Sem isso, Todos somava R$ 1.425 de outras iniciativas.
+  if(!f.backend && _ehOutraIniciativa(name)) return false;
   const refine=norm(S.nameContains).trim();
   if(refine && !n.includes(refine)) return false;
   return true;
@@ -560,7 +567,8 @@ async function fetchInsights(parentId, level, tokenId, tzOffset){
   if(tzOffset!=null && Number(tzOffset)!==BR_OFFSET) return await fetchInsightsHourlyBRT(parentId, level, tokenId, Number(tzOffset));
   const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
   const qs=[`level=${level}`,`fields=${encodeURIComponent(INSIGHT_FIELDS+',campaign_id,campaign_name')}`,`limit=500`];
-  if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
+  // mesma janela do rótulo e do Supabase, ver periodRange()
+  qs.push('time_range='+encodeURIComponent(JSON.stringify(sheetWindow())));
   let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
   const all=[]; let pages=0; let rlErrs=0;
   while(url && pages<30){ pages++;
@@ -674,7 +682,8 @@ async function fetchAdInsights(parentId, tokenId, campaignFilter){
   const tok=getTokenById(tokenId);
   const flds=encodeURIComponent(INSIGHT_FIELDS+','+VIDEO_FIELDS+',ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name');
   const qs=[`level=ad`,`fields=${flds}`,`limit=500`];
-  if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
+  // mesma janela do rótulo e do Supabase, ver periodRange()
+  qs.push('time_range='+encodeURIComponent(JSON.stringify(sheetWindow())));
   if(campaignFilter) qs.push('filtering='+encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:campaignFilter}])));
   let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
   const all=[]; let pages=0; let errs=0;
@@ -774,7 +783,8 @@ async function fetchAdsetInsights(parentId, tokenId){
   const tok=getTokenById(tokenId);
   const flds=encodeURIComponent(INSIGHT_FIELDS+',adset_id,adset_name,campaign_id,campaign_name');
   const qs=[`level=adset`,`fields=${flds}`,`limit=500`];
-  if(S.period==='custom'){ qs.push('time_range='+encodeURIComponent(JSON.stringify(brWindow('custom')))); } else { qs.push('date_preset='+S.period); }
+  // mesma janela do rótulo e do Supabase, ver periodRange()
+  qs.push('time_range='+encodeURIComponent(JSON.stringify(sheetWindow())));
   let url=`${GQL}/${parentId}/insights?${qs.join('&')}&access_token=${encodeURIComponent(tok)}`;
   const all=[]; let pages=0;
   while(url && pages<30){ pages++;
@@ -1219,14 +1229,19 @@ function sheetWindow(){
 }
 
 // ── Receita (Supabase) ──────────────────────────────────────────────────────
+/**
+ * Janela para o Supabase, derivada da MESMA que a tela mostra.
+ *
+ * Conviviam três definições de "7 dias": o rótulo dizia 22 a 28, o Meta do
+ * Perpétuo usava 21 a 27 (date_preset) e o Supabase 21 a 27. Gasto e receita
+ * batiam entre si, então o ROAS nunca esteve errado, mas o rótulo mentia e, na
+ * Visão Geral, o Perpétuo aparecia com uma janela e os outros três com outra.
+ * Agora existe uma definição só: sheetWindow.
+ */
 function periodRange(period){
-  const today=brToday(); const at=s=>`${s}T00:00:00-03:00`;
-  if(period==='custom'){ const r=customRange(); return {since:at(r.since), until:at(addDaysStr(r.until,1))}; }
-  if(period==='today') return {since:at(today),until:at(addDaysStr(today,1))};
-  if(period==='yesterday') return {since:at(addDaysStr(today,-1)),until:at(today)};
-  if(period==='this_month') return {since:at(monthStart()),until:at(addDaysStr(today,1))};
-  const n=periodDays(period);
-  return {since:at(addDaysStr(today,-n)),until:at(today)};
+  const at=s=>`${s}T00:00:00-03:00`;
+  const w=sheetWindow();                       // usa S.period; period vem junto
+  return {since:at(w.since), until:at(addDaysStr(w.until,1))};
 }
 async function fetchRevenue(){
   const {since,until}=periodRange(S.period);
