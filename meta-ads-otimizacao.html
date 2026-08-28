@@ -1243,7 +1243,7 @@ async function fetchRevenue(){
     try{ const r2=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_revenue_offsite`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})}); if(r2.ok){ const o=(await r2.json())[0]||{}; offsite={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
     // Faturamento TOTAL do funil (por projeto na Assiny) — bate com o painel da Assiny
     let funnelTotal={front:0,total:0,receita:0};
-    try{ const r3=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})}); if(r3.ok){ const o=(await r3.json())[0]||{}; funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; } }catch(_){}
+    try{ const r3=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})}); if(r3.ok){ const o=(await r3.json())[0]||{}; funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0,ok:true}; } else { console.warn('funnel_revenue HTTP',r3.status); S._revErro='HTTP '+r3.status; } }catch(e){ console.warn('funnel_revenue falhou',e); S._revErro=String(e&&e.message||e); }
     // faixa dos compradores por criativo (ad_id), cruzando com a pesquisa
     let faixaAd={};
     try{ const r4=await fetch(`${S.sbUrl}/rest/v1/rpc/faixa_por_criativo`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until})}); if(r4.ok){ (await r4.json()).forEach(x=>{ faixaAd[String(x.ad_id)]={n:parseInt(x.compradores)||0,a:parseInt(x.faixa_a)||0,b:parseInt(x.faixa_b)||0,c:parseInt(x.faixa_c)||0,sem:parseInt(x.sem_faixa)||0,resp0:parseInt(x.sem_resposta)||0}; }); } }catch(_){}
@@ -1268,8 +1268,9 @@ async function refreshFunnelTotal(){
   try{
     const {since,until}=periodRange(S.period);
     const r=await fetch(`${S.sbUrl}/rest/v1/rpc/funnel_revenue`,{method:'POST',headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},body:JSON.stringify({p_since:since,p_until:until,p_funil:currentFunnel().match||''})});
-    if(r.ok){ const o=(await r.json())[0]||{}; S._rev.funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0}; }
-  }catch(_){}
+    if(r.ok){ const o=(await r.json())[0]||{}; S._rev.funnelTotal={front:parseInt(o.vendas_front)||0,total:parseInt(o.vendas_total)||0,receita:parseFloat(o.receita_bruta)||0,ok:true}; S._revErro=null; }
+    else { S._revErro='HTTP '+r.status; console.warn('refreshFunnelTotal HTTP',r.status); }
+  }catch(e){ S._revErro=String(e&&e.message||e); console.warn('refreshFunnelTotal falhou',e); }
   S._revFunilLoading=false; render();
 }
 async function refreshData(){
@@ -2951,26 +2952,43 @@ function renderBackendProdutos(A){
 
 function renderKPIs(A){
   const T=A.T; const roas=T.spend>0?T.receita/T.spend:null;
-  const funnelReceita = (A.funnelTotal&&A.funnelTotal.receita>0) ? A.funnelTotal.receita : (T.receita+A.off.receita);
-  const funnelVendas = (A.funnelTotal&&A.funnelTotal.total>0) ? A.funnelTotal.total : (T.total+A.off.total);
-  const temFunnel = !!(A.funnelTotal&&A.funnelTotal.receita>0);
-  const semUtm = Math.max(0, funnelReceita - T.receita);
-  const lucro = funnelReceita - T.spend;
-  const margem = funnelReceita>0 ? (lucro/funnelReceita*100) : null;
-  const lucroKpiCls = lucro>=0 ? 'good' : 'danger';
-  const lucroColor = lucro>=0 ? '#137333' : '#c5221f';
+  // A receita de um funil vem do funnel_revenue, que filtra por funil. O
+  // meta_revenue_offsite NÃO filtra: é a receita sem UTM do negócio inteiro.
+  // Usar um como reserva do outro fazia a receita orgânica de todos os funis
+  // aparecer como se fosse do funil aberto, e o lucro saía positivo com ROAS
+  // zero. Só o funil "Todos" pode somar o offsite, porque ali o escopo bate.
+  const ehTodos = !currentFunnel().match;
+  // Zero de verdade e consulta que não respondeu são coisas diferentes: o funil
+  // pode simplesmente não ter vendido hoje. Quem diz é o "ok" da resposta, não
+  // o valor. Deduzir pelo valor transformaria todo dia sem venda em alarme.
+  const respondeu = !!(A.funnelTotal&&A.funnelTotal.ok);
+  const temFunnel = respondeu && A.funnelTotal.receita>0;
+  const funnelReceita = respondeu ? A.funnelTotal.receita
+                      : (ehTodos ? (T.receita+A.off.receita) : null);
+  const funnelVendas = respondeu ? A.funnelTotal.total
+                      : (ehTodos ? (T.total+A.off.total) : null);
+  const semReceita = funnelReceita==null;
+  const semUtm = semReceita ? null : Math.max(0, funnelReceita - T.receita);
+  const lucro = semReceita ? null : funnelReceita - T.spend;
+  const margem = (!semReceita&&funnelReceita>0) ? (lucro/funnelReceita*100) : null;
+  const lucroKpiCls = semReceita ? '' : (lucro>=0 ? 'good' : 'danger');
+  const lucroColor = semReceita ? '#888' : (lucro>=0 ? '#137333' : '#c5221f');
   return `<div class="card">
     <h2>Panorama · ${currentFunnel().emoji} ${esc(currentFunnel().label)} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
-      <div class="kpi"><div class="k-l">Receita do funil${temFunnel?' (Assiny)':''}</div><div class="k-v">${S._revFunilLoading?'<span class="loading"></span>':fmtMoney0(funnelReceita)}</div><div class="k-s">Meta ${fmtMoney0(T.receita)} · ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
-      <div class="kpi ${lucroKpiCls}"><div class="k-l">💰 Lucro</div><div class="k-v" style="color:${lucroColor}">${fmtMoney0(lucro)}</div><div class="k-s">margem ${margem!=null?margem.toFixed(0)+'%':'—'} · ${fmtMoney0(lucro/A.days)}/dia</div></div>
+      <div class="kpi"><div class="k-l">Receita do funil${temFunnel?' (Assiny)':''}</div><div class="k-v">${S._revFunilLoading?'<span class="loading"></span>':(semReceita?'—':fmtMoney0(funnelReceita))}</div><div class="k-s">Meta ${fmtMoney0(T.receita)} · ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
+      <div class="kpi ${lucroKpiCls}"><div class="k-l">💰 Lucro</div><div class="k-v" style="color:${lucroColor}">${semReceita?'—':fmtMoney0(lucro)}</div><div class="k-s">${semReceita?'sem receita do funil':`margem ${margem!=null?margem.toFixed(0)+'%':'—'} · ${fmtMoney0(lucro/A.days)}/dia`}</div></div>
       <div class="kpi"><div class="k-l">Vendas front</div><div class="k-v">${fmtNum(T.front)}</div><div class="k-s">${fmtNum(T.total)} totais</div></div>
       <div class="kpi"><div class="k-l">CPA médio (front)</div><div class="k-v">${fmtMoney0(A.blendedCPA)}</div><div class="k-s">ticket ${fmtMoney0(T.front>0?T.receita/T.front:0)}</div></div>
       <div class="kpi good"><div class="k-l">✅ Escalar</div><div class="k-v">${A.good.length}</div><div class="k-s">campanhas boas</div></div>
       <div class="kpi danger"><div class="k-l">🔴 Verba em risco</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia</div></div>
     </div>
-    <div class="mini" style="margin-top:10px"><b>Receita do funil ${fmtMoney0(funnelReceita)}</b>${temFunnel?` (${fmtNum(funnelVendas)} vendas, bate com a Assiny em valor líquido, após taxas)`:''}. Dentro dela: ${fmtMoney0(T.receita)} atribuídos ao Meta por UTM (entram no ROAS) e ${fmtMoney0(semUtm)} sem UTM do Meta (direct/orgânico). Gasto inclui tudo que rodou no período${A.pausadasGasto>0?` (${fmtMoney0(A.pausadasGasto)} de pausadas/desativadas)`:''}; as listas de decisão mostram só as ${A.rows.length} ativas. <b>Lucro</b> = receita do funil − gasto em mídia (não desconta produto/imposto/reembolso).</div>
+    ${semReceita?`<div class="mini" style="margin-top:10px;color:#c5221f">
+      <b>A receita deste funil não carregou${S._revErro?` (${esc(S._revErro)})`:''}.</b> Receita e lucro ficam em branco de propósito:
+      o número que existiria aqui viria da receita sem UTM do negócio inteiro, não deste funil,
+      e apareceria como lucro alto com ROAS zero. Clique em <b>Atualizar</b> para tentar de novo.</div>`:''}
+    <div class="mini" style="margin-top:10px"${semReceita?' hidden':''}><b>Receita do funil ${fmtMoney0(funnelReceita)}</b>${temFunnel?` (${fmtNum(funnelVendas)} vendas, bate com a Assiny em valor líquido, após taxas)`:''}. Dentro dela: ${fmtMoney0(T.receita)} atribuídos ao Meta por UTM (entram no ROAS) e ${fmtMoney0(semUtm)} sem UTM do Meta (direct/orgânico). Gasto inclui tudo que rodou no período${A.pausadasGasto>0?` (${fmtMoney0(A.pausadasGasto)} de pausadas/desativadas)`:''}; as listas de decisão mostram só as ${A.rows.length} ativas. <b>Lucro</b> = receita do funil − gasto em mídia (não desconta produto/imposto/reembolso).</div>
   </div>`;
 }
 
