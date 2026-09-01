@@ -723,7 +723,7 @@ async function fetchTopAds(){
           vP25:vv(r,'video_p25_watched_actions'), vP50:vv(r,'video_p50_watched_actions'),
           vP75:vv(r,'video_p75_watched_actions'), vP100:vv(r,'video_p100_watched_actions'),
           vAvgT:vv(r,'video_avg_time_watched_actions'),
-          _accountName:acc.name, _currency:acc.currency
+          _accountName:acc.name, _currency:acc.currency, _tokenId:acc._tokenId
         })).filter(o=>(o.spend||0)>0);
         allAds.push(...mapped); okCount++;
       }catch(e){ errCount++; errNames.push(acc.name); console.warn('[TopAds] erro na conta', acc.name, e.message); }
@@ -814,7 +814,7 @@ async function fetchTopAudiences(){
         ins.forEach(r=>{
           const o=byId[r.adset_id]; if(!o) return;
           Object.assign(o,{ spend:parseFloat(r.spend)||0, impressions:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0, ctr:parseFloat(r.ctr)||0,
-            campaign_name:r.campaign_name, _accountName:acc.name, _currency:acc.currency });
+            campaign_name:r.campaign_name, _accountName:acc.name, _currency:acc.currency, _tokenId:acc._tokenId });
         });
         allPub.push(...Object.values(byId).filter(o=>(o.spend||0)>0));
       }catch(e){ console.warn('[TopPub] erro na conta', acc.name, e.message); }
@@ -1430,9 +1430,11 @@ function renderBulkBar(){
     if(!bar){bar=document.createElement('div');bar.id='bulk-bar';document.body.appendChild(bar);}
     bar.style.cssText='position:fixed;bottom:0;left:0;right:0;background:#1e1b4b;color:#fff;padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:9999;box-shadow:0 -2px 12px rgba(0,0,0,.3);font-size:13px';
     const emFunil=(S.view!=='geral'&&S.view!=='criativos'&&!!currentFunnel().sheet);
-    const fn=emFunil?'execBulkSheet':'execBulk';
-    const temOrc=!emFunil||_nivelTemOrcamento();
-    const nivelTxt=emFunil?(NIVEL_LABEL[S.sheetLevel]||''):'campanha';
+    const emPerp=(S.view==='dash'&&!currentFunnel().sheet);
+    const fn=emFunil?'execBulkSheet':(emPerp?'execBulkPerp':'execBulk');
+    const nivelPerp=S.perpLevel||'campanha';
+    const temOrc=emFunil?_nivelTemOrcamento():(emPerp?nivelPerp!=='anuncio':true);
+    const nivelTxt=emFunil?(NIVEL_LABEL[S.sheetLevel]||''):(emPerp?(NIVEL_LABEL[nivelPerp]||''):'campanha');
     bar.innerHTML=`<b style="white-space:nowrap">${n} ${nivelTxt}(s)</b>
       <button class="btn btn-sm" style="background:#ef4444;color:#fff;padding:4px 12px;border-radius:6px" onclick="${fn}('PAUSAR')">Pausar</button>
       <button class="btn btn-sm" style="background:#22c55e;color:#fff;padding:4px 12px;border-radius:6px" onclick="${fn}('ATIVAR')">Ativar</button>
@@ -1448,7 +1450,7 @@ function renderBulkBar(){
         </select>
         <button class="btn btn-sm" style="background:#f59e0b;color:#000;padding:4px 12px;border-radius:6px" onclick="${fn}('REDUZIR',parseFloat(document.getElementById('bulk-red-pct').value))">Reduzir</button>
       </span>
-      <span style="display:inline-flex;align-items:center;gap:4px;border-left:1px solid #4a4a5e;padding-left:10px${emFunil?';display:none':''}">
+      <span style="display:inline-flex;align-items:center;gap:4px;border-left:1px solid #4a4a5e;padding-left:10px${(emFunil||(emPerp&&nivelPerp!=='campanha'))?';display:none':''}">
         <button class="btn btn-sm" title="Duplica as campanhas (conjuntos + anúncios) com o % de escala aplicado no orçamento da cópia. Nascem PAUSADAS." style="background:#0891b2;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('DUPLICAR',parseFloat(document.getElementById('bulk-esc-pct').value))">⧉ Duplicar</button>
         <button class="btn btn-sm" title="Duplica e já sobe as cópias ATIVAS, gastando na hora." style="background:#0e7490;color:#fff;padding:4px 12px;border-radius:6px" onclick="execBulk('DUPLICAR_ATIVA',parseFloat(document.getElementById('bulk-esc-pct').value))">⧉ + ativar</button>
       </span>
@@ -2579,17 +2581,16 @@ function sh_rankTableD(title,rows){
  * Aqui o token vem na própria linha (_tokenId), então dá para agir em conjunto
  * e anúncio. Orçamento é buscado na hora: a linha traz gasto, não orçamento.
  */
-async function execBulkSheet(action, pct){
-  const nivel=S.sheetLevel, rotulo=NIVEL_LABEL[nivel]||'item';
-  const linhas=(currentFunnel().sheet==='direct')
-    ? sh_aggD(sheetScope().dir, nivel==='campanha'?'campaign_id':nivel==='conjunto'?'adset_id':'ad_id', nivel==='campanha'?'campaign':nivel==='conjunto'?'adset':'ad')
-    : sh_aggS(sheetScope().inv, sheetScope().lds, nivel==='campanha'?'campaign_id':nivel==='conjunto'?'adset_id':'ad_id', nivel==='campanha'?'campaign':nivel==='conjunto'?'adset':'ad');
-  const porId={}; linhas.forEach(r=>{ if(r.id) porId[r.id]=r; });
+/**
+ * Motor da ação em massa, usado pelas quatro iniciativas.
+ * Recebe os itens já resolvidos ({id,name,_tokenId}) para não depender de onde
+ * eles vieram: planilha, API de funil ou lista de anúncios do Perpétuo.
+ */
+async function _execEmMassa(action, pct, porId, rotulo, temOrc, depois){
   const ids=Object.keys(S._sel||{}).filter(id=>porId[id]);
   if(!ids.length){ alert('Nada selecionado nesta tabela.'); return; }
-
   const orc=(action==='ESCALAR'||action==='REDUZIR');
-  if(orc && !_nivelTemOrcamento()){
+  if(orc && !temOrc){
     alert('Anúncio não tem orçamento próprio. Troque para Conjunto ou Campanha para escalar ou reduzir.');
     return;
   }
@@ -2600,37 +2601,50 @@ async function execBulkSheet(action, pct){
 
   let ok=0, falha=0; const erros=[];
   for(const id of ids){
-    const linha=porId[id], tok=getTokenById(linha._tokenId);
+    const item=porId[id], tok=getTokenById(item._tokenId);
     if(!tok){ falha++; erros.push(`${id}: sem token`); continue; }
     try{
       if(action==='PAUSAR'||action==='ATIVAR'){
         await apiPost(id,{status:action==='PAUSAR'?'PAUSED':'ACTIVE'},tok);
       } else {
-        // busca o orçamento atual: a linha tem gasto, não orçamento
+        // o orçamento não vem na linha: a linha traz gasto. Busca o atual.
         const at=await api(`/${id}`,{fields:'daily_budget,lifetime_budget'},tok);
         const daily=parseInt(at.daily_budget)||0, life=parseInt(at.lifetime_budget)||0;
-        if(!daily && !life){ falha++; erros.push(`${esc(linha.name).slice(0,40)}: orçamento fica no outro nível (CBO/ABO)`); continue; }
+        if(!daily && !life){ falha++; erros.push(`${String(item.name).slice(0,40)}: orçamento fica no outro nível (CBO/ABO)`); continue; }
         const campo=daily?'daily_budget':'lifetime_budget';
         const atual=daily||life, novo=Math.max(100, Math.round(atual*pct));
         await apiPost(id,{[campo]:String(novo)},tok);
-        if(nivel==='campanha') await logOtim(id,action,+(atual/100).toFixed(2),+(novo/100).toFixed(2));
+        if(rotulo==='campanha') await logOtim(id,action,+(atual/100).toFixed(2),+(novo/100).toFixed(2));
       }
       ok++;
-    }catch(e){ falha++; erros.push(`${String(linha.name).slice(0,40)}: ${e.message}`); }
+    }catch(e){ falha++; erros.push(`${String(item.name).slice(0,40)}: ${e.message}`); }
   }
   S._sel={};
-  if(currentFunnel().sheet==='direct') reloadDirectApi();
-  else reloadFunilApi(currentFunnel().sheet==='sessao'?'SESSAO':'ROICLUB');
+  if(typeof depois==='function') depois();
   render();
   alert(`${ok} ok, ${falha} falha(s).`+(erros.length?'\n\n'+erros.slice(0,6).join('\n'):''));
+}
+
+async function execBulkSheet(action, pct){
+  const nivel=S.sheetLevel, rotulo=NIVEL_LABEL[nivel]||'item';
+  const idK=nivel==='campanha'?'campaign_id':nivel==='conjunto'?'adset_id':'ad_id';
+  const nmK=nivel==='campanha'?'campaign':nivel==='conjunto'?'adset':'ad';
+  const esc=sheetScope();
+  const linhas=(currentFunnel().sheet==='direct')
+    ? sh_aggD(esc.dir, idK, nmK) : sh_aggS(esc.inv, esc.lds, idK, nmK);
+  const porId={}; linhas.forEach(r=>{ if(r.id) porId[r.id]=r; });
+  await _execEmMassa(action, pct, porId, rotulo, _nivelTemOrcamento(), ()=>{
+    if(currentFunnel().sheet==='direct') reloadDirectApi();
+    else reloadFunilApi(currentFunnel().sheet==='sessao'?'SESSAO':'ROICLUB');
+  });
 }
 
 /**
  * Prévia do anúncio, pelo iframe oficial do Meta.
  *
- * Renderiza o anúncio de verdade, vídeo tocável incluso. O caminho alternativo
- * (baixar o vídeo por /{video_id}?fields=source) é negado ao token, e o
- * thumbnail é imagem parada; por isso o iframe, com o thumbnail como reserva.
+ * Renderiza o anúncio de verdade, com vídeo tocável. Baixar o vídeo por
+ * /{video_id}?fields=source é negado ao token (erro 10), e o thumbnail é imagem
+ * parada, então o iframe é o caminho, com o thumbnail como reserva.
  */
 async function verPrevia(adId, tokenId){
   S._previa=S._previa||{};
@@ -2908,7 +2922,7 @@ function renderDashboard(A){
       : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
-  return renderKPIs(A)+renderRelatorio(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+renderTable(A);
+  return renderKPIs(A)+renderRelatorio(A)+renderAlvos(A)+renderGoodBad(A)+renderComparativoCard(A)+renderAcompanhamento(A)+renderActions(A)+renderFunis(A)+renderPesquisa(A)+renderContas(A)+renderDimensions(A)+perpDetailCard()+renderTable(A);
 }
 
 // ── Relatório na planilha (Apps Script Web App) ─────────────────────────────
@@ -3727,6 +3741,115 @@ function renderCreativeAnalysis(ads){
 }
 
 // ── Panorama final: melhores anúncios e públicos ativos ──────────────────────
+// ── Detalhamento do Perpétuo, nos mesmos três níveis das outras iniciativas ──
+//
+// A campanha vem de S.data; conjunto e anúncio vêm de S._topAds, que é a mesma
+// fonte da aba Criativos. Por isso, ao entrar em Conjunto ou Anúncio, ele pede
+// o carregamento de anúncios se ainda não tiver.
+
+function perpNivelDados(){
+  const nivel=S.perpLevel||'campanha';
+  const usd=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+  if(nivel==='campanha'){
+    const A=analyze();
+    return A.rowsAll ? A.rowsAll.map(r=>({id:r.id,name:r.name,_tokenId:r._tokenId,
+      spend:r._spendBRL||0,impr:r.impressions||0,clicks:r.clicks||0,
+      receita:r._receita||0,front:r._vendasFront||0}))
+      : A.rows.map(r=>({id:r.id,name:r.name,_tokenId:r._tokenId,
+      spend:r._spendBRL||0,impr:r.impressions||0,clicks:r.clicks||0,
+      receita:r._receita||0,front:r._vendasFront||0}));
+  }
+  const ads=(S._topAds||[]).filter(a=>matchFunnel(a.campaign_name||''));
+  // No _topAds o anúncio é 'id'/'name'; o conjunto tem campos próprios.
+  const idK=nivel==='conjunto'?'adset_id':'id', nmK=nivel==='conjunto'?'adset_name':'name';
+  const m={};
+  ads.forEach(a=>{
+    const id=a[idK]; if(!id) return;
+    const x=m[id]||(m[id]={id,name:a[nmK]||'(sem nome)',_tokenId:a._tokenId,
+      spend:0,impr:0,clicks:0,receita:0,front:0});
+    const sp=((a._currency||'BRL')==='USD')?(a.spend||0)*usd:(a.spend||0);
+    x.spend+=sp; x.impr+=a.impressions||0; x.clicks+=a.clicks||0;
+  });
+  const byAd=(S._rev&&S._rev.byAd)||{}, byAdset=(S._rev&&S._rev.byAdset)||{};
+  Object.values(m).forEach(x=>{ const v=(nivel==='conjunto'?byAdset:byAd)[String(x.id)];
+    if(v){ x.receita=v.receita||0; x.front=v.front||0; } });
+  return Object.values(m);
+}
+
+function setPerpLevel(k){
+  // seleção não atravessa níveis: ids são de objetos diferentes
+  S._sel={}; S.perpLevel=k; saveState(); render();
+  if(k!=='campanha' && S._topAds==null && !S._topAdsLoading) loadTopAds();
+}
+function setPerpBusca(v){ S.perpBusca=v; render(); }
+
+async function execBulkPerp(action,pct){
+  const nivel=S.perpLevel||'campanha', rotulo=NIVEL_LABEL[nivel]||'item';
+  const porId={}; perpNivelDados().forEach(r=>{ if(r.id) porId[r.id]=r; });
+  await _execEmMassa(action,pct,porId,rotulo,nivel!=='anuncio',()=>{
+    if(nivel==='campanha') refreshOtim(); else reloadTopAds();
+  });
+}
+
+function perpDetailCard(){
+  const nivel=S.perpLevel||'campanha';
+  const lvls=[['campanha','Campanha'],['conjunto','Conjunto'],['anuncio','Anúncio']];
+  const seg=`<div class="row" style="gap:4px">${lvls.map(([k,l])=>`<button class="subtab ${nivel===k?'on':''}" onclick="setPerpLevel('${k}')">${l}</button>`).join('')}</div>`;
+
+  if(nivel!=='campanha' && (S._topAdsLoading||S._topAds==null)){
+    return `<div class="card"><div class="row" style="justify-content:space-between;align-items:center">
+      <h3 style="margin:0">📋 Detalhamento</h3>${seg}</div>
+      <div class="empty" style="margin-top:10px"><span class="loading"></span> Carregando anúncios…</div></div>`;
+  }
+
+  const q=(S.perpBusca||'').trim().toLowerCase();
+  let rows=perpNivelDados().filter(r=>(r.spend||0)>0);
+  if(q) rows=rows.filter(r=>String(r.name).toLowerCase().includes(q)||String(r.id).includes(q));
+  rows.sort((a,b)=>b.spend-a.spend);
+
+  const ids=rows.map(r=>r.id).filter(Boolean);
+  const todas=ids.length&&ids.every(id=>S._sel&&S._sel[id]);
+  const T=rows.reduce((a,r)=>({spend:a.spend+r.spend,receita:a.receita+r.receita,front:a.front+r.front,impr:a.impr+r.impr,clicks:a.clicks+r.clicks}),{spend:0,receita:0,front:0,impr:0,clicks:0});
+
+  const linha=r=>{
+    const roas=r.spend>0?r.receita/r.spend:null;
+    const olho=(nivel==='anuncio')?` <button title="Ver o anúncio" onclick="verPrevia('${esc(r.id)}','${esc(r._tokenId||'')}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:0 4px">👁</button>`:'';
+    return `<tr${S._sel&&S._sel[r.id]?' style="background:#f3eefe"':''}>
+      <td style="width:28px"><input type="checkbox" ${S._sel&&S._sel[r.id]?'checked':''} onclick="toggleSel('${esc(r.id)}',event)" style="cursor:pointer;width:16px;height:16px;accent-color:#7b2ff7"></td>
+      <td style="text-align:left;max-width:340px;white-space:normal;word-break:break-word;line-height:1.35">${esc(r.name)}${olho}</td>
+      <td class="mini" style="text-align:left">${esc(r.id||'—')}</td>
+      <td class="num">${mS(r.spend)}</td>
+      <td class="num">${mS(r.receita)}</td>
+      <td class="num" style="font-weight:700;color:${roas==null?'#888':(roas>=1?'#137333':'#c5221f')}">${roas==null?'—':roas.toFixed(2)+'x'}</td>
+      <td class="num">${fmtNum(r.front)}</td>
+      <td class="num">${(r.front&&r.spend)?mS(r.spend/r.front):'—'}</td>
+      <td class="num">${r.impr?(r.clicks/r.impr*100).toFixed(2)+'%':'—'}</td>
+      <td class="num">${fmtNum(r.impr)}</td></tr>`+renderPrevia(r.id);
+  };
+
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center"><h3 style="margin:0">📋 Detalhamento</h3>${seg}</div>
+    <div class="row" style="margin:8px 0;gap:6px;align-items:center">
+      <input placeholder="buscar por nome ou ID…" value="${esc(S.perpBusca||'')}" oninput="setPerpBusca(this.value)" style="max-width:340px;padding:5px 10px;font-size:12px">
+      ${S.perpBusca?`<button class="btn btn-gray btn-sm" style="padding:3px 10px" onclick="setPerpBusca('')">limpar</button>`:''}
+      <span class="mini">selecione ${NIVEL_LABEL[nivel]}s para agir em massa${nivel==='anuncio'?' · anúncio só pausa e ativa':''}</span>
+    </div>
+    <div style="overflow-x:auto"><table class="dim-tbl" style="font-size:12px">
+    <thead><tr><th style="width:28px"><input type="checkbox" ${todas?'checked':''} onclick="sheetSelAll(${JSON.stringify(ids).replace(/"/g,'&quot;')})" style="cursor:pointer;width:16px;height:16px;accent-color:#7b2ff7"></th>
+      <th style="text-align:left">${nivel==='campanha'?'Campanha':nivel==='conjunto'?'Conjunto':'Anúncio'}</th>
+      <th style="text-align:left">ID</th><th class="num">Invest. ▾</th><th class="num">Receita</th><th class="num">ROAS</th>
+      <th class="num">Vendas</th><th class="num">CPA</th><th class="num">CTR</th><th class="num">Impr.</th></tr></thead>
+    <tbody>${rows.length?rows.map(linha).join(''):`<tr><td colspan="10" class="empty">${q?'Nada encontrado.':'Sem dados no período.'}</td></tr>`}</tbody>
+    <tfoot><tr style="border-top:2px solid #7b2ff7;font-weight:700"><td></td><td>TOTAL (${rows.length})</td><td></td>
+      <td class="num">${mS(T.spend)}</td><td class="num">${mS(T.receita)}</td>
+      <td class="num">${T.spend>0?(T.receita/T.spend).toFixed(2)+'x':'—'}</td>
+      <td class="num">${fmtNum(T.front)}</td><td class="num">${(T.front&&T.spend)?mS(T.spend/T.front):'—'}</td>
+      <td class="num">${T.impr?(T.clicks/T.impr*100).toFixed(2)+'%':'—'}</td><td class="num">${fmtNum(T.impr)}</td></tr></tfoot>
+    </table></div>
+    ${nivel!=='campanha'?`<div class="mini" style="margin-top:6px">Receita por conjunto e por anúncio vem da atribuição por UTM, então costuma ser menor que a da campanha.</div>`:''}
+  </div>`;
+}
+
 function renderTopAdsAudiences(A){
   const head=`<h2>🏆 Melhores anúncios e públicos <span class="mini" style="text-transform:none">inclui pausados</span> <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="reloadTopAds();reloadTopAudiences()">↻ Atualizar</button></h2>`;
   // Anúncios
