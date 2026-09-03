@@ -1021,9 +1021,14 @@ async function fetchFunilApi(key){
     const jan=janelaMeta();
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
     const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name');
-    for(let i=0;i<accs.length;i++){
-      const acc=accs[i], tok=getTokenById(acc._tokenId); if(!tok) continue;
-      for(const termo of cfg.termos){
+    // Contas em blocos de 4, e os dois termos de cada conta em paralelo. Uma por
+    // vez com pausa de 300ms fazia a janela de 30 dias levar mais de um minuto,
+    // e nesse meio tempo a tela mostrava zero como se não houvesse gasto.
+    const LOTE=4;
+    for(let i=0;i<accs.length;i+=LOTE){
+      await Promise.all(accs.slice(i,i+LOTE).map(async acc=>{
+      const tok=getTokenById(acc._tokenId); if(!tok) return;
+      await Promise.all(cfg.termos.map(async termo=>{
         const linhas=await _linhasFunilDaConta(acc,tok,termo,jan,flds);
         linhas.forEach(({key,row:r,dia})=>{
           if(vistos[key]) return; vistos[key]=1;   // mesma linha achada por dois termos
@@ -1042,8 +1047,9 @@ async function fetchFunilApi(key){
           x.pv+=_actVal(r.actions,['landing_page_view']);
           x.metaLeads+=_actVal(r.actions,LEAD_ACTIONS);
         });
-      }
-      if(i<accs.length-1) await new Promise(r=>setTimeout(r,300));
+      }));
+      }));
+      if(i+LOTE<accs.length) await new Promise(r=>setTimeout(r,200));
     }
     const rows=Object.values(agg);
     const dts=rows.map(x=>x.date).filter(Boolean).sort();
@@ -1878,23 +1884,35 @@ function renderGeralView(){
   const w=sheetWindow();
   const P=geralPerpetuo(), SE=geralFunilLead('sessao'), RC=geralFunilLead('roiclub'), DI=geralDirect();
   const investTotal=P.spend+SE.spend+RC.spend+DI.spend;
+  const totalParcial=[S._sessaoApi,S._rcApi,S._directApi].some(x=>x==null)||S._sessaoLoading||S._rcLoading||S._directLoading;
   const pct=v=>investTotal>0?(v/investTotal*100).toFixed(0)+'%':'—';
 
   const topo=`<div class="card">
     <div class="row" style="justify-content:space-between;align-items:flex-start">
       <div><h2 style="margin:0">📊 Visão Geral <span class="mini" style="text-transform:none;font-weight:400">todas as iniciativas · ${w.since===w.until?w.since:w.since+' a '+w.until}</span></h2>
       ${carregando.length?`<div class="mini" style="margin-top:4px"><span class="loading"></span> carregando ${carregando.join(', ')}…</div>`
-        :`<div class="mini" style="margin-top:4px">Investimento total no período: <b>${mS(investTotal)}</b></div>`}</div>
+        :`<div class="mini" style="margin-top:4px">Investimento total no período: <b>${mS(investTotal)}</b>${totalParcial?' <span style="color:#b08900">(parcial, ainda carregando)</span>':''}</div>`}</div>
       <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="recarregarGeral()">↻ Atualizar</button>
     </div></div>`;
 
   const kpi=(l,v,s,g)=>`<div class="kpi ${g?'good':''}"><div class="k-l">${l}</div><div class="k-v">${v}</div><div class="k-s">${s||'&nbsp;'}</div></div>`;
+  // Enquanto a fonte não chega, o bloco mostrava R$ 0,00, que se lê como "não
+  // gastou". Em janelas de 30 dias a busca leva um tempo, e o zero passava por
+  // resultado. Agora o bloco diz que está carregando e esconde os números.
+  const carregandoDe={
+    perpetuo:(S.refreshing||!(S.data||[]).length||S._geralRevLoading||S._geralRev==null),
+    sessao:(S._sessaoLoading||S._sessaoApi==null),
+    roiclub:(S._rcLoading||S._rcApi==null),
+    direct:(S._directLoading||S._directApi==null)
+  };
   const bloco=(emoji,nome,ini,kpis,obs)=>`<div class="card">
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
       <h3 style="margin:0">${emoji} ${nome}</h3>
       <button class="btn btn-gray btn-sm" style="padding:3px 10px" onclick="setIniciativa('${ini}')">abrir →</button>
     </div>
-    <div class="kpis">${kpis}</div>${geralTabelaQuebra(ini)}${obs||''}</div>`;
+    ${carregandoDe[ini]
+      ? `<div class="empty" style="margin:6px 0"><span class="loading"></span> buscando os dados desta iniciativa…</div>`
+      : `<div class="kpis">${kpis}</div>${geralTabelaQuebra(ini)}${obs||''}`}</div>`;
 
   const perp=bloco('🔁','Perpétuo','perpetuo',
     kpi('Investimento',mS(P.spend),pct(P.spend)+' da verba')+
@@ -2022,9 +2040,9 @@ function geralComparativo(D){
       <th style="text-align:left">Iniciativa</th><th class="num">Investimento</th><th class="num">Fatia</th>
       <th style="text-align:left">Métrica de fechamento</th><th class="num">Valor</th><th>Fonte do resultado</th></tr></thead><tbody>
     ${linha('🔁 Perpétuo',P.spend,'ROAS',P.roas==null?'—':P.roas.toFixed(2)+'x','Supabase')}
-    ${linha('🎯 Sessão',SE.spend,'CPO',SE.cpo==null?'—':mS(SE.cpo),'planilha + Typeform')}
-    ${linha('🏆 ROI CLUB',RC.spend,'CPO',RC.cpo==null?'—':mS(RC.cpo),'planilha + Typeform')}
-    ${linha('💬 Direct',DI.spend,'Custo/conversa',DI.cc==null?'—':mS(DI.cc),'pixel do Meta')}
+    ${linha('🎯 Sessão',SE.spend,'CPO',SE.cpo==null?'—':mS(SE.cpo),(S._sessaoLoading||S._sessaoApi==null)?'carregando…':'planilha + Typeform')}
+    ${linha('🏆 ROI CLUB',RC.spend,'CPO',RC.cpo==null?'—':mS(RC.cpo),(S._rcLoading||S._rcApi==null)?'carregando…':'planilha + Typeform')}
+    ${linha('💬 Direct',DI.spend,'Custo/conversa',DI.cc==null?'—':mS(DI.cc),(S._directLoading||S._directApi==null)?'carregando…':'pixel do Meta')}
     </tbody></table></div>
     <div class="mini" style="margin-top:6px">Os valores da coluna não são comparáveis entre si: ROAS, CPO e custo por conversa medem etapas diferentes.
     O que compara é a fatia da verba contra o resultado que cada uma entrega na régua dela.</div></div>`;
