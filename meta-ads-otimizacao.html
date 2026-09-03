@@ -243,7 +243,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -1057,6 +1057,73 @@ async function fetchFunilApi(key){
   }catch(e){ console.warn('['+cfg.rotulo+'] erro',e); S[cfg.store]={rows:[],erro:String(e),janela:jan}; }
   S[cfg.loading]=false; render();
 }
+/**
+ * Resumo por CAMPANHA para a Visão Geral.
+ *
+ * A busca das iniciativas é em nível de anúncio e dia a dia, porque o
+ * Detalhamento precisa disso. A Visão Geral não: ela só soma. Aqui o pedido vai
+ * em nível de campanha e SEM quebra por dia, já que o intervalo é o próprio
+ * filtro da chamada. Em 30 dias isso é a diferença entre milhares de linhas e
+ * algumas dezenas.
+ */
+const RESUMO_CFG={
+  SESSAO:  {termos:['SESSÃO','SE-F0'], rotulo:'Sessão',   classificar:cn=>_classFunnel(cn)},
+  ROICLUB: {termos:['ROICLUB','RCB'],  rotulo:'ROI CLUB', classificar:cn=>_classRoiClub(cn)},
+  DIRECT:  {termos:['DIRECT'],         rotulo:'Direct',   classificar:cn=>_classExpert(cn)}
+};
+async function fetchFunilResumo(key){
+  S._resumo=S._resumo||{}; S._resumoLoading=S._resumoLoading||{};
+  if(S._resumoLoading[key]) return;
+  const cfg=RESUMO_CFG[key]; if(!cfg) return;
+  S._resumoLoading[key]=true; render();
+  const jan=janelaMeta();
+  try{
+    const accs=(S.accounts||[]), vistos={}, rows=[];
+    const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
+    const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name');
+    const LOTE=5;
+    for(let i=0;i<accs.length;i+=LOTE){
+      await Promise.all(accs.slice(i,i+LOTE).map(async acc=>{
+        const tok=getTokenById(acc._tokenId); if(!tok) return;
+        await Promise.all(cfg.termos.map(async termo=>{
+          const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:termo}]));
+          let url=`${GQL}/${acc.id}/insights?level=campaign&fields=${flds}&limit=500&filtering=${filt}`+
+                  `&time_range=${encodeURIComponent(JSON.stringify(jan))}&access_token=${encodeURIComponent(tok)}`;
+          let pg=0;
+          while(url && pg<10){ pg++;
+            let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
+            if(j.error){ console.warn('[resumo '+cfg.rotulo+']',acc.name,j.error.message); break; }
+            (j.data||[]).forEach(r=>{
+              const id=(r.campaign_id||'').trim();
+              if(!id||vistos[id]) return; vistos[id]=1;   // dois termos podem achar a mesma
+              const sp=parseFloat(r.spend)||0;
+              rows.push({ campaign_id:id, campaign:_cleanName(r.campaign_name||''),
+                funnel:cfg.classificar(r.campaign_name||''), expert:_classExpert(r.campaign_name||''),
+                spend:(acc.currency==='USD')?sp*usdRate:sp,
+                impr:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
+                pv:_actVal(r.actions,['landing_page_view']),
+                metaLeads:_actVal(r.actions,LEAD_ACTIONS),
+                conv:_actVal(r.actions,[CONV_ACTION]) });
+            });
+            url=(j.paging&&j.paging.next)?j.paging.next:null;
+          }
+        }));
+      }));
+    }
+    S._resumo[key]={rows, janela:jan, quando:new Date()};
+  }catch(e){ S._resumo[key]={rows:[],erro:String(e&&e.message||e),janela:jan}; }
+  S._resumoLoading[key]=false; render();
+}
+/** Devolve as linhas do resumo, ou null se ainda não chegou / mudou a janela. */
+function resumoDe(key){
+  const o=(S._resumo||{})[key];
+  if(!o || !_mesmaJanela(o.janela, janelaMeta())) return null;
+  return o.rows||[];
+}
+function resumoCarregando(key){
+  return !!(S._resumoLoading||{})[key] || resumoDe(key)===null;
+}
+
 function reloadFunilApi(key){ const c=FUNIL_API[key]; if(c){ S[c.store]=null; fetchFunilApi(key); } }
 
 /**
@@ -1736,8 +1803,9 @@ function geralPerpetuo(){
 /** Funil de lead (Sessão ou ROI CLUB): gasto do Meta, lead da planilha e do Typeform. */
 function geralFunilLead(qual){
   const w=sheetWindow();
-  const api=(qual==='sessao'?(S._sessaoApi&&S._sessaoApi.rows):(S._rcApi&&S._rcApi.rows))||[];
-  const inv=api.filter(r=>_inWin(r.date,w));
+  // O resumo já vem restrito ao intervalo pela própria chamada, então não tem
+  // data por linha nem precisa filtrar de novo.
+  const inv=resumoDe(qual==='sessao'?'SESSAO':'ROICLUB')||[];
   const T={spend:0,imp:0,clicks:0,pv:0,pixel:0};
   inv.forEach(r=>{T.spend+=r.spend;T.imp+=r.impr;T.clicks+=r.clicks;T.pv+=r.pv||0;T.pixel+=r.metaLeads||0;});
 
@@ -1760,8 +1828,7 @@ function geralFunilLead(qual){
 }
 
 function geralDirect(){
-  const w=sheetWindow();
-  const src=((S._directApi&&S._directApi.rows)||[]).filter(r=>_inWin(r.date,w));
+  const src=resumoDe('DIRECT')||[];
   const T={spend:0,conv:0,imp:0,clicks:0};
   src.forEach(r=>{T.spend+=r.spend;T.conv+=r.conv||0;T.imp+=r.impr;T.clicks+=r.clicks;});
   T.cc=T.conv?T.spend/T.conv:null;
@@ -1794,11 +1861,11 @@ function geralQuebra(qual){
   }
 
   if(qual==='sessao'||qual==='roiclub'){
-    const api=(qual==='sessao'?(S._sessaoApi&&S._sessaoApi.rows):(S._rcApi&&S._rcApi.rows))||[];
+    const api=resumoDe(qual==='sessao'?'SESSAO':'ROICLUB')||[];
     const chaves=qual==='sessao'?FUNIS_SESSAO:FUNIS_ROICLUB;
     const nomes =qual==='sessao'?NOME_SE:NOME_RC;
     const g={}; chaves.forEach(k=>g[k]={nome:nomes[k]||k,spend:0,leads:0,opp:0,pv:0});
-    api.filter(r=>_inWin(r.date,w)).forEach(r=>{ const x=g[r.funnel]; if(x){ x.spend+=r.spend; x.pv+=r.pv||0; } });
+    api.forEach(r=>{ const x=g[r.funnel]; if(x){ x.spend+=r.spend; x.pv+=r.pv||0; } });
 
     // leads da planilha: no ROI CLUB são todos da página de captura
     ((S._sheet&&S._sheet.leads)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
@@ -1808,8 +1875,7 @@ function geralQuebra(qual){
     tfLeads(qual,null,w).forEach(r=>{ const x=g[r.funnel]; if(x){ x.leads++; if(r.opp) x.opp++; } });
 
     if(qual==='sessao'&&g.NATIVO){
-      const api2=api.filter(r=>_inWin(r.date,w)&&r.funnel==='NATIVO');
-      const metaNat=api2.reduce((a,r)=>a+(r.metaLeads||0),0);
+      const metaNat=api.filter(r=>r.funnel==='NATIVO').reduce((a,r)=>a+(r.metaLeads||0),0);
       if(metaNat>g.NATIVO.leads){ g.NATIVO.leads=metaNat; g.NATIVO.doMeta=true; }
     }
     return chaves.map(k=>g[k]).filter(x=>x.spend>0||x.leads>0)
@@ -1819,7 +1885,7 @@ function geralQuebra(qual){
 
   // direct: um por expert
   const g={};
-  ((S._directApi&&S._directApi.rows)||[]).filter(r=>_inWin(r.date,w)).forEach(r=>{
+  (resumoDe('DIRECT')||[]).forEach(r=>{
     const x=g[r.expert]=g[r.expert]||{nome:r.expert,spend:0,conv:0,imp:0,clicks:0};
     x.spend+=r.spend; x.conv+=r.conv||0; x.imp+=r.impr; x.clicks+=r.clicks;
   });
@@ -1865,17 +1931,17 @@ function geralTabelaQuebra(qual){
 
 function renderGeralView(){
   // dispara tudo o que a tela precisa, cada fonte só uma vez
-  if(S._sessaoApi==null&&!S._sessaoLoading) setTimeout(()=>fetchFunilApi('SESSAO'),30);
-  if(S._rcApi==null&&!S._rcLoading)         setTimeout(()=>fetchFunilApi('ROICLUB'),60);
-  if(S._directApi==null&&!S._directLoading) setTimeout(()=>fetchDirectApi(),90);
+  // A Visão Geral usa o resumo por campanha, bem mais leve que a busca por
+  // anúncio e dia a dia que as iniciativas fazem.
+  ['SESSAO','ROICLUB','DIRECT'].forEach((k,i)=>{ if(resumoCarregando(k)&&!(S._resumoLoading||{})[k]) setTimeout(()=>fetchFunilResumo(k),30*(i+1)); });
   if(S._sheet==null&&!S._sheetLoading)      setTimeout(()=>fetchSheetData(),120);
   if(S._tfLeads==null&&!S._tfLoading)       setTimeout(()=>fetchTypeformLeads(),150);
   if((S._geralRev==null||S._geralRev.periodo!==S.period)&&!S._geralRevLoading) setTimeout(()=>fetchGeralReceita(),180);
 
   const carregando=[
-    (S._sessaoLoading||S._sessaoApi==null)&&'Sessão',
-    (S._rcLoading||S._rcApi==null)&&'ROI CLUB',
-    (S._directLoading||S._directApi==null)&&'Direct',
+    resumoCarregando('SESSAO')&&'Sessão',
+    resumoCarregando('ROICLUB')&&'ROI CLUB',
+    resumoCarregando('DIRECT')&&'Direct',
     (S._sheetLoading||S._sheet==null)&&'planilha',
     (S._tfLoading||S._tfLeads==null)&&'Typeform',
     (S._geralRevLoading||S._geralRev==null)&&'receita'
@@ -1884,7 +1950,7 @@ function renderGeralView(){
   const w=sheetWindow();
   const P=geralPerpetuo(), SE=geralFunilLead('sessao'), RC=geralFunilLead('roiclub'), DI=geralDirect();
   const investTotal=P.spend+SE.spend+RC.spend+DI.spend;
-  const totalParcial=[S._sessaoApi,S._rcApi,S._directApi].some(x=>x==null)||S._sessaoLoading||S._rcLoading||S._directLoading;
+  const totalParcial=['SESSAO','ROICLUB','DIRECT'].some(resumoCarregando);
   const pct=v=>investTotal>0?(v/investTotal*100).toFixed(0)+'%':'—';
 
   const topo=`<div class="card">
@@ -1901,9 +1967,9 @@ function renderGeralView(){
   // resultado. Agora o bloco diz que está carregando e esconde os números.
   const carregandoDe={
     perpetuo:(S.refreshing||!(S.data||[]).length||S._geralRevLoading||S._geralRev==null),
-    sessao:(S._sessaoLoading||S._sessaoApi==null),
-    roiclub:(S._rcLoading||S._rcApi==null),
-    direct:(S._directLoading||S._directApi==null)
+    sessao:resumoCarregando('SESSAO'),
+    roiclub:resumoCarregando('ROICLUB'),
+    direct:resumoCarregando('DIRECT')
   };
   const bloco=(emoji,nome,ini,kpis,obs)=>`<div class="card">
     <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -2040,16 +2106,16 @@ function geralComparativo(D){
       <th style="text-align:left">Iniciativa</th><th class="num">Investimento</th><th class="num">Fatia</th>
       <th style="text-align:left">Métrica de fechamento</th><th class="num">Valor</th><th>Fonte do resultado</th></tr></thead><tbody>
     ${linha('🔁 Perpétuo',P.spend,'ROAS',P.roas==null?'—':P.roas.toFixed(2)+'x','Supabase')}
-    ${linha('🎯 Sessão',SE.spend,'CPO',SE.cpo==null?'—':mS(SE.cpo),(S._sessaoLoading||S._sessaoApi==null)?'carregando…':'planilha + Typeform')}
-    ${linha('🏆 ROI CLUB',RC.spend,'CPO',RC.cpo==null?'—':mS(RC.cpo),(S._rcLoading||S._rcApi==null)?'carregando…':'planilha + Typeform')}
-    ${linha('💬 Direct',DI.spend,'Custo/conversa',DI.cc==null?'—':mS(DI.cc),(S._directLoading||S._directApi==null)?'carregando…':'pixel do Meta')}
+    ${linha('🎯 Sessão',SE.spend,'CPO',SE.cpo==null?'—':mS(SE.cpo),resumoCarregando('SESSAO')?'carregando…':'planilha + Typeform')}
+    ${linha('🏆 ROI CLUB',RC.spend,'CPO',RC.cpo==null?'—':mS(RC.cpo),resumoCarregando('ROICLUB')?'carregando…':'planilha + Typeform')}
+    ${linha('💬 Direct',DI.spend,'Custo/conversa',DI.cc==null?'—':mS(DI.cc),resumoCarregando('DIRECT')?'carregando…':'pixel do Meta')}
     </tbody></table></div>
     <div class="mini" style="margin-top:6px">Os valores da coluna não são comparáveis entre si: ROAS, CPO e custo por conversa medem etapas diferentes.
     O que compara é a fatia da verba contra o resultado que cada uma entrega na régua dela.</div></div>`;
 }
 
 function recarregarGeral(){
-  S._sessaoApi=null; S._rcApi=null; S._directApi=null; S._sheet=null; S._tfLeads=null; S._geralRev=null;
+  S._resumo={}; S._sheet=null; S._tfLeads=null; S._geralRev=null;
   render();
 }
 
