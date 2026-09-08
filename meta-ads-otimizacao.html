@@ -171,11 +171,13 @@ const FUNNELS = [
   {key:'TOME',    label:'Tomé',     match:'TOME',     emoji:'👨'},
   // O perpétuo do Coelho é o Código FBA (destino orafaelcoelho.com.br/autor).
   // As campanhas dele não têm "COELHO" no nome, então precisam do alias.
-  // receitaFora: as vendas desse produto não estão no Supabase, que hoje cobre
-  // só IniciAmazon (Nathalia + Tomé) e o backend. Sem essa marca, o painel
-  // mostraria ROAS 0 e prejuízo cheio, que seria falta de dado, não resultado.
+  // A receita vem do projeto "Funil Coelho" na Assiny: match 'COELHO' já casa,
+  // porque o funnel_revenue compara por trecho do nome do projeto.
+  // receitaDesde: o webhook desse projeto só existe desde 08/09/2026 e o
+  // backfill cobre 01/09 para trás não existe. Janela que começa antes dessa
+  // data tem gasto cheio e receita parcial, o que derrubaria o ROAS sem motivo.
   {key:'COELHO',  label:'Coelho',   match:'COELHO',   emoji:'🐰',
-   alias:['CODIGO FBA'], receitaFora:true},
+   alias:['CODIGO FBA'], receitaDesde:'2026-09-01'},
   {key:'BACKEND', label:'Backend',  match:'mentoria', emoji:'💼', backend:true}, // Consultorias & Mentorias (sem mídia paga)
   {key:'SESSAO',  label:'Sessão Estratégica', match:'', emoji:'🎯', sheet:'sessao'},  // funil de lead: Oportunidade/CPO
   {key:'DIRECT',  label:'Direct',   match:'',         emoji:'💬', sheet:'direct'},    // funil de mensagem: Conversas/Custo
@@ -3028,8 +3030,7 @@ function relatorioValores(A){
   // deste funil. Usar como reserva colocava R$ 254 mil no faturamento do Coelho,
   // e esse número iria para a planilha. Só o funil "Todos" pode somar o offsite.
   const _ehTodosRel = !currentFunnel().match;
-  const fat = currentFunnel().receitaFora ? 0
-            : (A.funnelTotal&&A.funnelTotal.ok) ? A.funnelTotal.receita
+  const fat = (A.funnelTotal&&A.funnelTotal.ok) ? A.funnelTotal.receita
             : (_ehTodosRel ? ((T.receita||0)+((A.off&&A.off.receita)||0)) : 0);
   return { alunos:T.front||0, investimento:T.spend||0, faturamento:fat };
 }
@@ -3194,7 +3195,7 @@ function renderBackendProdutos(A){
 function renderKPIs(A){
   const T=A.T;
   // Sem receita medida não há ROAS: 0.00x leria como "não vendeu nada".
-  const roas=(currentFunnel().receitaFora||T.spend<=0)?null:T.receita/T.spend;
+  const roas=(T.spend<=0)?null:T.receita/T.spend;
   // A receita de um funil vem do funnel_revenue, que filtra por funil. O
   // meta_revenue_offsite NÃO filtra: é a receita sem UTM do negócio inteiro.
   // Usar um como reserva do outro fazia a receita orgânica de todos os funis
@@ -3204,10 +3205,12 @@ function renderKPIs(A){
   // Zero de verdade e consulta que não respondeu são coisas diferentes: o funil
   // pode simplesmente não ter vendido hoje. Quem diz é o "ok" da resposta, não
   // o valor. Deduzir pelo valor transformaria todo dia sem venda em alarme.
-  // Funil cuja receita não passa pelo Supabase: tratar como não medido, e não
-  // como zero. Zero aqui viraria ROAS 0.00x e prejuízo do gasto inteiro.
-  const receitaFora = !!currentFunnel().receitaFora;
-  const respondeu = !receitaFora && !!(A.funnelTotal&&A.funnelTotal.ok);
+  // Funil cuja integração de vendas é mais nova que a janela escolhida: o gasto
+  // é do período inteiro e a receita só do trecho coberto. Não é erro de conta,
+  // mas o ROAS sai menor do que o real, então a tela precisa dizer isso.
+  const desde = currentFunnel().receitaDesde || null;
+  const janelaAntes = !!desde && sheetWindow().since < desde;
+  const respondeu = !!(A.funnelTotal&&A.funnelTotal.ok);
   const temFunnel = respondeu && A.funnelTotal.receita>0;
   const funnelReceita = respondeu ? A.funnelTotal.receita
                       : (ehTodos ? (T.receita+A.off.receita) : null);
@@ -3230,12 +3233,12 @@ function renderKPIs(A){
       <div class="kpi good"><div class="k-l">✅ Escalar</div><div class="k-v">${A.good.length}</div><div class="k-s">campanhas boas</div></div>
       <div class="kpi danger"><div class="k-l">🔴 Verba em risco</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia</div></div>
     </div>
-    ${receitaFora?`<div class="mini" style="margin-top:10px;color:#b08900">
-      <b>A receita deste funil ainda não é integrada.</b> As vendas do Código FBA acontecem em
-      <code>orafaelcoelho.com.br</code> e não entram no Supabase, que hoje cobre só IniciAmazon e o backend.
-      Por isso receita, ROAS, lucro e CPA aparecem em branco: seria falta de dado virando prejuízo na tela.
-      O <b>gasto está correto</b> e as listas de escalar e cortar continuam funcionando por CPM, CPC e CTR.</div>`:''}
-    ${(semReceita&&!receitaFora)?`<div class="mini" style="margin-top:10px;color:#c5221f">
+    ${janelaAntes?`<div class="mini" style="margin-top:10px;color:#b08900">
+      <b>A receita deste funil só existe a partir de ${_ddmm(desde)}.</b> Foi quando as vendas do Código FBA
+      passaram a entrar no Supabase. Nesta janela o <b>gasto é do período inteiro</b> e a receita é só do trecho
+      coberto, então ROAS, lucro e CPA aparecem <b>piores do que a realidade</b>. Para comparar de igual para igual,
+      escolha um período que comece em ${_ddmm(desde)} ou depois.</div>`:''}
+    ${semReceita?`<div class="mini" style="margin-top:10px;color:#c5221f">
       <b>A receita deste funil não carregou${S._revErro?` (${esc(S._revErro)})`:''}.</b> Receita e lucro ficam em branco de propósito:
       o número que existiria aqui viria da receita sem UTM do negócio inteiro, não deste funil,
       e apareceria como lucro alto com ROAS zero. Clique em <b>Atualizar</b> para tentar de novo.</div>`:''}
