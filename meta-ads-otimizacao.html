@@ -1302,9 +1302,22 @@ async function fetchSheetData(){
   S._sheetLoading=false; render();
 }
 function reloadSheet(){ S._sheet=null; fetchSheetData(); }
-// janela de datas (inclusiva) relativa ao maxDate da planilha
+/** Quantos dias da janela a planilha ainda não cobre (0 = em dia). */
+function planilhaAtrasada(){
+  const md=S._sheet&&S._sheet.maxDate; if(!md) return 0;
+  const w=sheetWindow(); if(md>=w.until) return 0;
+  return Math.round((new Date(w.until+'T00:00:00Z')-new Date(md+'T00:00:00Z'))/864e5);
+}
+// Janela de datas (inclusiva), sempre ancorada em HOJE no horário de Brasília.
+//
+// Antes a âncora era o último dia da planilha. Como a planilha atrasa e só é
+// carregada em algumas telas, o mesmo botão "Hoje" virava 10/09 na aba Direct
+// (sem planilha) e 08/09 na Visão Geral (com planilha), e a mesma métrica
+// aparecia com dois valores diferentes na mesma sessão. A âncora agora é fixa;
+// o atraso da planilha aparece como aviso em quem usa a planilha, ver
+// planilhaAtrasada().
 function sheetWindow(){
-  const md=(S._sheet&&S._sheet.maxDate)||brToday();
+  const md=brToday();
   if(S.period==='custom'){ const r=customRange(); return {since:r.since,until:r.until}; }
   if(S.period==='today') return {since:md,until:md};
   if(S.period==='yesterday'){ const y=addDaysStr(md,-1); return {since:y,until:y}; }
@@ -2142,7 +2155,8 @@ function renderSheetView(){
                 : (S._sheet&&S._sheet.maxDate);
   const head=`<div class="card"><div class="row" style="justify-content:space-between;align-items:flex-start">
     <div><h2 style="margin:0">${f.emoji} ${esc(f.label)} <span class="mini" style="text-transform:none;font-weight:400">${meta.sub}</span></h2>
-    ${maxDate?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}</div>
+    ${maxDate?`<div class="mini" style="margin-top:4px">Dados até <b>${esc(maxDate)}</b> · período: ${(()=>{const w=sheetWindow();return w.since===w.until?w.since:w.since+' a '+w.until;})()}</div>`:''}
+    ${(sec!=='direct'&&sec!=='roiclub'&&planilhaAtrasada()>0)?`<div class="mini" style="margin-top:4px;color:#b08900">⚠️ A planilha só tem dados até <b>${esc(S._sheet.maxDate)}</b>, ${planilhaAtrasada()} dia(s) atrás do fim do período. O gasto vem do Meta e está em dia; os leads da planilha ficam menores até ela atualizar.</div>`:''}</div>
     <button class="btn btn-gray btn-sm" style="padding:4px 10px" onclick="${meta.botao}">↻ Atualizar</button></div>
     <div class="row" style="margin-top:10px;gap:6px">${abas.map(([k,l])=>`<button class="subtab ${S.sheetTab===k?'on':''}" onclick="setSheetTab('${k}')">${l}</button>`).join('')}</div>`;
 
