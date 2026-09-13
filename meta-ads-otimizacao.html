@@ -528,6 +528,41 @@ function renderDiag(){
     </div>`;}).join('')}
   </div>`;
 }
+// ── Lista de contas ─────────────────────────────────────────────────────────
+// O /me/adaccounts devolve 400 inteiro quando QUALQUER conta da resposta está
+// acima da cota. Uma conta estourada (a ROI 01, que tem muita campanha e gasta
+// CPU) derrubava a listagem e, com ela, o dashboard todo, mesmo com as outras
+// 19 contas liberadas. Duas defesas: paginar de 25 em 25, para perder só a
+// página da conta barrada em vez de tudo, e guardar a última lista boa no
+// localStorage para conseguir subir mesmo se a listagem falhar inteira.
+const CONTAS_CACHE='mao_contas';
+function salvarContasCache(accs){
+  try{ localStorage.setItem(CONTAS_CACHE, JSON.stringify({quando:Date.now(), accs})); }catch(e){}
+}
+function lerContasCache(){
+  try{ const o=JSON.parse(localStorage.getItem(CONTAS_CACHE)||'null'); return (o&&Array.isArray(o.accs))?o.accs:[]; }catch(e){ return []; }
+}
+async function _listarContas(tk){
+  const out=[]; let url=`${GQL}/me/adaccounts?fields=`+
+    encodeURIComponent('id,name,account_id,currency,account_status,timezone_name,timezone_offset_hours_utc')+
+    `&limit=25&access_token=${encodeURIComponent(tk.token)}`;
+  let pg=0, ultimoErro=null;
+  while(url && pg<20){ pg++;
+    let j; try{ j=await (await fetch(url)).json(); }catch(e){ ultimoErro=e.message; break; }
+    if(j.error){
+      const code=j.error.code||0;
+      ultimoErro=`(${code}) ${j.error.message}`;
+      if(_ehLimite(code)) _marcarBarrada('lista de contas (página '+pg+')', ultimoErro);
+      break;   // a página seguinte usa cursor desta; sem ela não dá para seguir
+    }
+    (j.data||[]).forEach(a=>out.push({...a, _tokenId:tk.id, _tokenLabel:tk.label,
+      _tzOffset:(a.timezone_offset_hours_utc!=null?Number(a.timezone_offset_hours_utc):null), _tzName:a.timezone_name}));
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  if(!out.length && ultimoErro) throw new Error(ultimoErro);
+  return out;
+}
+
 // ── Conectar ────────────────────────────────────────────────────────────────
 async function connect(){
   if(!S.tokens.length){ alert('Nenhum token encontrado. Conecte no monitor/automação primeiro (os tokens são compartilhados).'); return; }
@@ -536,13 +571,20 @@ async function connect(){
   for(const tk of S.tokens){
     if(!tk.token) continue;
     try{
-      const r = await api('/me/adaccounts',{fields:'id,name,account_id,currency,account_status,timezone_name,timezone_offset_hours_utc',limit:500}, tk.token);
-      const accs = (r.data||[]).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label,
-        _tzOffset:(a.timezone_offset_hours_utc!=null?Number(a.timezone_offset_hours_utc):null), _tzName:a.timezone_name}));
+      const accs = await _listarContas(tk);
       S.accounts.push(...accs);
     }catch(e){ errs.push(`[${tk.label}] ${e.message}`); }
   }
   const seen=new Set(); S.accounts = S.accounts.filter(a=>{ if(seen.has(a.id)) return false; seen.add(a.id); return true; });
+  if(S.accounts.length) salvarContasCache(S.accounts);
+  if(!S.accounts.length){
+    // Última tentativa: a lista da sessão anterior. Ver _listarContas.
+    const cache=lerContasCache();
+    if(cache.length){
+      S.accounts=cache; errs.push('Usando a lista de contas salva da última conexão.');
+      console.warn('[connect] usando cache de contas',cache.length);
+    }
+  }
   if(!S.accounts.length){ if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
     alert('Nenhuma conta encontrada.'+(errs.length?'\n\n'+errs.join('\n'):'')+'\n\nClique em "🩺 Diagnosticar tokens" para ver o que está bloqueado em cada um.');
     diagTokens(); return; }
