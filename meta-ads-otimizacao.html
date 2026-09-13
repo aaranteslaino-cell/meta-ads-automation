@@ -251,7 +251,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, _campCache:null, _contasBarradas:{}, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -585,7 +585,7 @@ async function fetchInsights(parentId, level, tokenId, tzOffset){
     const j=await (await fetch(url)).json();
     if(j.error){
       const code=j.error.code||0;
-      if((code===4||code===17||code===32||code===613)&&rlErrs<3){ rlErrs++; await new Promise(r=>setTimeout(r,rlErrs*15000)); continue; }
+      if(_ehLimite(code)&&rlErrs<3){ rlErrs++; await new Promise(r=>setTimeout(r,_esperaLimite(code,rlErrs)*1000)); continue; }
       throw new Error(`(${code}) ${j.error.message}`);
     }
     if(j.data) all.push(...j.data);
@@ -593,6 +593,23 @@ async function fetchInsights(parentId, level, tokenId, tzOffset){
   }
   return all;
 }
+// ── Limite de chamadas do Meta ──────────────────────────────────────────────
+// 4/17/32/613 são limites de app e de usuário. A família 80000-80014 é o limite
+// POR CONTA DE ANÚNCIO (ads_insights), e é a que estoura neste app, que está no
+// tier `development_access`. Ela não estava na lista: o erro 80004 caía no
+// `throw` e a conta inteira sumia do resultado em silêncio, deixando o número
+// menor sem avisar ninguém. Agora é reconhecida, tem espera maior (a janela do
+// Meta é por hora, 15s não resolve) e a conta que continuar barrada é
+// registrada em S._contasBarradas para a tela poder dizer o que faltou.
+const _LIMITE_APP=[4,17,32,613];
+function _ehLimite(code){ return _LIMITE_APP.includes(code) || (code>=80000 && code<=80014); }
+function _esperaLimite(code, tentativa){ return (code>=80000&&code<=80014) ? Math.min(30*tentativa,120) : Math.min(15*tentativa,60); }
+function _marcarBarrada(nome, msg){
+  S._contasBarradas=S._contasBarradas||{};
+  if(nome) S._contasBarradas[nome]=msg||'limite de chamadas';
+}
+function limparBarradas(){ S._contasBarradas={}; }
+
 async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
   const tok=getTokenById(tokenId); if(!tok) throw new Error('Token não encontrado');
   const win=brWindow(S.period); const shift=BR_OFFSET-tzOffset;
@@ -611,7 +628,7 @@ async function fetchInsightsHourlyBRT(parentId, level, tokenId, tzOffset){
     const json=await (await fetch(url)).json();
     if(json.error){
       const code=json.error.code||0;
-      if((code===4||code===17||code===32||code===613)&&rlErrs<3){ rlErrs++; await new Promise(r=>setTimeout(r,rlErrs*15000)); continue; }
+      if(_ehLimite(code)&&rlErrs<3){ rlErrs++; await new Promise(r=>setTimeout(r,_esperaLimite(code,rlErrs)*1000)); continue; }
       throw new Error(`(${code}) ${json.error.message}`);
     }
     (json.data||[]).forEach(row=>{
@@ -701,10 +718,11 @@ async function fetchAdInsights(parentId, tokenId, campaignFilter){
     let j; try{ j=await (await fetch(url)).json(); }catch(e){ console.warn('[AdInsights] fetch error page',pages,parentId,e.message); errs++; break; }
     if(j.error){
       const code=j.error.code||0;
-      if((code===4||code===17||code===32||code===613)&& errs<3){
-        errs++; const wait=Math.min(errs*15,60); console.warn('[AdInsights] rate limit',parentId,'page',pages,'code',code,'wait',wait+'s');
+      if(_ehLimite(code)&& errs<3){
+        errs++; const wait=_esperaLimite(code,errs); console.warn('[AdInsights] rate limit',parentId,'page',pages,'code',code,'wait',wait+'s');
         await new Promise(r=>setTimeout(r,wait*1000)); continue;
       }
+      if(_ehLimite(code)) _marcarBarrada(parentId,'('+code+') limite de chamadas da conta');
       console.warn('[AdInsights] API error',parentId,'page',pages,j.error.message); break;
     }
     if(j.data) all.push(...j.data);
@@ -1081,6 +1099,40 @@ const RESUMO_CFG={
   ROICLUB: {termos:['ROICLUB','RCB'],  rotulo:'ROI CLUB', classificar:cn=>_classRoiClub(cn)},
   DIRECT:  {termos:['DIRECT'],         rotulo:'Direct',   classificar:cn=>_classExpert(cn)}
 };
+/**
+ * Campanhas de uma conta na janela, em cache por janela.
+ *
+ * Antes cada iniciativa pedia uma chamada por termo de busca: Sessão 2,
+ * ROI CLUB 2 e Direct 1, vezes 20 contas, davam 100 chamadas só para montar a
+ * Visão Geral. O app está no tier `development_access`, de cota baixa, e isso
+ * sozinho derrubava a conta no erro 80004. Agora é UMA chamada por conta, sem
+ * `filtering`, e os três funis filtram o mesmo resultado por nome no navegador.
+ * 100 chamadas viram 20, e trocar de iniciativa não gasta nenhuma.
+ */
+async function _campanhasDaConta(acc, jan){
+  S._campCache=S._campCache||{janela:null,porConta:{}};
+  if(!_mesmaJanela(S._campCache.janela,jan)) S._campCache={janela:jan,porConta:{}};
+  const cache=S._campCache.porConta;
+  if(cache[acc.id]) return cache[acc.id];
+  const tok=getTokenById(acc._tokenId); if(!tok) return (cache[acc.id]=[]);
+  const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name');
+  let url=`${GQL}/${acc.id}/insights?level=campaign&fields=${flds}&limit=500`+
+          `&time_range=${encodeURIComponent(JSON.stringify(jan))}&access_token=${encodeURIComponent(tok)}`;
+  const out=[]; let pg=0, tent=0;
+  while(url && pg<10){ pg++;
+    let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
+    if(j.error){
+      const code=j.error.code||0;
+      if(_ehLimite(code)&&tent<2){ tent++; pg--; await new Promise(r=>setTimeout(r,_esperaLimite(code,tent)*1000)); continue; }
+      if(_ehLimite(code)) _marcarBarrada(acc.name,'('+code+') limite de chamadas da conta');
+      console.warn('[campanhas]',acc.name,j.error.message); break;
+    }
+    (j.data||[]).forEach(r=>out.push(r));
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return (cache[acc.id]=out);
+}
+
 async function fetchFunilResumo(key){
   S._resumo=S._resumo||{}; S._resumoLoading=S._resumoLoading||{};
   if(S._resumoLoading[key]) return;
@@ -1090,34 +1142,25 @@ async function fetchFunilResumo(key){
   try{
     const accs=(S.accounts||[]), vistos={}, rows=[];
     const usdRate=parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40;
-    const flds=encodeURIComponent('spend,impressions,clicks,actions,campaign_id,campaign_name');
-    const LOTE=5;
+    const termos=cfg.termos.map(t=>_sa(t));
+    const LOTE=3;
     for(let i=0;i<accs.length;i+=LOTE){
       await Promise.all(accs.slice(i,i+LOTE).map(async acc=>{
-        const tok=getTokenById(acc._tokenId); if(!tok) return;
-        await Promise.all(cfg.termos.map(async termo=>{
-          const filt=encodeURIComponent(JSON.stringify([{field:'campaign.name',operator:'CONTAIN',value:termo}]));
-          let url=`${GQL}/${acc.id}/insights?level=campaign&fields=${flds}&limit=500&filtering=${filt}`+
-                  `&time_range=${encodeURIComponent(JSON.stringify(jan))}&access_token=${encodeURIComponent(tok)}`;
-          let pg=0;
-          while(url && pg<10){ pg++;
-            let j; try{ j=await (await fetch(url)).json(); }catch(e){ break; }
-            if(j.error){ console.warn('[resumo '+cfg.rotulo+']',acc.name,j.error.message); break; }
-            (j.data||[]).forEach(r=>{
-              const id=(r.campaign_id||'').trim();
-              if(!id||vistos[id]) return; vistos[id]=1;   // dois termos podem achar a mesma
-              const sp=parseFloat(r.spend)||0;
-              rows.push({ campaign_id:id, campaign:_cleanName(r.campaign_name||''),
-                funnel:cfg.classificar(r.campaign_name||''), expert:_classExpert(r.campaign_name||''),
-                spend:(acc.currency==='USD')?sp*usdRate:sp,
-                impr:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
-                pv:_actVal(r.actions,['landing_page_view']),
-                metaLeads:_actVal(r.actions,LEAD_ACTIONS),
-                conv:_actVal(r.actions,[CONV_ACTION]) });
-            });
-            url=(j.paging&&j.paging.next)?j.paging.next:null;
-          }
-        }));
+        const crus=await _campanhasDaConta(acc,jan);
+        crus.forEach(r=>{
+          const nome=r.campaign_name||'';
+          if(!termos.some(t=>_sa(nome).includes(t))) return;
+          const id=(r.campaign_id||'').trim();
+          if(!id||vistos[id]) return; vistos[id]=1;
+          const sp=parseFloat(r.spend)||0;
+          rows.push({ campaign_id:id, campaign:_cleanName(nome),
+            funnel:cfg.classificar(nome), expert:_classExpert(nome),
+            spend:(acc.currency==='USD')?sp*usdRate:sp,
+            impr:parseInt(r.impressions)||0, clicks:parseInt(r.clicks)||0,
+            pv:_actVal(r.actions,['landing_page_view']),
+            metaLeads:_actVal(r.actions,LEAD_ACTIONS),
+            conv:_actVal(r.actions,[CONV_ACTION]) });
+        });
       }));
     }
     S._resumo[key]={rows, janela:jan, quando:new Date()};
@@ -1388,6 +1431,8 @@ async function refreshFunnelTotal(){
 }
 async function refreshData(){
   if(S.refreshing) return;
+  // O aviso de conta barrada vale para esta busca, não para a anterior.
+  limparBarradas(); S._campCache=null;
   S.refreshing=true; render();
   try{
     S._rev=await fetchRevenue();
@@ -1634,6 +1679,11 @@ function renderControls(A){
         <button class="btn btn-gray" onclick="disconnect()">Desconectar</button>
       </div>
     </div>
+    ${(()=>{const b=Object.keys(S._contasBarradas||{}); return b.length?`<div class="mini" style="margin-top:8px;color:#c5221f">
+      🚦 <b>${b.length} conta(s) não responderam por limite de chamadas do Meta</b> e ficaram de fora dos números desta tela:
+      ${esc(b.slice(0,6).join(', '))}${b.length>6?' e mais '+(b.length-6):''}.
+      O limite é por conta de anúncio e costuma liberar em alguns minutos. Espere e clique em <b>Atualizar</b>;
+      os valores abaixo estão <b>incompletos</b> até lá.</div>`:''})()}
     <hr>
     <div class="row nav-bar init-bar" style="margin-bottom:8px;padding:8px 10px;border-radius:10px">
       <label style="margin:0 8px 0 0;color:#5a2ca0;font-weight:700">Iniciativa:</label>
