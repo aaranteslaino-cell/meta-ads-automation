@@ -1,0 +1,535 @@
+<meta charset="utf-8">
+<title>Meta Ads — Catálogos</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--txt:#1a1a1a;--mut:#666;--bor:#e3e5e9;--rox:#7b2ff7;--verd:#137333;--verm:#c5221f;--amar:#b08900}
+body.dark{--bg:#15171c;--card:#1d2027;--txt:#e8eaed;--mut:#9aa0a6;--bor:#2f333c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:18px}
+h1{font-size:22px;margin:0 0 2px;color:var(--rox)}
+h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+.sub{color:var(--mut);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bor);border-radius:12px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;font-weight:600}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--bor);border-radius:8px;background:var(--card);color:var(--txt);font:inherit}
+textarea{resize:vertical;min-height:60px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>div{flex:1;min-width:150px}
+.btn{padding:9px 16px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-rox{background:var(--rox);color:#fff}
+.btn-cinza{background:var(--bor);color:var(--txt)}
+.btn-verm{background:var(--verm);color:#fff}
+.btn-sm{padding:5px 10px;font-size:12px}
+.mini{font-size:12px;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--mut);padding:6px 8px;border-bottom:1px solid var(--bor)}
+td{padding:6px 8px;border-bottom:1px solid var(--bor);vertical-align:middle}
+.thumb{width:44px;height:78px;object-fit:cover;border-radius:6px;border:1px solid var(--bor);background:var(--bg)}
+.thumb.vazio{display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--mut)}
+.log{background:#0d1117;color:#c9d1d9;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px;border-radius:8px;max-height:340px;overflow:auto;white-space:pre-wrap}
+.log .ok{color:#7ee787}.log .er{color:#ff7b72}.log .av{color:#e3b341}.log .in{color:#79c0ff}
+.aviso{padding:10px 12px;border-radius:8px;font-size:13px;margin-top:10px}
+.aviso.erro{background:rgba(197,34,31,.12);color:var(--verm)}
+.aviso.ok{background:rgba(19,115,51,.12);color:var(--verd)}
+.aviso.alerta{background:rgba(176,137,0,.12);color:var(--amar)}
+.grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:8px;max-height:330px;overflow:auto;padding:4px}
+.grade img{width:100%;aspect-ratio:9/16;object-fit:cover;border-radius:8px;border:2px solid transparent;cursor:pointer}
+.grade img:hover{border-color:var(--rox)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal-in{background:var(--card);border-radius:12px;padding:16px;max-width:760px;width:100%;max-height:86vh;overflow:auto}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--bor);color:var(--txt)}
+.load{display:inline-block;width:12px;height:12px;border:2px solid var(--bor);border-top-color:var(--rox);border-radius:50%;animation:g .8s linear infinite;vertical-align:-2px}
+@keyframes g{to{transform:rotate(360deg)}}
+hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
+</style>
+
+<div class="wrap" id="app"></div>
+
+<script>
+const GQL='https://graph.facebook.com/v21.0';
+const CHAVE='mac_state';
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+// Um item de catálogo aqui não é produto de loja: é um criativo. O catálogo
+// existe para o Meta rodar anúncio de catálogo em cima dos criativos, então
+// preço, disponibilidade e condição são só o mínimo que a API exige.
+let S = carregar() || {};
+S.tokens      = Array.isArray(S.tokens)?S.tokens:[];
+S.tokenSel    = S.tokenSel||'';
+S.bizId       = S.bizId||'';
+S.modo        = S.modo||'novo';          // novo | existente
+S.catNome     = S.catNome||'';
+S.catId       = S.catId||'';
+S.contaImg    = S.contaImg||'';
+S.fixos       = Object.assign({
+  url:'', brand:'', description:'Últimas vagas!!',
+  preco:'1,00', currency:'BRL', availability:'in stock', condition:'new'
+}, S.fixos||{});
+S.copias      = S.copias||4;
+S.criarSets   = S.criarSets!==false;
+S.grupos      = Array.isArray(S.grupos)&&S.grupos.length?S.grupos:[novoGrupo()];
+S.dark        = !!S.dark;
+
+// não persistem
+let BIZ=[], CONTAS=[], CATALOGOS=null, CARREGANDO_CAT=false;
+let IMAGENS=null, CARREGANDO_IMG=false, PICKER=null;
+let LOG=[], RODANDO=false, PARAR=false, RESULTADO=null;
+
+function novoGrupo(){ return {nome:'', img:'', copias:null}; }
+function carregar(){ try{ return JSON.parse(localStorage.getItem(CHAVE)); }catch(e){ return null; } }
+function salvar(){ try{ localStorage.setItem(CHAVE, JSON.stringify(S)); }catch(e){} }
+
+// ── Tokens ──────────────────────────────────────────────────────────────────
+// Mesma convenção das outras ferramentas: o token fica no localStorage da
+// automação, do monitor ou do dashboard, e é compartilhado entre elas.
+function importarTokens(){
+  const achados=[];
+  ['maa_state','mam_state','mao_state'].forEach(k=>{
+    let src; try{ src=JSON.parse(localStorage.getItem(k)); }catch(e){ return; }
+    if(!src) return;
+    (src.tokens||[]).forEach(t=>{
+      const val=t.token||t.value; if(!val) return;
+      if(achados.some(x=>x.token===val)) return;
+      achados.push({id:String(t.id||achados.length+1), nome:t.nome||t.label||('token '+(achados.length+1)), token:val});
+    });
+  });
+  achados.forEach(t=>{ if(!S.tokens.some(x=>x.token===t.token)) S.tokens.push(t); });
+  if(!S.tokenSel && S.tokens.length) S.tokenSel=S.tokens[0].id;
+  salvar();
+}
+function tokenAtual(){ const t=S.tokens.find(x=>x.id===S.tokenSel); return t?t.token:''; }
+function addTokenManual(v){
+  v=String(v||'').trim(); if(!v) return;
+  if(S.tokens.some(x=>x.token===v)){ alert('Esse token já está na lista.'); return; }
+  const id='m'+Date.now();
+  S.tokens.push({id, nome:'colado à mão', token:v}); S.tokenSel=id; salvar(); render();
+}
+function removerToken(id){
+  S.tokens=S.tokens.filter(t=>t.id!==id);
+  if(S.tokenSel===id) S.tokenSel=S.tokens.length?S.tokens[0].id:'';
+  salvar(); render();
+}
+
+// ── API ─────────────────────────────────────────────────────────────────────
+async function gGet(path, params){
+  const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  const qs=Object.entries(params||{}).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
+  const url=`${GQL}${path}?${qs?qs+'&':''}access_token=${encodeURIComponent(tok)}`;
+  const j=await (await fetch(url)).json();
+  if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+  return j;
+}
+async function gPost(path, body){
+  const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  const fd=new FormData();
+  Object.entries(body||{}).forEach(([k,v])=>fd.append(k, typeof v==='object'?JSON.stringify(v):v));
+  fd.append('access_token', tok);
+  const j=await (await fetch(`${GQL}${path}`,{method:'POST',body:fd})).json();
+  if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+  return j;
+}
+/** Percorre todas as páginas de uma edge. */
+async function gTudo(path, params, limite){
+  const tok=tokenAtual();
+  const qs=Object.entries(params||{}).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
+  let url=`${GQL}${path}?${qs?qs+'&':''}access_token=${encodeURIComponent(tok)}`;
+  const out=[]; let pg=0;
+  while(url && pg<40 && (!limite||out.length<limite)){ pg++;
+    const j=await (await fetch(url)).json();
+    if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+    out.push(...(j.data||[]));
+    url=(j.paging&&j.paging.next)?j.paging.next:null;
+  }
+  return out;
+}
+
+// ── Conectar ────────────────────────────────────────────────────────────────
+async function conectar(){
+  if(!tokenAtual()){ alert('Escolha ou cole um token primeiro.'); return; }
+  logar('in','Lendo contas e negócios…'); render();
+  try{
+    const contas=await gTudo('/me/adaccounts',{fields:'id,name,currency,business{id,name}',limit:50});
+    CONTAS=contas;
+    const mapa={};
+    contas.forEach(c=>{ const b=c.business; if(b) mapa[b.id]=b.name; });
+    BIZ=Object.entries(mapa).map(([id,name])=>({id,name}));
+    if(!S.bizId && BIZ.length) S.bizId=BIZ[0].id;
+    if(!S.contaImg && contas.length) S.contaImg=contas[0].id;
+    salvar();
+    logar('ok',`${contas.length} conta(s) e ${BIZ.length} negócio(s).`);
+    await listarCatalogos();
+  }catch(e){ logar('er','Falhou: '+e.message); }
+  render();
+}
+
+async function listarCatalogos(){
+  if(!S.bizId) return;
+  CARREGANDO_CAT=true; render();
+  try{
+    CATALOGOS=await gTudo(`/${S.bizId}/owned_product_catalogs`,{fields:'id,name,vertical,product_count',limit:100});
+    CATALOGOS.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+    logar('ok',`${CATALOGOS.length} catálogo(s) no negócio.`);
+  }catch(e){ CATALOGOS=[]; logar('er','Não consegui listar catálogos: '+e.message); }
+  CARREGANDO_CAT=false; render();
+}
+
+// ── Imagens da conta ────────────────────────────────────────────────────────
+// O catálogo precisa de uma URL pública de imagem. As imagens já enviadas para
+// a conta de anúncio servem direto, e é de lá que vêm os criativos que rodam.
+async function carregarImagens(){
+  if(!S.contaImg){ alert('Escolha a conta de anúncio das imagens.'); return; }
+  CARREGANDO_IMG=true; render();
+  try{
+    IMAGENS=await gTudo(`/${S.contaImg}/adimages`,{fields:'hash,name,url,width,height',limit:100},300);
+    logar('ok',`${IMAGENS.length} imagem(ns) na conta.`);
+  }catch(e){ IMAGENS=[]; logar('er','Não consegui ler as imagens: '+e.message); }
+  CARREGANDO_IMG=false; render();
+}
+async function enviarImagem(idx, file){
+  if(!file) return;
+  if(!S.contaImg){ alert('Escolha a conta de anúncio antes de enviar imagem.'); return; }
+  logar('in',`Enviando ${file.name}…`); render();
+  try{
+    const fd=new FormData();
+    fd.append('filename', file);
+    fd.append('access_token', tokenAtual());
+    const j=await (await fetch(`${GQL}/${S.contaImg}/adimages`,{method:'POST',body:fd})).json();
+    if(j.error) throw new Error(j.error.message);
+    const primeira=Object.values(j.images||{})[0];
+    if(!primeira||!primeira.url) throw new Error('A API não devolveu a URL da imagem.');
+    S.grupos[idx].img=primeira.url; salvar();
+    logar('ok',`Imagem enviada e ligada ao grupo ${idx+1}.`);
+  }catch(e){ logar('er','Envio falhou: '+e.message); }
+  render();
+}
+
+// ── Grupos ──────────────────────────────────────────────────────────────────
+function setGrupo(i,campo,valor){ S.grupos[i][campo]= campo==='copias' ? (valor===''?null:Math.max(1,parseInt(valor)||1)) : valor; salvar(); if(campo!=='nome'&&campo!=='img') render(); }
+function addGrupo(){ S.grupos.push(novoGrupo()); salvar(); render(); }
+function delGrupo(i){ S.grupos.splice(i,1); if(!S.grupos.length) S.grupos.push(novoGrupo()); salvar(); render(); }
+function abrirPicker(i){ PICKER=i; if(IMAGENS==null&&!CARREGANDO_IMG) carregarImagens(); render(); }
+function fecharPicker(){ PICKER=null; render(); }
+function escolherImagem(url){ if(PICKER!=null){ S.grupos[PICKER].img=url; salvar(); } PICKER=null; render(); }
+function copiasDe(g){ return g.copias||S.copias||1; }
+function gruposValidos(){ return S.grupos.filter(g=>String(g.nome||'').trim() && String(g.img||'').trim()); }
+function totalItens(){ return gruposValidos().reduce((s,g)=>s+copiasDe(g),0); }
+
+// ── Log ─────────────────────────────────────────────────────────────────────
+function logar(tipo,msg){ LOG.push({tipo,msg,hora:new Date().toLocaleTimeString('pt-BR')}); if(LOG.length>500) LOG.shift(); }
+function limparLog(){ LOG=[]; RESULTADO=null; render(); }
+function pedirParada(){ PARAR=true; logar('av','Parada pedida. Termino o item atual e paro.'); render(); }
+
+// ── Execução ────────────────────────────────────────────────────────────────
+// retailer_id precisa ser único dentro do catálogo. Os catálogos que já existem
+// usam uma sequência aleatória curta, então mantive o mesmo formato.
+function novoRetailerId(){
+  const abc='abcdefghijklmnopqrstuvwxyz0123456789'; let s='';
+  for(let i=0;i<10;i++) s+=abc[Math.floor(Math.random()*abc.length)];
+  return s;
+}
+function precoEmCentavos(txt){
+  const n=parseFloat(String(txt||'').replace(/\./g,'').replace(',','.'));
+  return Math.max(1, Math.round((isNaN(n)?1:n)*100));
+}
+function validar(){
+  const e=[];
+  if(!tokenAtual()) e.push('Escolha um token.');
+  if(S.modo==='novo'){
+    if(!S.bizId) e.push('Escolha o negócio que vai ser dono do catálogo.');
+    if(!String(S.catNome||'').trim()) e.push('Dê um nome ao catálogo.');
+  } else if(!S.catId) e.push('Escolha o catálogo de destino.');
+  if(!String(S.fixos.url||'').trim()) e.push('Preencha a URL de destino.');
+  else if(!/^https?:\/\//i.test(S.fixos.url.trim())) e.push('A URL de destino precisa começar com http:// ou https://');
+  if(!String(S.fixos.brand||'').trim()) e.push('Preencha o texto do anúncio (vai no campo "brand").');
+  const g=gruposValidos();
+  if(!g.length) e.push('Cadastre pelo menos um grupo com nome e imagem.');
+  const nomes=g.map(x=>x.nome.trim().toLowerCase());
+  if(new Set(nomes).size!==nomes.length) e.push('Há grupos com o mesmo nome. O conjunto de produtos filtra por nome, então cada grupo precisa ser único.');
+  return e;
+}
+
+async function executar(){
+  const erros=validar();
+  if(erros.length){ alert('Falta ajustar:\n\n• '+erros.join('\n• ')); return; }
+  const grupos=gruposValidos();
+  const total=totalItens();
+  const onde = S.modo==='novo'
+    ? `criar o catálogo "${S.catNome.trim()}"`
+    : `usar o catálogo ${S.catId}`;
+  const extra = S.criarSets ? ` e ${grupos.length} conjunto(s) de produtos` : '';
+  if(!confirm(`Vou ${onde} e gravar ${total} item(ns) em ${grupos.length} grupo(s)${extra}.\n\nIsso escreve de verdade no seu Commerce Manager. Confirma?`)) return;
+
+  RODANDO=true; PARAR=false; RESULTADO=null; LOG=[]; render();
+  const t0=Date.now();
+  let catId=S.catId, criados=0, falhas=0, sets=0;
+  try{
+    // 1. catálogo
+    if(S.modo==='novo'){
+      logar('in',`Criando catálogo "${S.catNome}" no negócio ${S.bizId}…`); render();
+      const r=await gPost(`/${S.bizId}/owned_product_catalogs`,{name:S.catNome.trim(), vertical:'commerce'});
+      catId=r.id;
+      logar('ok',`Catálogo criado: ${catId}`);
+    } else {
+      logar('in',`Usando o catálogo existente ${catId}.`);
+    }
+    render();
+
+    // 2. itens
+    const centavos=precoEmCentavos(S.fixos.preco);
+    for(let gi=0; gi<grupos.length; gi++){
+      if(PARAR) break;
+      const g=grupos[gi], n=copiasDe(g);
+      logar('in',`Grupo ${gi+1}/${grupos.length}: "${g.nome}" · ${n} cópia(s)`); render();
+      for(let c=0;c<n;c++){
+        if(PARAR) break;
+        try{
+          await gPost(`/${catId}/products`,{
+            retailer_id: novoRetailerId(),
+            name: g.nome.trim(),
+            description: S.fixos.description||'',
+            url: S.fixos.url.trim(),
+            image_url: g.img.trim(),
+            price: centavos,
+            currency: S.fixos.currency||'BRL',
+            availability: S.fixos.availability||'in stock',
+            condition: S.fixos.condition||'new',
+            brand: S.fixos.brand.trim()
+          });
+          criados++;
+        }catch(e){
+          falhas++;
+          logar('er',`  cópia ${c+1} falhou: ${e.message}`);
+          if(falhas>=5){ logar('er','Cinco falhas seguidas. Parando para você conferir.'); PARAR=true; break; }
+        }
+        if(c%4===3) render();
+        await new Promise(r=>setTimeout(r,120));
+      }
+      logar('ok',`  "${g.nome}" pronto (${criados} item(ns) no total até aqui)`); render();
+    }
+
+    // 3. conjuntos de produtos
+    if(S.criarSets && !PARAR){
+      logar('in','Criando os conjuntos de produtos…'); render();
+      for(const g of grupos){
+        if(PARAR) break;
+        try{
+          const r=await gPost(`/${catId}/product_sets`,{
+            name:g.nome.trim(),
+            filter:{ name:{ eq:g.nome.trim() } }
+          });
+          sets++; logar('ok',`  conjunto "${g.nome}" → ${r.id}`);
+        }catch(e){ logar('er',`  conjunto "${g.nome}" falhou: ${e.message}`); }
+        await new Promise(r=>setTimeout(r,150));
+      }
+      render();
+    }
+
+    const seg=Math.round((Date.now()-t0)/1000);
+    RESULTADO={catId, criados, falhas, sets, seg, parado:PARAR};
+    logar(PARAR?'av':'ok', PARAR
+      ? `Parado a pedido. ${criados} item(ns) criado(s) em ${seg}s.`
+      : `Pronto: ${criados} item(ns) e ${sets} conjunto(s) em ${seg}s.`);
+    if(S.modo==='novo'){ S.modo='existente'; S.catId=catId; CATALOGOS=null; salvar(); listarCatalogos(); }
+  }catch(e){
+    logar('er','Parou com erro: '+e.message);
+    RESULTADO={catId, criados, falhas, sets, seg:Math.round((Date.now()-t0)/1000), erro:e.message};
+  }
+  RODANDO=false; render();
+}
+
+// ── Render ──────────────────────────────────────────────────────────────────
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function set(campo,v){ S[campo]=v; salvar(); render(); }
+function setFixo(campo,v){ S.fixos[campo]=v; salvar(); }
+function toggleDark(){ S.dark=!S.dark; salvar(); render(); }
+
+function render(){
+  document.body.className=S.dark?'dark':'';
+  const conectado=CONTAS.length>0;
+  document.getElementById('app').innerHTML=
+    cabecalho()+cardToken()+(conectado?(cardDestino()+cardFixos()+cardGrupos()+cardExecutar()):'')+cardLog()+(PICKER!=null?modalImagens():'');
+}
+
+function cabecalho(){
+  return `<div class="row" style="justify-content:space-between;align-items:center">
+    <div><h1>Meta Ads — Catálogos</h1>
+      <p class="sub">Cria catálogo, itens e conjuntos de produtos para anúncio de catálogo. Um item aqui é um criativo, não produto de loja.</p></div>
+    <button class="btn btn-cinza btn-sm" onclick="toggleDark()">${S.dark?'☀️':'🌙'}</button>
+  </div>`;
+}
+
+function cardToken(){
+  const conectado=CONTAS.length>0;
+  return `<div class="card">
+    <h2>1 · Token</h2>
+    ${S.tokens.length?`<div class="row" style="align-items:flex-end">
+      <div style="flex:2"><label>Token em uso</label>
+        <select onchange="set('tokenSel',this.value)">
+          ${S.tokens.map(t=>`<option value="${esc(t.id)}" ${S.tokenSel===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.token.slice(0,14))}…</option>`).join('')}
+        </select></div>
+      <div style="flex:0 0 auto">
+        <button class="btn btn-rox" onclick="conectar()">${conectado?'Reconectar':'Conectar'}</button>
+        <button class="btn btn-cinza btn-sm" onclick="removerToken('${esc(S.tokenSel)}')" title="Tira este token da lista">remover</button>
+      </div>
+    </div>`:`<div class="aviso alerta">Nenhum token encontrado no navegador. Cole um abaixo, ou abra a automação/monitor nesta mesma origem para compartilhar.</div>`}
+    <div class="row" style="margin-top:10px">
+      <div style="flex:3"><label>Colar um token à mão</label>
+        <input id="tokmanual" placeholder="EAA…" ></div>
+      <div style="flex:0 0 auto"><button class="btn btn-cinza" onclick="addTokenManual(document.getElementById('tokmanual').value)">Adicionar</button></div>
+    </div>
+    <div class="mini" style="margin-top:8px">Precisa das permissões <b>catalog_management</b> e <b>business_management</b>. Sem elas a API recusa a criação do catálogo.</div>
+    ${conectado?`<div class="aviso ok">Conectado · ${CONTAS.length} conta(s) · ${BIZ.length} negócio(s)</div>`:''}
+  </div>`;
+}
+
+function cardDestino(){
+  const lista=CATALOGOS||[];
+  return `<div class="card">
+    <h2>2 · Onde vai o catálogo</h2>
+    <div class="row">
+      <div><label>Negócio dono</label>
+        <select onchange="set('bizId',this.value);listarCatalogos()">
+          ${BIZ.map(b=>`<option value="${esc(b.id)}" ${S.bizId===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
+        </select></div>
+      <div><label>Ação</label>
+        <select onchange="set('modo',this.value)">
+          <option value="novo" ${S.modo==='novo'?'selected':''}>Criar catálogo novo</option>
+          <option value="existente" ${S.modo==='existente'?'selected':''}>Adicionar itens a um catálogo que já existe</option>
+        </select></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      ${S.modo==='novo'
+        ? `<div style="flex:2"><label>Nome do catálogo novo</label>
+             <input value="${esc(S.catNome)}" oninput="S.catNome=this.value;salvar()" placeholder="CATALOGO NATH FRONT 06"></div>`
+        : `<div style="flex:2"><label>Catálogo de destino ${CARREGANDO_CAT?'<span class="load"></span>':''}</label>
+             <select onchange="set('catId',this.value)">
+               <option value="">escolher…</option>
+               ${lista.map(c=>`<option value="${esc(c.id)}" ${S.catId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens</option>`).join('')}
+             </select></div>`}
+      <div><label>Conta de anúncio das imagens</label>
+        <select onchange="set('contaImg',this.value);IMAGENS=null">
+          ${CONTAS.map(c=>`<option value="${esc(c.id)}" ${S.contaImg===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="mini" style="margin-top:8px">O catálogo nasce no vertical <b>commerce</b>, igual aos ${lista.length||'seus'} que já existem nesse negócio.</div>
+  </div>`;
+}
+
+function cardFixos(){
+  const f=S.fixos;
+  return `<div class="card">
+    <h2>3 · Campos iguais em todos os itens</h2>
+    <div class="row">
+      <div style="flex:2"><label>URL de destino (para onde o anúncio manda)</label>
+        <input value="${esc(f.url)}" oninput="setFixo('url',this.value)" placeholder="https://iniciamazon.com.br/..."></div>
+      <div><label>Preço</label><input value="${esc(f.preco)}" oninput="setFixo('preco',this.value)" placeholder="1,00"></div>
+      <div style="flex:0 0 110px"><label>Moeda</label>
+        <select onchange="setFixo('currency',this.value)">
+          ${['BRL','USD','EUR'].map(m=>`<option ${f.currency===m?'selected':''}>${m}</option>`).join('')}
+        </select></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex:2"><label>Texto do anúncio (campo <code>brand</code>)</label>
+        <input value="${esc(f.brand)}" oninput="setFixo('brand',this.value)" placeholder="você precisa ver essa nova descoberta!"></div>
+      <div><label>Descrição</label>
+        <input value="${esc(f.description)}" oninput="setFixo('description',this.value)" placeholder="Últimas vagas!!"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div><label>Disponibilidade</label>
+        <select onchange="setFixo('availability',this.value)">
+          ${['in stock','out of stock','preorder','available for order'].map(v=>`<option ${f.availability===v?'selected':''}>${v}</option>`).join('')}
+        </select></div>
+      <div><label>Condição</label>
+        <select onchange="setFixo('condition',this.value)">
+          ${['new','refurbished','used'].map(v=>`<option ${f.condition===v?'selected':''}>${v}</option>`).join('')}
+        </select></div>
+      <div><label>Cópias por grupo (padrão)</label>
+        <input type="number" min="1" max="50" value="${esc(S.copias)}" oninput="set('copias',Math.max(1,parseInt(this.value)||1))"></div>
+    </div>
+    <div class="mini" style="margin-top:8px">Preço, disponibilidade e condição são exigência da API de catálogo. Nos seus catálogos atuais eles ficam em R$1,00 · in stock · new.</div>
+  </div>`;
+}
+
+function cardGrupos(){
+  const linhas=S.grupos.map((g,i)=>`<tr>
+    <td style="width:56px">${g.img
+      ? `<img class="thumb" src="${esc(g.img)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb vazio',textContent:'⚠'}))">`
+      : `<div class="thumb vazio">+</div>`}</td>
+    <td style="min-width:210px"><input value="${esc(g.nome)}" oninput="setGrupo(${i},'nome',this.value)" placeholder="16 - QUERO"></td>
+    <td style="width:230px"><input value="${esc(g.img)}" oninput="setGrupo(${i},'img',this.value)" placeholder="https://… (ou escolha ao lado)"></td>
+    <td style="width:74px"><input type="number" min="1" max="50" value="${g.copias==null?'':g.copias}" oninput="setGrupo(${i},'copias',this.value)" placeholder="${esc(S.copias)}"></td>
+    <td style="width:170px">
+      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i})">🖼 escolher</button>
+      <label class="btn btn-cinza btn-sm" style="display:inline-block;margin:0">⬆ enviar
+        <input type="file" accept="image/*" style="display:none" onchange="enviarImagem(${i}, this.files[0])"></label>
+      <button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button>
+    </td></tr>`).join('');
+  return `<div class="card">
+    <h2>4 · Grupos de criativo</h2>
+    <div class="mini" style="margin-bottom:10px">Cada grupo vira N itens iguais dentro do catálogo e, se você marcar abaixo, um conjunto de produtos filtrando por esse nome. É assim que os seus catálogos de hoje estão montados: 6 grupos de 4 cópias, 24 itens.</div>
+    <table><thead><tr><th></th><th>Nome do grupo</th><th>URL da imagem</th><th>Cópias</th><th></th></tr></thead>
+      <tbody>${linhas}</tbody></table>
+    <div class="row" style="margin-top:12px;align-items:center">
+      <div style="flex:0 0 auto"><button class="btn btn-cinza btn-sm" onclick="addGrupo()">+ grupo</button></div>
+      <div style="flex:1" class="mini">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--txt);text-transform:none">
+          <input type="checkbox" style="width:auto" ${S.criarSets?'checked':''} onchange="set('criarSets',this.checked)">
+          criar um conjunto de produtos por grupo
+        </label>
+      </div>
+      <div style="flex:0 0 auto"><span class="pill">${gruposValidos().length} grupo(s) · ${totalItens()} item(ns)</span></div>
+    </div>
+  </div>`;
+}
+
+function cardExecutar(){
+  const erros=validar();
+  return `<div class="card">
+    <h2>5 · Executar</h2>
+    ${erros.length?`<div class="aviso erro"><b>Falta ajustar:</b><br>• ${erros.map(esc).join('<br>• ')}</div>`:
+      `<div class="aviso ok">Pronto para criar <b>${totalItens()} item(ns)</b> em <b>${gruposValidos().length} grupo(s)</b>${S.criarSets?` e <b>${gruposValidos().length} conjunto(s)</b>`:''}.</div>`}
+    <div class="row" style="margin-top:12px;align-items:center">
+      <div style="flex:0 0 auto">
+        <button class="btn btn-rox" onclick="executar()" ${RODANDO||erros.length?'disabled':''}>${RODANDO?'<span class="load"></span> criando…':'Criar no Meta'}</button>
+        ${RODANDO?`<button class="btn btn-verm" onclick="pedirParada()">■ Parar</button>`:''}
+      </div>
+      <div style="flex:1" class="mini">Cada item é uma chamada à API, com uma pausa curta entre elas. ${totalItens()} itens levam cerca de ${Math.max(1,Math.round(totalItens()*0.35))}s.</div>
+    </div>
+    ${RESULTADO?`<div class="aviso ${RESULTADO.erro?'erro':(RESULTADO.parado?'alerta':'ok')}" style="margin-top:10px">
+      Catálogo <b>${esc(RESULTADO.catId||'—')}</b> · ${RESULTADO.criados} item(ns) criado(s)${RESULTADO.falhas?` · ${RESULTADO.falhas} falha(s)`:''}${RESULTADO.sets?` · ${RESULTADO.sets} conjunto(s)`:''} em ${RESULTADO.seg}s.
+      ${RESULTADO.catId?`<br><a href="https://business.facebook.com/commerce/catalogs/${esc(RESULTADO.catId)}/items" target="_blank" rel="noopener">abrir no Commerce Manager →</a>`:''}
+    </div>`:''}
+  </div>`;
+}
+
+function cardLog(){
+  if(!LOG.length) return '';
+  return `<div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+      <h2 style="margin:0">Log</h2>
+      <button class="btn btn-cinza btn-sm" onclick="limparLog()">limpar</button>
+    </div>
+    <div class="log" id="logbox">${LOG.map(l=>`<span class="${esc(l.tipo)}">[${esc(l.hora)}] ${esc(l.msg)}</span>`).join('\n')}</div>
+  </div>`;
+}
+
+function modalImagens(){
+  const imgs=IMAGENS||[];
+  return `<div class="modal" onclick="if(event.target===this)fecharPicker()"><div class="modal-in">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <h2 style="margin:0">Imagens da conta</h2>
+      <div><button class="btn btn-cinza btn-sm" onclick="IMAGENS=null;carregarImagens()">↻ recarregar</button>
+      <button class="btn btn-cinza btn-sm" onclick="fecharPicker()">fechar</button></div>
+    </div>
+    <div class="mini" style="margin:6px 0 10px">Clique para usar no grupo ${PICKER+1}. São as imagens já enviadas para a conta selecionada.</div>
+    ${CARREGANDO_IMG?'<div class="mini"><span class="load"></span> carregando…</div>'
+      : imgs.length?`<div class="grade">${imgs.map(i=>`<img src="${esc(i.url)}" title="${esc(i.width+'x'+i.height)}" onclick="escolherImagem('${esc(i.url)}')">`).join('')}</div>`
+      : '<div class="aviso alerta">Nenhuma imagem nessa conta, ou a leitura falhou. Veja o log.</div>'}
+  </div></div>`;
+}
+
+// ── Início ──────────────────────────────────────────────────────────────────
+importarTokens();
+render();
+</script>
