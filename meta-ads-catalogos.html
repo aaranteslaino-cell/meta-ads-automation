@@ -27,6 +27,9 @@ th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--mut);padd
 td{padding:6px 8px;border-bottom:1px solid var(--bor);vertical-align:middle}
 .thumb{width:44px;height:78px;object-fit:cover;border-radius:6px;border:1px solid var(--bor);background:var(--bg)}
 .thumb.vazio{display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--mut)}
+.drop{display:inline-block;cursor:pointer;border-radius:8px;padding:2px}
+.drop:hover .thumb{border-color:var(--rox)}
+.drop.on{outline:2px dashed var(--rox);outline-offset:1px}
 .log{background:#0d1117;color:#c9d1d9;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px;border-radius:8px;max-height:340px;overflow:auto;white-space:pre-wrap}
 .log .ok{color:#7ee787}.log .er{color:#ff7b72}.log .av{color:#e3b341}.log .in{color:#79c0ff}
 .aviso{padding:10px 12px;border-radius:8px;font-size:13px;margin-top:10px}
@@ -268,6 +271,15 @@ async function enviarVideo(idx, file){
     logar('ok',`Vídeo enviado e ligado ao grupo ${idx+1}.`);
   }catch(e){ logar('er','Envio do vídeo falhou: '+e.message); }
   render();
+}
+
+/** Arrastar e soltar o arquivo em cima da miniatura, como no Commerce Manager. */
+function soltarArquivo(ev, idx, tipo){
+  ev.preventDefault();
+  const el=ev.currentTarget; if(el&&el.classList) el.classList.remove('on');
+  const f=(ev.dataTransfer&&ev.dataTransfer.files||[])[0];
+  if(!f) return;
+  if(tipo==='img') enviarImagem(idx,f); else enviarVideo(idx,f);
 }
 
 async function enviarImagem(idx, file){
@@ -624,31 +636,43 @@ function cardFixos(){
 }
 
 function cardGrupos(){
-  const cel=(url,vazio)=> url
-    ? `<img class="thumb" src="${esc(url)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb vazio',textContent:'⚠'}))">`
-    : `<div class="thumb vazio">${vazio}</div>`;
+  // A miniatura é o próprio botão de subir arquivo: clicar abre o seletor do
+  // computador e dá para arrastar em cima. A biblioteca da conta fica como
+  // segunda opção, para reaproveitar criativo que já rodou.
+  const cel=(i,tipo,url,vazio)=>{
+    const id=`arq_${tipo}_${i}`;
+    const accept=tipo==='img'?'image/*':'video/*';
+    const chama=tipo==='img'?`enviarImagem(${i}, this.files[0])`:`enviarVideo(${i}, this.files[0])`;
+    const limpar=tipo==='img'
+      ? `setGrupo(${i},'img','');render()`
+      : `setGrupo(${i},'video','');setGrupo(${i},'videoThumb','');render()`;
+    const tem=!!url;
+    return `<td style="width:60px">
+      <label for="${id}" class="drop" title="Clique ou arraste o arquivo do seu computador"
+        ondragover="event.preventDefault();this.classList.add('on')"
+        ondragleave="this.classList.remove('on')"
+        ondrop="soltarArquivo(event,${i},'${tipo}')">
+        ${tem?`<img class="thumb" src="${esc(url)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb vazio',textContent:'⚠'}))">`
+             :`<div class="thumb vazio">${vazio}</div>`}
+      </label>
+      <input id="${id}" type="file" accept="${accept}" style="display:none" onchange="${chama}">
+    </td>
+    <td style="width:146px">
+      <label for="${id}" class="btn btn-rox btn-sm" style="display:inline-block;margin:0;cursor:pointer">⬆ arquivo</label>
+      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i},'${tipo}')" title="Reaproveitar da biblioteca da conta">biblioteca</button>
+      ${tem?`<button class="btn btn-cinza btn-sm" onclick="${limpar}" title="Tirar">✕</button>`:''}
+    </td>`;
+  };
   const linhas=S.grupos.map((g,i)=>`<tr>
     <td style="min-width:190px"><input value="${esc(g.nome)}" oninput="setGrupo(${i},'nome',this.value)" placeholder="16 - QUERO"></td>
-    <td style="width:56px">${cel(g.img,'🖼')}</td>
-    <td style="width:150px">
-      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i},'img')">escolher</button>
-      <label class="btn btn-cinza btn-sm" style="display:inline-block;margin:0">⬆
-        <input type="file" accept="image/*" style="display:none" onchange="enviarImagem(${i}, this.files[0])"></label>
-      ${g.img?`<button class="btn btn-cinza btn-sm" onclick="setGrupo(${i},'img','');render()" title="Tirar imagem">✕</button>`:''}
-    </td>
-    <td style="width:56px">${cel(g.videoThumb,'🎬')}</td>
-    <td style="width:150px">
-      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i},'video')">escolher</button>
-      <label class="btn btn-cinza btn-sm" style="display:inline-block;margin:0">⬆
-        <input type="file" accept="video/*" style="display:none" onchange="enviarVideo(${i}, this.files[0])"></label>
-      ${g.video?`<button class="btn btn-cinza btn-sm" onclick="setGrupo(${i},'video','');setGrupo(${i},'videoThumb','');render()" title="Tirar vídeo">✕</button>`:''}
-    </td>
+    ${cel(i,'img',g.img,'🖼')}
+    ${cel(i,'video',g.videoThumb,'🎬')}
     <td style="width:70px"><input type="number" min="1" max="50" value="${g.variantes==null?(g.copias==null?'':g.copias):g.variantes}" oninput="setGrupo(${i},'variantes',this.value)" placeholder="${esc(S.variantes)}"></td>
     <td style="width:40px"><button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button></td>
     </tr>`).join('');
   return `<div class="card">
     <h2>4 · Grupos de criativo</h2>
-    <div class="mini" style="margin-bottom:10px">Arraste não, mas o botão ⬆ envia o arquivo direto do seu computador, igual ao Commerce Manager (imagem até 8 MB, vídeo até 100 MB). Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
+    <div class="mini" style="margin-bottom:10px">Clique na miniatura ou arraste o arquivo em cima dela para subir do seu computador, igual ao Commerce Manager (imagem até 8 MB, vídeo até 100 MB). O botão <b>biblioteca</b> é para reaproveitar criativo que já rodou. Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
     <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th colspan="2">Vídeo</th><th>Variantes</th><th></th></tr></thead>
       <tbody>${linhas}</tbody></table>
     <div class="row" style="margin-top:12px;align-items:center">
