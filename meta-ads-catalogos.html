@@ -216,7 +216,12 @@ async function carregarImagens(){
   if(!S.contaImg){ alert('Escolha a conta de anúncio das imagens.'); return; }
   CARREGANDO_IMG=true; render();
   try{
-    IMAGENS=await gTudo(`/${S.contaImg}/adimages`,{fields:'hash,name,url,width,height',limit:100},300);
+    IMAGENS=await gTudo(`/${S.contaImg}/adimages`,{fields:'hash,name,url,permalink_url,width,height',limit:100},300);
+    // O catálogo RECUSA a URL assinada (scontent…&oh=…): ela vence antes de o
+    // Meta buscar a imagem, e o item fica com image_fetch_status NO_STATUS para
+    // sempre. Comprovado em teste A/B no mesmo catálogo. O permalink_url não é
+    // assinado e funciona. `url` fica só para desenhar a miniatura na tela.
+    IMAGENS.forEach(i=>{ i.catalogo = i.permalink_url || i.url; });
     logar('ok',`${IMAGENS.length} imagem(ns) na conta.`);
   }catch(e){ IMAGENS=[]; logar('er','Não consegui ler as imagens: '+e.message); }
   CARREGANDO_IMG=false; render();
@@ -294,8 +299,15 @@ async function enviarImagem(idx, file){
     const j=await (await fetch(`${GQL}/${S.contaImg}/adimages`,{method:'POST',body:fd})).json();
     if(j.error) throw new Error(j.error.message);
     const primeira=Object.values(j.images||{})[0];
-    if(!primeira||!primeira.url) throw new Error('A API não devolveu a URL da imagem.');
-    S.grupos[idx].img=primeira.url; salvar();
+    if(!primeira||!primeira.hash) throw new Error('A API não devolveu a imagem.');
+    // Precisa do permalink, não da URL assinada. Ver comentário em carregarImagens.
+    let link=primeira.url;
+    try{
+      const r=await gGet(`/${S.contaImg}/adimages`,{fields:'permalink_url,url',hashes:JSON.stringify([primeira.hash])});
+      const achada=(r.data||[])[0];
+      if(achada&&achada.permalink_url) link=achada.permalink_url;
+    }catch(e){ logar('av','  não consegui pegar o permalink; usando a URL direta.'); }
+    S.grupos[idx].img=link; S.grupos[idx].imgThumb=primeira.url; salvar();
     logar('ok',`Imagem enviada e ligada ao grupo ${idx+1}.`);
   }catch(e){ logar('er','Envio falhou: '+e.message); }
   render();
@@ -315,7 +327,7 @@ function fecharPicker(){ PICKER=null; render(); }
 function escolherMidia(url, thumb){
   if(PICKER){
     const g=S.grupos[PICKER.i];
-    if(PICKER.tipo==='img') g.img=url;
+    if(PICKER.tipo==='img'){ g.img=url; g.imgThumb=thumb||url; }
     else { g.video=url; g.videoThumb=thumb||''; }
     salvar();
   }
@@ -462,8 +474,13 @@ async function executar(){
         logar('av','O Meta baixa e processa o vídeo em segundo plano. No Commerce Manager ele aparece no item em alguns minutos.');
       }catch(e){
         logar('er','O anexo do vídeo falhou: '+e.message);
-        logar('av','Os itens foram criados com a imagem. Dá para reanexar o vídeo depois sem recriar nada.');
       }
+      // Honestidade sobre o que o Meta faz com esse campo. Testado em 16/09/26
+      // com URL assinada, URL pública estável e upload direto por handle: nos
+      // três casos o item guarda a URL mas o status fica em OUTDATED e o vídeo
+      // não aparece. O upload que funciona é o do Commerce Manager, que usa um
+      // endpoint interno fora do Graph API.
+      logar('av','⚠️ A URL do vídeo fica gravada no item, mas o Meta pode não processar: o upload de vídeo do Commerce Manager usa um caminho interno que a API pública não expõe. Se o vídeo não aparecer, arraste o arquivo no item pelo Commerce Manager. O resto (produto, variantes, imagem, textos) já fica pronto.');
       render();
 
       // Confere de verdade: lê um item de volta e vê se o vídeo colou. Sem isto
@@ -644,7 +661,7 @@ function cardGrupos(){
     const accept=tipo==='img'?'image/*':'video/*';
     const chama=tipo==='img'?`enviarImagem(${i}, this.files[0])`:`enviarVideo(${i}, this.files[0])`;
     const limpar=tipo==='img'
-      ? `setGrupo(${i},'img','');render()`
+      ? `setGrupo(${i},'img','');setGrupo(${i},'imgThumb','');render()`
       : `setGrupo(${i},'video','');setGrupo(${i},'videoThumb','');render()`;
     const tem=!!url;
     return `<td style="width:60px">
@@ -665,7 +682,7 @@ function cardGrupos(){
   };
   const linhas=S.grupos.map((g,i)=>`<tr>
     <td style="min-width:190px"><input value="${esc(g.nome)}" oninput="setGrupo(${i},'nome',this.value)" placeholder="16 - QUERO"></td>
-    ${cel(i,'img',g.img,'🖼')}
+    ${cel(i,'img',g.imgThumb||g.img,'🖼')}
     ${cel(i,'video',g.videoThumb,'🎬')}
     <td style="width:70px"><input type="number" min="1" max="50" value="${g.variantes==null?(g.copias==null?'':g.copias):g.variantes}" oninput="setGrupo(${i},'variantes',this.value)" placeholder="${esc(S.variantes)}"></td>
     <td style="width:40px"><button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button></td>
@@ -730,7 +747,7 @@ function modalImagens(){
   const grade = ehVideo
     ? lista.map(v=>`<img src="${esc(v.picture||'')}" title="${esc((v.title||'sem título')+' · '+Math.round(v.length||0)+'s')}"
          onclick="escolherMidia('${esc(v.source)}','${esc(v.picture||'')}')">`).join('')
-    : lista.map(i=>`<img src="${esc(i.url)}" title="${esc(i.width+'x'+i.height)}" onclick="escolherMidia('${esc(i.url)}','')">`).join('');
+    : lista.map(i=>`<img src="${esc(i.url)}" title="${esc(i.width+'x'+i.height)}" onclick="escolherMidia('${esc(i.catalogo||i.url)}','${esc(i.url)}')">`).join('');
   return `<div class="modal" onclick="if(event.target===this)fecharPicker()"><div class="modal-in">
     <div class="row" style="justify-content:space-between;align-items:center">
       <h2 style="margin:0">${ehVideo?'Vídeos':'Imagens'} da conta</h2>
