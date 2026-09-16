@@ -73,10 +73,14 @@ S.dark        = !!S.dark;
 
 // não persistem
 let BIZ=[], CONTAS=[], CATALOGOS=null, CARREGANDO_CAT=false;
-let IMAGENS=null, CARREGANDO_IMG=false, PICKER=null;
+let IMAGENS=null, CARREGANDO_IMG=false;
+let VIDEOS=null, CARREGANDO_VID=false;
+let PICKER=null;   // {i, tipo:'img'|'video'}
 let LOG=[], RODANDO=false, PARAR=false, RESULTADO=null;
 
-function novoGrupo(){ return {nome:'', img:'', copias:null}; }
+// Cada grupo é um criativo: uma imagem de capa e um vídeo. No catálogo isso
+// vira N itens iguais, cada um com image_url e com o vídeo anexado.
+function novoGrupo(){ return {nome:'', img:'', video:'', videoThumb:'', copias:null}; }
 function carregar(){ try{ return JSON.parse(localStorage.getItem(CHAVE)); }catch(e){ return null; } }
 function salvar(){ try{ localStorage.setItem(CHAVE, JSON.stringify(S)); }catch(e){} }
 
@@ -186,6 +190,47 @@ async function carregarImagens(){
   }catch(e){ IMAGENS=[]; logar('er','Não consegui ler as imagens: '+e.message); }
   CARREGANDO_IMG=false; render();
 }
+// O vídeo do item de catálogo é anexado por URL: o Meta busca o arquivo e
+// guarda. A biblioteca da conta de anúncio já devolve uma URL direta em
+// `source`, então dá para reaproveitar vídeo que já rodou em anúncio.
+async function carregarVideos(){
+  if(!S.contaImg){ alert('Escolha a conta de anúncio.'); return; }
+  CARREGANDO_VID=true; render();
+  try{
+    VIDEOS=await gTudo(`/${S.contaImg}/advideos`,{fields:'id,title,source,picture,length,created_time',limit:50},200);
+    VIDEOS=VIDEOS.filter(v=>v.source);
+    logar('ok',`${VIDEOS.length} vídeo(s) na conta.`);
+  }catch(e){ VIDEOS=[]; logar('er','Não consegui ler os vídeos: '+e.message); }
+  CARREGANDO_VID=false; render();
+}
+async function enviarVideo(idx, file){
+  if(!file) return;
+  if(!S.contaImg){ alert('Escolha a conta de anúncio antes de enviar vídeo.'); return; }
+  logar('in',`Enviando ${file.name}… (vídeo demora, não feche a aba)`); render();
+  try{
+    const fd=new FormData();
+    fd.append('source', file);
+    fd.append('access_token', tokenAtual());
+    const j=await (await fetch(`${GQL}/${S.contaImg}/advideos`,{method:'POST',body:fd})).json();
+    if(j.error) throw new Error(j.error.message);
+    if(!j.id) throw new Error('A API não devolveu o id do vídeo.');
+    // O source só fica disponível depois que o Meta processa o arquivo.
+    let src='', thumb='';
+    for(let t=0;t<12 && !src;t++){
+      await new Promise(r=>setTimeout(r,2500));
+      try{
+        const v=await gGet(`/${j.id}`,{fields:'source,picture,status'});
+        src=v.source||''; thumb=v.picture||'';
+      }catch(e){}
+    }
+    if(!src) throw new Error('O vídeo subiu ('+j.id+') mas o Meta ainda está processando. Abra o picker daqui a pouco e escolha ele.');
+    S.grupos[idx].video=src; S.grupos[idx].videoThumb=thumb; salvar();
+    VIDEOS=null;
+    logar('ok',`Vídeo enviado e ligado ao grupo ${idx+1}.`);
+  }catch(e){ logar('er','Envio do vídeo falhou: '+e.message); }
+  render();
+}
+
 async function enviarImagem(idx, file){
   if(!file) return;
   if(!S.contaImg){ alert('Escolha a conta de anúncio antes de enviar imagem.'); return; }
@@ -208,11 +253,33 @@ async function enviarImagem(idx, file){
 function setGrupo(i,campo,valor){ S.grupos[i][campo]= campo==='copias' ? (valor===''?null:Math.max(1,parseInt(valor)||1)) : valor; salvar(); if(campo!=='nome'&&campo!=='img') render(); }
 function addGrupo(){ S.grupos.push(novoGrupo()); salvar(); render(); }
 function delGrupo(i){ S.grupos.splice(i,1); if(!S.grupos.length) S.grupos.push(novoGrupo()); salvar(); render(); }
-function abrirPicker(i){ PICKER=i; if(IMAGENS==null&&!CARREGANDO_IMG) carregarImagens(); render(); }
+function abrirPicker(i,tipo){
+  PICKER={i,tipo};
+  if(tipo==='img'  && IMAGENS==null && !CARREGANDO_IMG) carregarImagens();
+  if(tipo==='video'&& VIDEOS ==null && !CARREGANDO_VID) carregarVideos();
+  render();
+}
 function fecharPicker(){ PICKER=null; render(); }
-function escolherImagem(url){ if(PICKER!=null){ S.grupos[PICKER].img=url; salvar(); } PICKER=null; render(); }
+function escolherMidia(url, thumb){
+  if(PICKER){
+    const g=S.grupos[PICKER.i];
+    if(PICKER.tipo==='img') g.img=url;
+    else { g.video=url; g.videoThumb=thumb||''; }
+    salvar();
+  }
+  PICKER=null; render();
+}
 function copiasDe(g){ return g.copias||S.copias||1; }
-function gruposValidos(){ return S.grupos.filter(g=>String(g.nome||'').trim() && String(g.img||'').trim()); }
+function gruposValidos(){
+  return S.grupos.filter(g=>String(g.nome||'').trim() && String(g.img||'').trim() && String(g.video||'').trim());
+}
+function gruposIncompletos(){
+  return S.grupos.filter(g=>{
+    const n=String(g.nome||'').trim();
+    if(!n) return false;                               // linha em branco não conta
+    return !String(g.img||'').trim() || !String(g.video||'').trim();
+  });
+}
 function totalItens(){ return gruposValidos().reduce((s,g)=>s+copiasDe(g),0); }
 
 // ── Log ─────────────────────────────────────────────────────────────────────
@@ -243,7 +310,12 @@ function validar(){
   else if(!/^https?:\/\//i.test(S.fixos.url.trim())) e.push('A URL de destino precisa começar com http:// ou https://');
   if(!String(S.fixos.brand||'').trim()) e.push('Preencha o texto do anúncio (vai no campo "brand").');
   const g=gruposValidos();
-  if(!g.length) e.push('Cadastre pelo menos um grupo com nome e imagem.');
+  if(!g.length) e.push('Cadastre pelo menos um grupo com nome, imagem e vídeo.');
+  const faltando=gruposIncompletos();
+  faltando.forEach(x=>{
+    const o=[]; if(!String(x.img||'').trim()) o.push('imagem'); if(!String(x.video||'').trim()) o.push('vídeo');
+    e.push(`O grupo "${x.nome.trim()}" está sem ${o.join(' e ')}.`);
+  });
   const nomes=g.map(x=>x.nome.trim().toLowerCase());
   if(new Set(nomes).size!==nomes.length) e.push('Há grupos com o mesmo nome. O conjunto de produtos filtra por nome, então cada grupo precisa ser único.');
   return e;
@@ -262,7 +334,7 @@ async function executar(){
 
   RODANDO=true; PARAR=false; RESULTADO=null; LOG=[]; render();
   const t0=Date.now();
-  let catId=S.catId, criados=0, falhas=0, sets=0;
+  let catId=S.catId, criados=0, falhas=0, sets=0, videos=0;
   try{
     // 1. catálogo
     if(S.modo==='novo'){
@@ -277,15 +349,18 @@ async function executar(){
 
     // 2. itens
     const centavos=precoEmCentavos(S.fixos.preco);
+    const porGrupo=[];   // {video, ids:[retailer_id]}
     for(let gi=0; gi<grupos.length; gi++){
       if(PARAR) break;
       const g=grupos[gi], n=copiasDe(g);
+      const feitos=[];
       logar('in',`Grupo ${gi+1}/${grupos.length}: "${g.nome}" · ${n} cópia(s)`); render();
       for(let c=0;c<n;c++){
         if(PARAR) break;
+        const rid=novoRetailerId();
         try{
           await gPost(`/${catId}/products`,{
-            retailer_id: novoRetailerId(),
+            retailer_id: rid,
             name: g.nome.trim(),
             description: S.fixos.description||'',
             url: S.fixos.url.trim(),
@@ -296,7 +371,7 @@ async function executar(){
             condition: S.fixos.condition||'new',
             brand: S.fixos.brand.trim()
           });
-          criados++;
+          criados++; feitos.push(rid);
         }catch(e){
           falhas++;
           logar('er',`  cópia ${c+1} falhou: ${e.message}`);
@@ -305,10 +380,35 @@ async function executar(){
         if(c%4===3) render();
         await new Promise(r=>setTimeout(r,120));
       }
+      if(feitos.length) porGrupo.push({nome:g.nome.trim(), video:g.video.trim(), ids:feitos});
       logar('ok',`  "${g.nome}" pronto (${criados} item(ns) no total até aqui)`); render();
     }
 
-    // 3. conjuntos de produtos
+    // 3. vídeos
+    // O vídeo não entra no POST /products: ele é anexado pelo items_batch, que
+    // aceita o campo `video` e casa o item pelo retailer_id. Uma chamada só
+    // resolve o catálogo inteiro. O Meta busca a URL e processa em segundo
+    // plano, então o vídeo aparece no item alguns minutos depois.
+    if(!PARAR && porGrupo.length){
+      const reqs=[];
+      porGrupo.forEach(g=>g.ids.forEach(id=>reqs.push({
+        method:'UPDATE',
+        data:{ id, video:[{ url:g.video, tag:[g.nome] }] }
+      })));
+      logar('in',`Anexando o vídeo em ${reqs.length} item(ns)…`); render();
+      try{
+        const r=await gPost(`/${catId}/items_batch`,{ item_type:'PRODUCT_ITEM', requests:reqs });
+        videos=reqs.length;
+        logar('ok',`Vídeos enviados para processamento${r.handles?` (handle ${String(r.handles[0]||'').slice(0,18)}…)`:''}.`);
+        logar('av','O Meta baixa e processa o vídeo em segundo plano. No Commerce Manager ele aparece no item em alguns minutos.');
+      }catch(e){
+        logar('er','O anexo do vídeo falhou: '+e.message);
+        logar('av','Os itens foram criados com a imagem. Dá para reanexar o vídeo depois sem recriar nada.');
+      }
+      render();
+    }
+
+    // 4. conjuntos de produtos
     if(S.criarSets && !PARAR){
       logar('in','Criando os conjuntos de produtos…'); render();
       for(const g of grupos){
@@ -326,14 +426,14 @@ async function executar(){
     }
 
     const seg=Math.round((Date.now()-t0)/1000);
-    RESULTADO={catId, criados, falhas, sets, seg, parado:PARAR};
+    RESULTADO={catId, criados, falhas, sets, videos, seg, parado:PARAR};
     logar(PARAR?'av':'ok', PARAR
       ? `Parado a pedido. ${criados} item(ns) criado(s) em ${seg}s.`
-      : `Pronto: ${criados} item(ns) e ${sets} conjunto(s) em ${seg}s.`);
+      : `Pronto: ${criados} item(ns), ${videos} vídeo(s) e ${sets} conjunto(s) em ${seg}s.`);
     if(S.modo==='novo'){ S.modo='existente'; S.catId=catId; CATALOGOS=null; salvar(); listarCatalogos(); }
   }catch(e){
     logar('er','Parou com erro: '+e.message);
-    RESULTADO={catId, criados, falhas, sets, seg:Math.round((Date.now()-t0)/1000), erro:e.message};
+    RESULTADO={catId, criados, falhas, sets, videos, seg:Math.round((Date.now()-t0)/1000), erro:e.message};
   }
   RODANDO=false; render();
 }
@@ -348,7 +448,7 @@ function render(){
   document.body.className=S.dark?'dark':'';
   const conectado=CONTAS.length>0;
   document.getElementById('app').innerHTML=
-    cabecalho()+cardToken()+(conectado?(cardDestino()+cardFixos()+cardGrupos()+cardExecutar()):'')+cardLog()+(PICKER!=null?modalImagens():'');
+    cabecalho()+cardToken()+(conectado?(cardDestino()+cardFixos()+cardGrupos()+cardExecutar()):'')+cardLog()+(PICKER?modalImagens():'');
 }
 
 function cabecalho(){
@@ -407,8 +507,8 @@ function cardDestino(){
                <option value="">escolher…</option>
                ${lista.map(c=>`<option value="${esc(c.id)}" ${S.catId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens</option>`).join('')}
              </select></div>`}
-      <div><label>Conta de anúncio das imagens</label>
-        <select onchange="set('contaImg',this.value);IMAGENS=null">
+      <div><label>Conta de anúncio das mídias</label>
+        <select onchange="set('contaImg',this.value);IMAGENS=null;VIDEOS=null">
           ${CONTAS.map(c=>`<option value="${esc(c.id)}" ${S.contaImg===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select></div>
     </div>
@@ -452,23 +552,32 @@ function cardFixos(){
 }
 
 function cardGrupos(){
+  const cel=(url,vazio)=> url
+    ? `<img class="thumb" src="${esc(url)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb vazio',textContent:'⚠'}))">`
+    : `<div class="thumb vazio">${vazio}</div>`;
   const linhas=S.grupos.map((g,i)=>`<tr>
-    <td style="width:56px">${g.img
-      ? `<img class="thumb" src="${esc(g.img)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb vazio',textContent:'⚠'}))">`
-      : `<div class="thumb vazio">+</div>`}</td>
-    <td style="min-width:210px"><input value="${esc(g.nome)}" oninput="setGrupo(${i},'nome',this.value)" placeholder="16 - QUERO"></td>
-    <td style="width:230px"><input value="${esc(g.img)}" oninput="setGrupo(${i},'img',this.value)" placeholder="https://… (ou escolha ao lado)"></td>
-    <td style="width:74px"><input type="number" min="1" max="50" value="${g.copias==null?'':g.copias}" oninput="setGrupo(${i},'copias',this.value)" placeholder="${esc(S.copias)}"></td>
-    <td style="width:170px">
-      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i})">🖼 escolher</button>
-      <label class="btn btn-cinza btn-sm" style="display:inline-block;margin:0">⬆ enviar
+    <td style="min-width:190px"><input value="${esc(g.nome)}" oninput="setGrupo(${i},'nome',this.value)" placeholder="16 - QUERO"></td>
+    <td style="width:56px">${cel(g.img,'🖼')}</td>
+    <td style="width:150px">
+      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i},'img')">escolher</button>
+      <label class="btn btn-cinza btn-sm" style="display:inline-block;margin:0">⬆
         <input type="file" accept="image/*" style="display:none" onchange="enviarImagem(${i}, this.files[0])"></label>
-      <button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button>
-    </td></tr>`).join('');
+      ${g.img?`<button class="btn btn-cinza btn-sm" onclick="setGrupo(${i},'img','');render()" title="Tirar imagem">✕</button>`:''}
+    </td>
+    <td style="width:56px">${cel(g.videoThumb,'🎬')}</td>
+    <td style="width:150px">
+      <button class="btn btn-cinza btn-sm" onclick="abrirPicker(${i},'video')">escolher</button>
+      <label class="btn btn-cinza btn-sm" style="display:inline-block;margin:0">⬆
+        <input type="file" accept="video/*" style="display:none" onchange="enviarVideo(${i}, this.files[0])"></label>
+      ${g.video?`<button class="btn btn-cinza btn-sm" onclick="setGrupo(${i},'video','');setGrupo(${i},'videoThumb','');render()" title="Tirar vídeo">✕</button>`:''}
+    </td>
+    <td style="width:70px"><input type="number" min="1" max="50" value="${g.copias==null?'':g.copias}" oninput="setGrupo(${i},'copias',this.value)" placeholder="${esc(S.copias)}"></td>
+    <td style="width:40px"><button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button></td>
+    </tr>`).join('');
   return `<div class="card">
     <h2>4 · Grupos de criativo</h2>
-    <div class="mini" style="margin-bottom:10px">Cada grupo vira N itens iguais dentro do catálogo e, se você marcar abaixo, um conjunto de produtos filtrando por esse nome. É assim que os seus catálogos de hoje estão montados: 6 grupos de 4 cópias, 24 itens.</div>
-    <table><thead><tr><th></th><th>Nome do grupo</th><th>URL da imagem</th><th>Cópias</th><th></th></tr></thead>
+    <div class="mini" style="margin-bottom:10px">Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
+    <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th colspan="2">Vídeo</th><th>Cópias</th><th></th></tr></thead>
       <tbody>${linhas}</tbody></table>
     <div class="row" style="margin-top:12px;align-items:center">
       <div style="flex:0 0 auto"><button class="btn btn-cinza btn-sm" onclick="addGrupo()">+ grupo</button></div>
@@ -497,7 +606,7 @@ function cardExecutar(){
       <div style="flex:1" class="mini">Cada item é uma chamada à API, com uma pausa curta entre elas. ${totalItens()} itens levam cerca de ${Math.max(1,Math.round(totalItens()*0.35))}s.</div>
     </div>
     ${RESULTADO?`<div class="aviso ${RESULTADO.erro?'erro':(RESULTADO.parado?'alerta':'ok')}" style="margin-top:10px">
-      Catálogo <b>${esc(RESULTADO.catId||'—')}</b> · ${RESULTADO.criados} item(ns) criado(s)${RESULTADO.falhas?` · ${RESULTADO.falhas} falha(s)`:''}${RESULTADO.sets?` · ${RESULTADO.sets} conjunto(s)`:''} em ${RESULTADO.seg}s.
+      Catálogo <b>${esc(RESULTADO.catId||'—')}</b> · ${RESULTADO.criados} item(ns) criado(s)${RESULTADO.falhas?` · ${RESULTADO.falhas} falha(s)`:''}${RESULTADO.videos?` · ${RESULTADO.videos} vídeo(s)`:''}${RESULTADO.sets?` · ${RESULTADO.sets} conjunto(s)`:''} em ${RESULTADO.seg}s.
       ${RESULTADO.catId?`<br><a href="https://business.facebook.com/commerce/catalogs/${esc(RESULTADO.catId)}/items" target="_blank" rel="noopener">abrir no Commerce Manager →</a>`:''}
     </div>`:''}
   </div>`;
@@ -515,17 +624,26 @@ function cardLog(){
 }
 
 function modalImagens(){
-  const imgs=IMAGENS||[];
+  const ehVideo = PICKER.tipo==='video';
+  const lista = ehVideo ? (VIDEOS||[]) : (IMAGENS||[]);
+  const carregando = ehVideo ? CARREGANDO_VID : CARREGANDO_IMG;
+  const recarregar = ehVideo ? 'VIDEOS=null;carregarVideos()' : 'IMAGENS=null;carregarImagens()';
+  const grade = ehVideo
+    ? lista.map(v=>`<img src="${esc(v.picture||'')}" title="${esc((v.title||'sem título')+' · '+Math.round(v.length||0)+'s')}"
+         onclick="escolherMidia('${esc(v.source)}','${esc(v.picture||'')}')">`).join('')
+    : lista.map(i=>`<img src="${esc(i.url)}" title="${esc(i.width+'x'+i.height)}" onclick="escolherMidia('${esc(i.url)}','')">`).join('');
   return `<div class="modal" onclick="if(event.target===this)fecharPicker()"><div class="modal-in">
     <div class="row" style="justify-content:space-between;align-items:center">
-      <h2 style="margin:0">Imagens da conta</h2>
-      <div><button class="btn btn-cinza btn-sm" onclick="IMAGENS=null;carregarImagens()">↻ recarregar</button>
+      <h2 style="margin:0">${ehVideo?'Vídeos':'Imagens'} da conta</h2>
+      <div><button class="btn btn-cinza btn-sm" onclick="${recarregar}">↻ recarregar</button>
       <button class="btn btn-cinza btn-sm" onclick="fecharPicker()">fechar</button></div>
     </div>
-    <div class="mini" style="margin:6px 0 10px">Clique para usar no grupo ${PICKER+1}. São as imagens já enviadas para a conta selecionada.</div>
-    ${CARREGANDO_IMG?'<div class="mini"><span class="load"></span> carregando…</div>'
-      : imgs.length?`<div class="grade">${imgs.map(i=>`<img src="${esc(i.url)}" title="${esc(i.width+'x'+i.height)}" onclick="escolherImagem('${esc(i.url)}')">`).join('')}</div>`
-      : '<div class="aviso alerta">Nenhuma imagem nessa conta, ou a leitura falhou. Veja o log.</div>'}
+    <div class="mini" style="margin:6px 0 10px">Clique para usar no grupo ${PICKER.i+1}. ${ehVideo
+      ? 'São os vídeos já enviados para a conta de anúncio selecionada. A miniatura é a capa que o Meta gerou.'
+      : 'São as imagens já enviadas para a conta de anúncio selecionada.'}</div>
+    ${carregando?'<div class="mini"><span class="load"></span> carregando…</div>'
+      : lista.length?`<div class="grade">${grade}</div>`
+      : `<div class="aviso alerta">Nenhum ${ehVideo?'vídeo':'imagem'} nessa conta, ou a leitura falhou. Veja o log.</div>`}
   </div></div>`;
 }
 
