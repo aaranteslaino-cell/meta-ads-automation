@@ -203,8 +203,19 @@ async function carregarVideos(){
   }catch(e){ VIDEOS=[]; logar('er','Não consegui ler os vídeos: '+e.message); }
   CARREGANDO_VID=false; render();
 }
+// Limites do próprio Commerce Manager: imagem até 8 MB, vídeo abaixo de 100 MB.
+// Barrar aqui dá uma mensagem clara, em vez de um erro solto da API no meio do
+// upload de um arquivo grande.
+const MB=1048576, MAX_IMG=8*MB, MAX_VID=100*MB;
+function tamanhoOk(file, max, rotulo){
+  if(file.size<=max) return true;
+  alert(`${rotulo} tem ${(file.size/MB).toFixed(1)} MB e o limite do catálogo é ${Math.round(max/MB)} MB.\n\nComprima o arquivo e tente de novo.`);
+  return false;
+}
+
 async function enviarVideo(idx, file){
   if(!file) return;
+  if(!tamanhoOk(file, MAX_VID, 'O vídeo')) return;
   if(!S.contaImg){ alert('Escolha a conta de anúncio antes de enviar vídeo.'); return; }
   logar('in',`Enviando ${file.name}… (vídeo demora, não feche a aba)`); render();
   try{
@@ -233,6 +244,7 @@ async function enviarVideo(idx, file){
 
 async function enviarImagem(idx, file){
   if(!file) return;
+  if(!tamanhoOk(file, MAX_IMG, 'A imagem')) return;
   if(!S.contaImg){ alert('Escolha a conta de anúncio antes de enviar imagem.'); return; }
   logar('in',`Enviando ${file.name}…`); render();
   try{
@@ -359,7 +371,7 @@ async function executar(){
         if(PARAR) break;
         const rid=novoRetailerId();
         try{
-          await gPost(`/${catId}/products`,{
+          const novo=await gPost(`/${catId}/products`,{
             retailer_id: rid,
             name: g.nome.trim(),
             description: S.fixos.description||'',
@@ -371,7 +383,7 @@ async function executar(){
             condition: S.fixos.condition||'new',
             brand: S.fixos.brand.trim()
           });
-          criados++; feitos.push(rid);
+          criados++; feitos.push({rid, pid:novo&&novo.id});
         }catch(e){
           falhas++;
           logar('er',`  cópia ${c+1} falhou: ${e.message}`);
@@ -391,9 +403,9 @@ async function executar(){
     // plano, então o vídeo aparece no item alguns minutos depois.
     if(!PARAR && porGrupo.length){
       const reqs=[];
-      porGrupo.forEach(g=>g.ids.forEach(id=>reqs.push({
+      porGrupo.forEach(g=>g.ids.forEach(it=>reqs.push({
         method:'UPDATE',
-        data:{ id, video:[{ url:g.video, tag:[g.nome] }] }
+        data:{ id:it.rid, video:[{ url:g.video, tag:[g.nome] }] }
       })));
       logar('in',`Anexando o vídeo em ${reqs.length} item(ns)…`); render();
       try{
@@ -405,6 +417,28 @@ async function executar(){
         logar('er','O anexo do vídeo falhou: '+e.message);
         logar('av','Os itens foram criados com a imagem. Dá para reanexar o vídeo depois sem recriar nada.');
       }
+      render();
+
+      // Confere de verdade: lê um item de volta e vê se o vídeo colou. Sem isto
+      // o "enviado para processamento" seria só esperança.
+      logar('in','Conferindo se o vídeo colou no item…'); render();
+      let ok=false;
+      for(let t=0;t<6 && !ok;t++){
+        await new Promise(r=>setTimeout(r, t===0?6000:10000));
+        try{
+          const alvo=porGrupo[0].ids[0];
+          if(!alvo||!alvo.pid){ logar('av','  sem id de produto para reler; confira no Commerce Manager.'); break; }
+          const p=await gGet(`/${alvo.pid}`,{fields:'id,name,video_fetch_status,videos'});
+          if(p && ((p.videos&&p.videos.length) || ['DIRECT_UPLOAD','FETCHED','SUCCESS'].includes(p.video_fetch_status))){
+            ok=true;
+            logar('ok',`Confirmado no item "${p.name}": video_fetch_status = ${p.video_fetch_status||'—'}${p.videos&&p.videos.length?` · ${p.videos.length} vídeo(s)`:''}`);
+          } else if(p){
+            logar('av',`  ainda processando (status ${p.video_fetch_status||'—'})…`);
+          }
+        }catch(e){ logar('av','  não consegui reler agora: '+e.message); break; }
+        render();
+      }
+      if(!ok) logar('av','O Meta ainda não terminou de processar. Confira no Commerce Manager em alguns minutos; o envio em si não deu erro.');
       render();
     }
 
@@ -576,7 +610,7 @@ function cardGrupos(){
     </tr>`).join('');
   return `<div class="card">
     <h2>4 · Grupos de criativo</h2>
-    <div class="mini" style="margin-bottom:10px">Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
+    <div class="mini" style="margin-bottom:10px">Arraste não, mas o botão ⬆ envia o arquivo direto do seu computador, igual ao Commerce Manager (imagem até 8 MB, vídeo até 100 MB). Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
     <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th colspan="2">Vídeo</th><th>Cópias</th><th></th></tr></thead>
       <tbody>${linhas}</tbody></table>
     <div class="row" style="margin-top:12px;align-items:center">
