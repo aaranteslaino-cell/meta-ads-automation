@@ -62,11 +62,12 @@ S.modo        = S.modo||'novo';          // novo | existente
 S.catNome     = S.catNome||'';
 S.catId       = S.catId||'';
 S.contaImg    = S.contaImg||'';
+S.pixelId     = S.pixelId||'';       // "Conecte seus dados" do Commerce Manager
 S.fixos       = Object.assign({
   url:'', brand:'', description:'Últimas vagas!!',
   preco:'1,00', currency:'BRL', availability:'in stock', condition:'new'
 }, S.fixos||{});
-S.copias      = S.copias||4;
+S.variantes   = S.variantes||S.copias||4;
 S.criarSets   = S.criarSets!==false;
 S.grupos      = Array.isArray(S.grupos)&&S.grupos.length?S.grupos:[novoGrupo()];
 S.dark        = !!S.dark;
@@ -75,12 +76,13 @@ S.dark        = !!S.dark;
 let BIZ=[], CONTAS=[], CATALOGOS=null, CARREGANDO_CAT=false;
 let IMAGENS=null, CARREGANDO_IMG=false;
 let VIDEOS=null, CARREGANDO_VID=false;
+let PIXELS=null;
 let PICKER=null;   // {i, tipo:'img'|'video'}
 let LOG=[], RODANDO=false, PARAR=false, RESULTADO=null;
 
 // Cada grupo é um criativo: uma imagem de capa e um vídeo. No catálogo isso
 // vira N itens iguais, cada um com image_url e com o vídeo anexado.
-function novoGrupo(){ return {nome:'', img:'', video:'', videoThumb:'', copias:null}; }
+function novoGrupo(){ return {nome:'', img:'', video:'', videoThumb:'', variantes:null}; }
 function carregar(){ try{ return JSON.parse(localStorage.getItem(CHAVE)); }catch(e){ return null; } }
 function salvar(){ try{ localStorage.setItem(CHAVE, JSON.stringify(S)); }catch(e){} }
 
@@ -163,6 +165,7 @@ async function conectar(){
     salvar();
     logar('ok',`${contas.length} conta(s) e ${BIZ.length} negócio(s).`);
     await listarCatalogos();
+    await listarPixels();
   }catch(e){ logar('er','Falhou: '+e.message); }
   render();
 }
@@ -176,6 +179,31 @@ async function listarCatalogos(){
     logar('ok',`${CATALOGOS.length} catálogo(s) no negócio.`);
   }catch(e){ CATALOGOS=[]; logar('er','Não consegui listar catálogos: '+e.message); }
   CARREGANDO_CAT=false; render();
+}
+
+// ── Conjunto de dados (pixel) ───────────────────────────────────────────────
+// É o "Conecte seus dados" da tela de criação. Os catálogos que já rodam estão
+// todos ligados a um pixel, então catálogo criado sem isso sai diferente dos
+// que funcionam. A sugestão vem do que os catálogos existentes já usam.
+async function listarPixels(){
+  if(!S.bizId) return;
+  try{
+    PIXELS=await gTudo(`/${S.bizId}/adspixels`,{fields:'id,name,last_fired_time',limit:50});
+    logar('ok',`${PIXELS.length} conjunto(s) de dados no negócio.`);
+  }catch(e){ PIXELS=[]; logar('av','Não consegui listar os conjuntos de dados: '+e.message); }
+  if(!S.pixelId) await sugerirPixel();
+  render();
+}
+/** Descobre a qual pixel os catálogos existentes estão ligados. */
+async function sugerirPixel(){
+  const amostra=(CATALOGOS||[]).filter(c=>(c.product_count||0)>0).slice(0,3);
+  for(const c of amostra){
+    try{
+      const r=await gGet(`/${c.id}/external_event_sources`,{fields:'id,name'});
+      const p=(r.data||[])[0];
+      if(p){ S.pixelId=p.id; salvar(); logar('ok',`Sugeri o conjunto de dados "${p.name}", que é o que "${c.name}" usa.`); return; }
+    }catch(e){}
+  }
 }
 
 // ── Imagens da conta ────────────────────────────────────────────────────────
@@ -262,7 +290,7 @@ async function enviarImagem(idx, file){
 }
 
 // ── Grupos ──────────────────────────────────────────────────────────────────
-function setGrupo(i,campo,valor){ S.grupos[i][campo]= campo==='copias' ? (valor===''?null:Math.max(1,parseInt(valor)||1)) : valor; salvar(); if(campo!=='nome'&&campo!=='img') render(); }
+function setGrupo(i,campo,valor){ S.grupos[i][campo]= campo==='variantes' ? (valor===''?null:Math.max(1,parseInt(valor)||1)) : valor; salvar(); if(campo!=='nome'&&campo!=='img'&&campo!=='video') render(); }
 function addGrupo(){ S.grupos.push(novoGrupo()); salvar(); render(); }
 function delGrupo(i){ S.grupos.splice(i,1); if(!S.grupos.length) S.grupos.push(novoGrupo()); salvar(); render(); }
 function abrirPicker(i,tipo){
@@ -281,7 +309,7 @@ function escolherMidia(url, thumb){
   }
   PICKER=null; render();
 }
-function copiasDe(g){ return g.copias||S.copias||1; }
+function variantesDe(g){ return g.variantes||g.copias||S.variantes||1; }
 function gruposValidos(){
   return S.grupos.filter(g=>String(g.nome||'').trim() && String(g.img||'').trim() && String(g.video||'').trim());
 }
@@ -292,7 +320,7 @@ function gruposIncompletos(){
     return !String(g.img||'').trim() || !String(g.video||'').trim();
   });
 }
-function totalItens(){ return gruposValidos().reduce((s,g)=>s+copiasDe(g),0); }
+function totalItens(){ return gruposValidos().reduce((s,g)=>s+variantesDe(g),0); }
 
 // ── Log ─────────────────────────────────────────────────────────────────────
 function logar(tipo,msg){ LOG.push({tipo,msg,hora:new Date().toLocaleTimeString('pt-BR')}); if(LOG.length>500) LOG.shift(); }
@@ -354,6 +382,13 @@ async function executar(){
       const r=await gPost(`/${S.bizId}/owned_product_catalogs`,{name:S.catNome.trim(), vertical:'commerce'});
       catId=r.id;
       logar('ok',`Catálogo criado: ${catId}`);
+      if(S.pixelId){
+        try{
+          await gPost(`/${catId}/external_event_sources`,{external_event_sources:[S.pixelId]});
+          const nome=((PIXELS||[]).find(x=>x.id===S.pixelId)||{}).name||S.pixelId;
+          logar('ok',`Conjunto de dados "${nome}" conectado ao catálogo.`);
+        }catch(e){ logar('er','Não consegui conectar o conjunto de dados: '+e.message); }
+      }
     } else {
       logar('in',`Usando o catálogo existente ${catId}.`);
     }
@@ -364,7 +399,7 @@ async function executar(){
     const porGrupo=[];   // {video, ids:[retailer_id]}
     for(let gi=0; gi<grupos.length; gi++){
       if(PARAR) break;
-      const g=grupos[gi], n=copiasDe(g);
+      const g=grupos[gi], n=variantesDe(g);
       const feitos=[];
       logar('in',`Grupo ${gi+1}/${grupos.length}: "${g.nome}" · ${n} cópia(s)`); render();
       for(let c=0;c<n;c++){
@@ -392,7 +427,7 @@ async function executar(){
         if(c%4===3) render();
         await new Promise(r=>setTimeout(r,120));
       }
-      if(feitos.length) porGrupo.push({nome:g.nome.trim(), video:g.video.trim(), ids:feitos});
+      if(feitos.length) porGrupo.push({nome:g.nome.trim(), video:g.video.trim(), grupoId:'g_'+novoRetailerId(), ids:feitos});
       logar('ok',`  "${g.nome}" pronto (${criados} item(ns) no total até aqui)`); render();
     }
 
@@ -405,13 +440,13 @@ async function executar(){
       const reqs=[];
       porGrupo.forEach(g=>g.ids.forEach(it=>reqs.push({
         method:'UPDATE',
-        data:{ id:it.rid, video:[{ url:g.video, tag:[g.nome] }] }
+        data:{ id:it.rid, item_group_id:g.grupoId, video:[{ url:g.video, tag:[g.nome] }] }
       })));
-      logar('in',`Anexando o vídeo em ${reqs.length} item(ns)…`); render();
+      logar('in',`Agrupando as variantes e anexando o vídeo em ${reqs.length} item(ns)…`); render();
       try{
         const r=await gPost(`/${catId}/items_batch`,{ item_type:'PRODUCT_ITEM', requests:reqs });
         videos=reqs.length;
-        logar('ok',`Vídeos enviados para processamento${r.handles?` (handle ${String(r.handles[0]||'').slice(0,18)}…)`:''}.`);
+        logar('ok',`${porGrupo.length} produto(s) agrupado(s) e vídeo(s) enviado(s) para processamento${r.handles?` (handle ${String(r.handles[0]||'').slice(0,18)}…)`:''}.`);
         logar('av','O Meta baixa e processa o vídeo em segundo plano. No Commerce Manager ele aparece no item em alguns minutos.');
       }catch(e){
         logar('er','O anexo do vídeo falhou: '+e.message);
@@ -523,7 +558,7 @@ function cardDestino(){
     <h2>2 · Onde vai o catálogo</h2>
     <div class="row">
       <div><label>Negócio dono</label>
-        <select onchange="set('bizId',this.value);listarCatalogos()">
+        <select onchange="set('bizId',this.value);PIXELS=null;S.pixelId='';listarCatalogos().then(listarPixels)">
           ${BIZ.map(b=>`<option value="${esc(b.id)}" ${S.bizId===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
         </select></div>
       <div><label>Ação</label>
@@ -546,7 +581,14 @@ function cardDestino(){
           ${CONTAS.map(c=>`<option value="${esc(c.id)}" ${S.contaImg===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
         </select></div>
     </div>
-    <div class="mini" style="margin-top:8px">O catálogo nasce no vertical <b>commerce</b>, igual aos ${lista.length||'seus'} que já existem nesse negócio.</div>
+    ${S.modo==='novo'?`<div class="row" style="margin-top:12px">
+      <div style="flex:2"><label>Conjunto de dados (o "Conecte seus dados")</label>
+        <select onchange="set('pixelId',this.value)">
+          <option value="">não conectar</option>
+          ${(PIXELS||[]).map(x=>`<option value="${esc(x.id)}" ${S.pixelId===x.id?'selected':''}>${esc(x.name)} · ${esc(x.id)}</option>`).join('')}
+        </select></div>
+    </div>`:''}
+    <div class="mini" style="margin-top:8px">O catálogo nasce no vertical <b>commerce</b> ("Produtos online"), igual aos ${lista.length||'seus'} que já existem nesse negócio.${S.modo==='novo'&&!S.pixelId?' <b style="color:#b08900">Sem conjunto de dados ele sai diferente dos seus catálogos atuais, que estão todos ligados a um pixel.</b>':''}</div>
   </div>`;
 }
 
@@ -578,8 +620,8 @@ function cardFixos(){
         <select onchange="setFixo('condition',this.value)">
           ${['new','refurbished','used'].map(v=>`<option ${f.condition===v?'selected':''}>${v}</option>`).join('')}
         </select></div>
-      <div><label>Cópias por grupo (padrão)</label>
-        <input type="number" min="1" max="50" value="${esc(S.copias)}" oninput="set('copias',Math.max(1,parseInt(this.value)||1))"></div>
+      <div><label>Variantes por produto (padrão)</label>
+        <input type="number" min="1" max="50" value="${esc(S.variantes)}" oninput="set('variantes',Math.max(1,parseInt(this.value)||1))"></div>
     </div>
     <div class="mini" style="margin-top:8px">Preço, disponibilidade e condição são exigência da API de catálogo. Nos seus catálogos atuais eles ficam em R$1,00 · in stock · new.</div>
   </div>`;
@@ -605,13 +647,13 @@ function cardGrupos(){
         <input type="file" accept="video/*" style="display:none" onchange="enviarVideo(${i}, this.files[0])"></label>
       ${g.video?`<button class="btn btn-cinza btn-sm" onclick="setGrupo(${i},'video','');setGrupo(${i},'videoThumb','');render()" title="Tirar vídeo">✕</button>`:''}
     </td>
-    <td style="width:70px"><input type="number" min="1" max="50" value="${g.copias==null?'':g.copias}" oninput="setGrupo(${i},'copias',this.value)" placeholder="${esc(S.copias)}"></td>
+    <td style="width:70px"><input type="number" min="1" max="50" value="${g.variantes==null?(g.copias==null?'':g.copias):g.variantes}" oninput="setGrupo(${i},'variantes',this.value)" placeholder="${esc(S.variantes)}"></td>
     <td style="width:40px"><button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button></td>
     </tr>`).join('');
   return `<div class="card">
     <h2>4 · Grupos de criativo</h2>
     <div class="mini" style="margin-bottom:10px">Arraste não, mas o botão ⬆ envia o arquivo direto do seu computador, igual ao Commerce Manager (imagem até 8 MB, vídeo até 100 MB). Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
-    <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th colspan="2">Vídeo</th><th>Cópias</th><th></th></tr></thead>
+    <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th colspan="2">Vídeo</th><th>Variantes</th><th></th></tr></thead>
       <tbody>${linhas}</tbody></table>
     <div class="row" style="margin-top:12px;align-items:center">
       <div style="flex:0 0 auto"><button class="btn btn-cinza btn-sm" onclick="addGrupo()">+ grupo</button></div>
@@ -621,7 +663,7 @@ function cardGrupos(){
           criar um conjunto de produtos por grupo
         </label>
       </div>
-      <div style="flex:0 0 auto"><span class="pill">${gruposValidos().length} grupo(s) · ${totalItens()} item(ns)</span></div>
+      <div style="flex:0 0 auto"><span class="pill">${gruposValidos().length} produto(s) · ${totalItens()} variante(s)</span></div>
     </div>
   </div>`;
 }
@@ -630,8 +672,11 @@ function cardExecutar(){
   const erros=validar();
   return `<div class="card">
     <h2>5 · Executar</h2>
+    ${(!erros.length&&gruposValidos().length<5)?`<div class="aviso alerta">
+      ⚠️ São <b>${gruposValidos().length} produto(s)</b>. O Meta exige <b>pelo menos 5</b> para veicular anúncio de catálogo Advantage+.
+      Dá para criar assim mesmo, mas o catálogo não vai rodar nesse formato até chegar a 5. Os seus catálogos de hoje têm 6.</div>`:''}
     ${erros.length?`<div class="aviso erro"><b>Falta ajustar:</b><br>• ${erros.map(esc).join('<br>• ')}</div>`:
-      `<div class="aviso ok">Pronto para criar <b>${totalItens()} item(ns)</b> em <b>${gruposValidos().length} grupo(s)</b>${S.criarSets?` e <b>${gruposValidos().length} conjunto(s)</b>`:''}.</div>`}
+      `<div class="aviso ok">Pronto para criar <b>${gruposValidos().length} produto(s)</b> com <b>${totalItens()} variante(s)</b>${S.criarSets?` e <b>${gruposValidos().length} conjunto(s) de produtos</b>`:''}.</div>`}
     <div class="row" style="margin-top:12px;align-items:center">
       <div style="flex:0 0 auto">
         <button class="btn btn-rox" onclick="executar()" ${RODANDO||erros.length?'disabled':''}>${RODANDO?'<span class="load"></span> criando…':'Criar no Meta'}</button>
