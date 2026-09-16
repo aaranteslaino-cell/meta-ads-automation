@@ -576,10 +576,6 @@ function cardDestino(){
                <option value="">escolher…</option>
                ${lista.map(c=>`<option value="${esc(c.id)}" ${S.catId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens</option>`).join('')}
              </select></div>`}
-      <div><label>Conta de anúncio das mídias</label>
-        <select onchange="set('contaImg',this.value);IMAGENS=null;VIDEOS=null">
-          ${CONTAS.map(c=>`<option value="${esc(c.id)}" ${S.contaImg===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
-        </select></div>
     </div>
     ${S.modo==='novo'?`<div class="row" style="margin-top:12px">
       <div style="flex:2"><label>Conjunto de dados (o "Conecte seus dados")</label>
@@ -716,6 +712,13 @@ function modalImagens(){
       <h2 style="margin:0">${ehVideo?'Vídeos':'Imagens'} da conta</h2>
       <div><button class="btn btn-cinza btn-sm" onclick="${recarregar}">↻ recarregar</button>
       <button class="btn btn-cinza btn-sm" onclick="fecharPicker()">fechar</button></div>
+    </div>
+    <div class="row" style="margin-top:8px;align-items:center">
+      <div style="flex:0 0 auto" class="mini">buscando em</div>
+      <div style="flex:1;max-width:320px">
+        <select onchange="set('contaImg',this.value);IMAGENS=null;VIDEOS=null;abrirPicker(${PICKER.i},'${PICKER.tipo}')">
+          ${CONTAS.map(c=>`<option value="${esc(c.id)}" ${S.contaImg===c.id?'selected':''}>${esc(c.name)}</option>`).join('')}
+        </select></div>
     </div>
     <div class="mini" style="margin:6px 0 10px">Clique para usar no grupo ${PICKER.i+1}. ${ehVideo
       ? 'São os vídeos já enviados para a conta de anúncio selecionada. A miniatura é a capa que o Meta gerou.'
