@@ -251,7 +251,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, _campCache:null, _contasBarradas:{}, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, _campCache:null, _contasBarradas:{}, _arqCache:null, _arqContas:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 function loadSharedTokens(){
@@ -725,6 +725,37 @@ function mergeInsightsAndEntities(insights, entities){
   });
   return Object.values(byId);
 }
+// ── Arquivo histórico (Supabase: tabela meta_historico) ─────────────────────
+// Todo dia às 6h o Supabase arquiva o gasto por campanha de todas as contas.
+// Quando uma conta sai da BM, a API para de devolver o histórico dela; aqui ela
+// volta, lida do arquivo. Só entra conta que NÃO está visível ao vivo, para não
+// somar duas vezes. O arquivo vai até ontem; o dia de hoje só existe ao vivo.
+async function arquivoResumo(){
+  const w=sheetWindow();
+  const key=w.since+'|'+w.until;
+  if(S._arqCache && S._arqCache.key===key) return S._arqCache.rows;
+  let rows=[];
+  try{
+    const r=await fetch(`${S.sbUrl}/rest/v1/rpc/meta_historico_resumo`,{method:'POST',
+      headers:{'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey},
+      body:JSON.stringify({p_since:w.since,p_until:w.until})});
+    if(r.ok) rows=await r.json(); else console.warn('[arquivo] HTTP',r.status);
+  }catch(e){ console.warn('[arquivo] falhou',e); }
+  const vivas=new Set((S.accounts||[]).map(a=>a.id));
+  rows=rows.filter(x=>!vivas.has(x.conta_id) && (+x.gasto_brl>0));
+  S._arqCache={key,rows};
+  S._arqContas=[...new Set(rows.map(x=>x.conta_nome||x.conta_id))];
+  return rows;
+}
+function linhaDoArquivo(x){
+  const sp=+x.gasto_brl||0, im=+x.impressoes||0, cl=+x.cliques||0;
+  return { id:x.campanha_id, name:x.campanha_nome||x.campanha_id, status:'ARQUIVO', effective_status:'ARCHIVED',
+    spend:sp, impressions:im, clicks:cl, ctr:im?cl/im*100:0, cpc:cl?sp/cl:0, cpm:im?sp/im*1000:0,
+    landing_page_views:+x.pageviews||0, cost_per_landing_page_view:(+x.pageviews)?sp/(+x.pageviews):0,
+    initiate_checkout:0, cost_per_initiate_checkout:0,
+    _accountId:x.conta_id, _accountName:(x.conta_nome||x.conta_id)+' (arquivo)', _currency:'BRL', _tokenId:null, _arquivo:true };
+}
+
 async function fetchAllCampaigns(){
   const promises = S.accounts.map(async acc=>{
     try{
@@ -1205,6 +1236,18 @@ async function fetchFunilResumo(key){
         });
       }));
     }
+    // contas que sumiram do token entram pelo arquivo, com o mesmo filtro de nome
+    try{
+      (await arquivoResumo()).forEach(x=>{
+        const nome=x.campanha_nome||'';
+        if(!termos.some(t=>_sa(nome).includes(t))) return;
+        if(vistos[x.campanha_id]) return; vistos[x.campanha_id]=1;
+        rows.push({ campaign_id:x.campanha_id, campaign:_cleanName(nome),
+          funnel:cfg.classificar(nome), expert:_classExpert(nome),
+          spend:+x.gasto_brl||0, impr:+x.impressoes||0, clicks:+x.cliques||0,
+          pv:+x.pageviews||0, metaLeads:+x.leads||0, conv:+x.conversas||0, _arquivo:true });
+      });
+    }catch(e){ console.warn('[arquivo resumo]',e); }
     S._resumo[key]={rows, janela:jan, quando:new Date()};
   }catch(e){ S._resumo[key]={rows:[],erro:String(e&&e.message||e),janela:jan}; }
   S._resumoLoading[key]=false; render();
@@ -1479,6 +1522,8 @@ async function refreshData(){
   try{
     S._rev=await fetchRevenue();
     S.data=await fetchAllCampaigns();
+    S._arqCache=null;
+    try{ S.data=S.data.concat((await arquivoResumo()).map(linhaDoArquivo)); }catch(e){ console.warn('[arquivo]',e); }
     attachRevenue(S.data);
     await refreshOtim();
     S.lastRefresh=new Date();
@@ -1721,6 +1766,8 @@ function renderControls(A){
         <button class="btn btn-gray" onclick="disconnect()">Desconectar</button>
       </div>
     </div>
+    ${(S._arqContas&&S._arqContas.length)?`<div class="mini" style="margin-top:8px;color:#5046e5">
+      📦 <b>${S._arqContas.length} conta(s) que saíram do token</b> entram nos números pelo arquivo histórico (até ontem): ${esc(S._arqContas.slice(0,5).join(', '))}${S._arqContas.length>5?' e mais '+(S._arqContas.length-5):''}.</div>`:''}
     ${(()=>{const b=Object.keys(S._contasBarradas||{}); return b.length?`<div class="mini" style="margin-top:8px;color:#c5221f">
       🚦 <b>${b.length} conta(s) não responderam por limite de chamadas do Meta</b> e ficaram de fora dos números desta tela:
       ${esc(b.slice(0,6).join(', '))}${b.length>6?' e mais '+(b.length-6):''}.
