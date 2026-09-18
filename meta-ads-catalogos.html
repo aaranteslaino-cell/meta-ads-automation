@@ -719,6 +719,23 @@ function cardGrupos(){
 }
 
 function cardExecutar(){
+  if(S.soCatalogo){
+    const faltas=validar();
+    return `<div class="card">
+      <h2>3 · Criar o catálogo</h2>
+      <div class="mini" style="font-size:13px;color:var(--txt);line-height:1.5;margin-bottom:10px">
+        Aqui só nasce o catálogo${S.pixelId?', já ligado ao conjunto de dados':''}. <b>Nome, descrição, link, preço, imagem, vídeo e variantes</b> você coloca no painel do botão <b>📹 Montar produtos</b>, lá no Commerce Manager (passo 4, abaixo).
+        <br>Quer criar os produtos por aqui, sem vídeo? Desmarque "Criar só o catálogo" no passo 2 e as abas de campos e grupos voltam.
+      </div>
+      ${faltas.length?`<div class="aviso erro"><b>Falta ajustar:</b><br>• ${faltas.map(esc).join('<br>• ')}</div>`
+        :`<div class="aviso ok">Pronto para criar o catálogo <b>"${esc(S.catNome.trim())}"</b>.</div>`}
+      <div style="margin-top:12px">
+        <button class="btn btn-rox" onclick="executar()" ${RODANDO||faltas.length?'disabled':''}>${RODANDO?'<span class="load"></span> criando…':'Criar catálogo'}</button>
+      </div>
+      ${RESULTADO&&RESULTADO.catId?`<div class="aviso ok" style="margin-top:10px">Catálogo <b>${esc(RESULTADO.catId)}</b> criado.
+        <a href="https://business.facebook.com/commerce/catalogs/${esc(RESULTADO.catId)}/products" target="_blank" rel="noopener">abrir no Commerce Manager →</a></div>`:''}
+    </div>`;
+  }
   const erros=validar();
   return `<div class="card">
     <h2>5 · Executar</h2>
@@ -769,7 +786,7 @@ async function criarConjuntosDoCatalogo(){
 
 function cardConjuntos(){
   return `<div class="card">
-    <h2>Depois dos produtos: conjuntos</h2>
+    <h2>${S.soCatalogo?'5 · ':''}Depois dos produtos: conjuntos</h2>
     <div class="mini" style="font-size:13px;color:var(--txt)">Quando os produtos já estiverem no catálogo (depois do <b>Carregar produtos</b>), escolha o catálogo no passo 2 em <b>"Adicionar itens a um catálogo que já existe"</b> e clique abaixo. Cria um conjunto por produto, filtrando pelo nome, e pula os que já existem.</div>
     <button class="btn btn-rox" style="margin-top:12px" onclick="criarConjuntosDoCatalogo()" ${CRIANDO_SETS||!S.catId?'disabled':''}>${CRIANDO_SETS?'<span class="load"></span> criando…':'Criar conjuntos de produtos'}</button>
   </div>`;
@@ -777,7 +794,7 @@ function cardConjuntos(){
 
 function cardVideos(){
   return `<div class="card" style="border:2px solid var(--rox)">
-    <h2>📹 Produtos com imagem e vídeo: o botão "Montar produtos"</h2>
+    <h2>${S.soCatalogo?'4 · ':''}📹 Produtos com imagem e vídeo: o botão "Montar produtos"</h2>
     <div class="mini" style="font-size:13px;color:var(--txt);line-height:1.5">
       O Meta só aceita vídeo de catálogo pela tela dele, e tranca a mídia de produto criado por API. Por isso os produtos nascem na tela <b>Adicionar produtos</b> do Commerce Manager, montados por um <b>botão nos seus favoritos</b>.
     </div>
