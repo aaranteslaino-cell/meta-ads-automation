@@ -672,6 +672,16 @@ async function run(){
   const c = S.camp;
   const DEST = S.destino || {modo:'nova'};
 
+  if(S.ads.some(a=>a.type==='catalog')){
+    log('Testando o anúncio de catálogo no Meta antes de criar qualquer coisa…','i');
+    const erroPre = await preTesteCatalogo();
+    if(erroPre){
+      log('✗ O Meta recusaria o anúncio. Nada foi criado. '+erroPre,'e');
+      S.running=false; S._tokenForcado=null; render(); return;
+    }
+    log('✓ Anúncio aprovado no teste. Criando…','s');
+  }
+
   try {
    const campDups = Math.max(1, parseInt(c.duplicateCount)||1);
    for(let campIdx=0; campIdx<campDups; campIdx++){
@@ -1031,36 +1041,8 @@ async function run(){
               }
 
             } else if(ad.type==='catalog'){
-              // Formato IMAGEM OU VÍDEO ÚNICO (pedido do Arthur: nada de carrossel nem
-              // coleção). No catálogo isso é format_option single_image SEM asset_feed_spec;
-              // com ad_formats o Meta recusa (validado 18/09/2026). media_type_automation
-              // OPT_IN = mídia dinâmica: mostra o VÍDEO do item quando ele tem vídeo.
-              // hide_price OPT_IN esconde o R$1,00.
-              const O=v=>({enroll_status:v});
-              creativeBody = {
-                name: ad.name+' - Creative',
-                object_story_spec:{
-                  page_id: ad.pageId,
-                  template_data:{
-                    link: linkWithUtm,
-                    message: texts[0]||'',
-                    call_to_action:{ type: ad.cta||'LEARN_MORE' },
-                    format_option: 'single_image'
-                  }
-                },
-                product_set_id: ad.productSetId.trim(),
-                degrees_of_freedom_spec:{ creative_features_spec:{
-                  add_text_overlay:O('OPT_OUT'), advantage_plus_creative:O('OPT_OUT'),
-                  description_automation:O('OPT_OUT'), dynamic_partner_content:O('OPT_OUT'),
-                  enhance_cta:O('OPT_OUT'), hide_price:O('OPT_IN'),
-                  image_background_gen:O('OPT_OUT'), image_uncrop:O('OPT_OUT'),
-                  inline_comment:O('OPT_OUT'), media_type_automation:O('OPT_IN'),
-                  product_browsing:O('OPT_OUT'), product_metadata_automation:O('OPT_OUT')
-                  // standard_enhancements aparece ao LER anúncio feito no Gerenciador, mas
-                  // o Meta recusa na criação ("foi descontinuado"). Validado sem ele.
-                }}
-              };
-              if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
+              if(!igActorId) igActorId = await igDoCatalogo(ad);
+              creativeBody = criativoCatalogo(ad, igActorId, linkWithUtm, texts);
             }
 
             // UTM vai no url_tags TANTO do creative QUANTO do ad — algumas contas leem só de um
@@ -2004,6 +1986,71 @@ function buildMediaFields(ad){
 }
 
 // ── Catálogo ────────────────────────────────────────────────────────────────
+// Formato IMAGEM OU VÍDEO ÚNICO (pedido do Arthur: nada de carrossel nem coleção).
+// No catálogo isso é format_option single_image SEM asset_feed_spec; com ad_formats
+// o Meta recusa (validado 18/09/2026). media_type_automation OPT_IN = mídia
+// dinâmica: mostra o VÍDEO do item quando ele tem vídeo. hide_price esconde o R$1,00.
+function criativoCatalogo(ad, igActorId, link, texts){
+  const O=v=>({enroll_status:v});
+  const body = {
+    name: ad.name+' - Creative',
+    object_story_spec:{
+      page_id: ad.pageId,
+      template_data:{
+        link, message:(texts||[])[0]||'',
+        call_to_action:{ type: ad.cta||'LEARN_MORE' },
+        format_option: 'single_image'
+      }
+    },
+    product_set_id: ad.productSetId.trim(),
+    degrees_of_freedom_spec:{ creative_features_spec:{
+      add_text_overlay:O('OPT_OUT'), advantage_plus_creative:O('OPT_OUT'),
+      description_automation:O('OPT_OUT'), dynamic_partner_content:O('OPT_OUT'),
+      enhance_cta:O('OPT_OUT'), hide_price:O('OPT_IN'),
+      image_background_gen:O('OPT_OUT'), image_uncrop:O('OPT_OUT'),
+      inline_comment:O('OPT_OUT'), media_type_automation:O('OPT_IN'),
+      product_browsing:O('OPT_OUT'), product_metadata_automation:O('OPT_OUT')
+      // standard_enhancements aparece ao LER anúncio do Gerenciador, mas a criação recusa.
+    }}
+  };
+  if(igActorId) body.object_story_spec.instagram_user_id = igActorId;
+  if(ad.utm?.trim()) body.url_tags = ad.utm.trim();
+  return body;
+}
+// Anúncio de catálogo EXIGE Instagram declarado (erro 1772103 sem ele), diferente
+// do de imagem/vídeo. Se o campo está vazio, usa o Instagram ligado à página.
+async function igDoCatalogo(ad){
+  const d = ad.igActorId?.trim(); if(d && /^\d+$/.test(d)) return d;
+  try{ const r = await api(`/${ad.pageId}`,'GET',{fields:'instagram_business_account'}); return r.instagram_business_account?.id || null; }
+  catch(e){ return null; }
+}
+// Testa o 1º anúncio no Meta (validate_only) ANTES de criar campanha e conjunto.
+// Sem isso, um erro no anúncio deixava campanha e conjunto vazios criados.
+async function preTesteCatalogo(){
+  const ad = S.ads.find(a=>a.type==='catalog'); if(!ad) return null;
+  const ig = await igDoCatalogo(ad);
+  // A exigência de Instagram só aparece ao criar o ANÚNCIO no conjunto (depende dos
+  // posicionamentos), então o teste do criativo não pega. Checa a regra aqui:
+  // posicionamento com Instagram (automático ou ig_*) + sem Instagram = recusa.
+  const temIg = (S.destino&&S.destino.modo==='conjunto') ||
+    S.adsets.some(a=>a.placementType==='auto' || (a.placements||[]).some(p=>String(p).startsWith('ig_')));
+  if(temIg && !ig){
+    return 'Anúncio de catálogo precisa de uma conta do Instagram, e a página '+ad.pageId+
+      ' não tem Instagram ligado. Use uma página que tenha Instagram, preencha o ID do Instagram no anúncio, '+
+      'ou tire os posicionamentos do Instagram do conjunto.';
+  }
+  const body = criativoCatalogo(ad, ig, https(ad.linkUrl), (ad.texts||[]).filter(t=>t?.trim()));
+  body.execution_options = ['validate_only'];
+  try{ await api(`/${S.selectedAccount}/adcreatives`,'POST',body); return null; }
+  catch(e){
+    let dica = '';
+    if(/1772103|Instagram/i.test(e.message)) dica = ig
+      ? ' O Instagram '+ig+' não pode ser usado com esta página por este token.'
+      : ' A página '+ad.pageId+' não tem Instagram ligado. Use a página que tem Instagram (ex.: a do Coelho que roda na CA04) ou preencha o ID do Instagram.';
+    if(/3858749|permiss/i.test(e.message)) dica += ' O token do catálogo não tem permissão de anunciar com a página '+ad.pageId+': atribua a página ao usuário do sistema dele (BM Roi Ventures LTDA).';
+    return e.message + dica;
+  }
+}
 async function carregarConjuntos(catId){
   if(!catId) return;
   S.productSets = S.productSets || {};
