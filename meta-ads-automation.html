@@ -1031,9 +1031,11 @@ async function run(){
               }
 
             } else if(ad.type==='catalog'){
-              // Cópia do criativo das campanhas de catálogo que rodam (12/09, CA 06).
-              // media_type_automation OPT_IN é o que faz o anúncio mostrar o VÍDEO do
-              // item do catálogo; hide_price OPT_IN esconde o R$1,00.
+              // Formato IMAGEM OU VÍDEO ÚNICO (pedido do Arthur: nada de carrossel nem
+              // coleção). No catálogo isso é format_option single_image SEM asset_feed_spec;
+              // com ad_formats o Meta recusa (validado 18/09/2026). media_type_automation
+              // OPT_IN = mídia dinâmica: mostra o VÍDEO do item quando ele tem vídeo.
+              // hide_price OPT_IN esconde o R$1,00.
               const O=v=>({enroll_status:v});
               creativeBody = {
                 name: ad.name+' - Creative',
@@ -1043,17 +1045,15 @@ async function run(){
                     link: linkWithUtm,
                     message: texts[0]||'',
                     call_to_action:{ type: ad.cta||'LEARN_MORE' },
-                    multi_share_end_card: false,
-                    format_option: 'carousel_images_multi_items'
+                    format_option: 'single_image'
                   }
                 },
-                asset_feed_spec:{ ad_formats:['CAROUSEL','COLLECTION'], optimization_type:'FORMAT_AUTOMATION' },
                 product_set_id: ad.productSetId.trim(),
                 degrees_of_freedom_spec:{ creative_features_spec:{
                   add_text_overlay:O('OPT_OUT'), advantage_plus_creative:O('OPT_OUT'),
                   description_automation:O('OPT_OUT'), dynamic_partner_content:O('OPT_OUT'),
                   enhance_cta:O('OPT_OUT'), hide_price:O('OPT_IN'),
-                  image_background_gen:O('OPT_IN'), image_uncrop:O('OPT_OUT'),
+                  image_background_gen:O('OPT_OUT'), image_uncrop:O('OPT_OUT'),
                   inline_comment:O('OPT_OUT'), media_type_automation:O('OPT_IN'),
                   product_browsing:O('OPT_OUT'), product_metadata_automation:O('OPT_OUT')
                   // standard_enhancements aparece ao LER anúncio feito no Gerenciador, mas
@@ -1994,12 +1994,11 @@ function buildMediaFields(ad){
       </div>
     </div>
     ${ad.catalogId&&lista.length?`
-    <div style="margin-top:6px;padding:10px 12px;background:#f3ecff;border-radius:8px;font-size:13px">
-      Este catálogo tem <b>${lista.length} conjunto(s)</b> de produtos (um por criativo).
-      <button class="btn btn-sm" style="margin-left:8px;background:#7b2ff7;color:#fff" onclick="umAnuncioPorConjunto(${ad.id})">➕ Criar um anúncio por conjunto</button>
-      <div style="font-size:12px;color:#666;margin-top:4px">Copia página, Instagram, texto, link, botão e UTM deste anúncio para os outros. O nome de cada anúncio vira o nome do conjunto.</div>
+    <div style="margin-top:8px;padding:14px;background:#f3ecff;border:2px solid #7b2ff7;border-radius:10px;font-size:13px">
+      <button class="btn" style="width:100%;background:#7b2ff7;color:#fff;font-size:15px;padding:12px" onclick="umAnuncioPorConjunto(${ad.id})">🚀 Subir todos os conjuntos deste catálogo (${lista.length})</button>
+      <div style="font-size:12px;color:#555;margin-top:8px;line-height:1.5">Cria <b>um anúncio para cada conjunto</b> (um por criativo), com o nome do conjunto. Página, Instagram, texto, link, botão e UTM vêm deste anúncio. O "All Products" fica de fora.</div>
     </div>`:''}
-    <div style="font-size:12px;color:#666;margin-top:6px">Formato igual às campanhas de catálogo que rodam hoje: Carrossel/Coleção automático, <b>mostra o vídeo do catálogo</b> e <b>esconde o preço</b>.</div>`;
+    <div style="font-size:12px;color:#666;margin-top:6px">Formato <b>imagem ou vídeo único</b> (sem carrossel e sem coleção). Mostra o <b>vídeo do catálogo</b> quando o item tem vídeo e <b>esconde o preço</b>.</div>`;
   }
   return '';
 }
@@ -2035,9 +2034,11 @@ function umAnuncioPorConjunto(adId){
   const usados=new Set(S.ads.filter(a=>a.type==='catalog').map(a=>a.productSetId).filter(Boolean));
   const faltam=sets.filter(x=>!usados.has(x.id));
   if(!faltam.length){ alert('Todos os conjuntos desse catálogo já têm anúncio.'); return; }
-  if(!confirm(`Criar ${faltam.length} anúncio(s), um para cada conjunto de produtos, copiando os dados deste anúncio?`)) return;
-  // Se o anúncio-base ainda não tem conjunto, ele fica com o primeiro.
-  if(!base.productSetId){ const f=faltam.shift(); base.productSetId=f.id; if(!base.name?.trim()) base.name=f.name; }
+  const total = faltam.length + (base.productSetId?1:0);
+  if(!confirm(`Subir ${sets.length} conjunto(s) deste catálogo: ${total} anúncio(s), um por conjunto, copiando página, texto, link, botão e UTM deste anúncio?`)) return;
+  // O anúncio-base fica com o primeiro conjunto livre, e todos ficam com o nome do seu conjunto.
+  if(!base.productSetId){ const f=faltam.shift(); base.productSetId=f.id; }
+  { const meu=sets.find(x=>x.id===base.productSetId); if(meu) base.name=meu.name; }
   faltam.forEach(x=>{
     S.ads.push({
       id:uid(), name:x.name, type:'catalog', pageId:base.pageId, igActorId:base.igActorId,
