@@ -379,21 +379,35 @@ async function loadAccountAssets(accountId){
     const r = await api(`/${accountId}/adspixels`,'GET',{fields:'id,name',limit:200});
     S.pixels = r.data || [];
   } catch(e){ S.pixels=[]; }
-  // Catálogos: os ligados à conta + os do negócio dono dela. Catálogo recém-criado
-  // (pela ferramenta de catálogos) costuma não estar ligado à conta ainda.
+  // Catálogos de TODAS as BMs que o token enxerga, não só da BM dona da conta.
+  // Os 27 catálogos ficam na Roi Ventures LTDA, e as contas ativas são quase
+  // todas de outras BMs (Manolo ADS, Grupo ROI Ventures...). Validado em
+  // 18/09/2026: conta de outra BM cria campanha e criativo com catálogo da Roi
+  // Ventures sem erro. O /{conta}/product_catalogs não existe mais na API.
+  // Tenta com TODOS os tokens: o da conta pode não ter permissão de catálogo
+  // (o do app ROI Data não tem catalog_management), e outro token pode ter.
   S.catalogs = [];
-  try {
-    const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name,product_count',limit:200});
-    S.catalogs = r.data || [];
-  } catch(e){}
-  try {
-    const acc = await api(`/${accountId}`,'GET',{fields:'business'});
-    if(acc.business && acc.business.id){
-      const r2 = await api(`/${acc.business.id}/owned_product_catalogs`,'GET',{fields:'id,name,product_count',limit:200});
-      (r2.data||[]).forEach(c=>{ if(!S.catalogs.some(x=>x.id===c.id)) S.catalogs.push(c); });
-    }
-  } catch(e){}
-  S.catalogs.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  S.catalogToken = {};
+  let minhaBm = '';
+  try { const acc = await api(`/${accountId}`,'GET',{fields:'business{id,name}'}); minhaBm = acc.business && acc.business.id || ''; } catch(e){}
+  const toks = [...new Set([getAccountToken(accountId), ...(S.tokens||[]).map(t=>t.token)].filter(Boolean))];
+  for(const tk of toks){
+    try {
+      const bms = {};
+      const contas = await api('/me/adaccounts','GET',{fields:'business{id,name}',limit:200}, tk);
+      (contas.data||[]).forEach(a=>{ if(a.business&&a.business.id) bms[a.business.id]=a.business.name; });
+      for(const [bmId,bmNome] of Object.entries(bms)){
+        try{
+          const r2 = await api(`/${bmId}/owned_product_catalogs`,'GET',{fields:'id,name,product_count',limit:200}, tk);
+          (r2.data||[]).forEach(c=>{
+            if(!S.catalogs.some(x=>x.id===c.id)){ S.catalogs.push({...c, _bm:bmNome, _mesmaBm: bmId===minhaBm}); S.catalogToken[c.id]=tk; }
+          });
+        }catch(e){ console.warn('[catálogos]',bmNome,e.message); }
+      }
+    } catch(e){ console.warn('[catálogos] token',e.message); }
+  }
+  // os da mesma BM da conta primeiro, depois por nome
+  S.catalogs.sort((a,b)=> (b._mesmaBm-a._mesmaBm) || String(a.name||'').localeCompare(String(b.name||'')));
   S.productSets = {};
   await loadRegulationOptions(accountId);
 }
@@ -1957,8 +1971,8 @@ function buildMediaFields(ad){
       <div class="fg">
         <label>Catálogo</label>
         <select onchange="escolherCatalogo(${ad.id},this.value)">
-          <option value="">escolher…</option>
-          ${S.catalogs.map(c=>`<option value="${esc(c.id)}" ${ad.catalogId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens</option>`).join('')}
+          <option value="">${S.catalogs.length?'escolher…':(S.selectedAccount?'nenhum catálogo visível para este token':'escolha a conta primeiro')}</option>
+          ${S.catalogs.map(c=>`<option value="${esc(c.id)}" ${ad.catalogId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens${c._bm?' · '+esc(c._bm):''}</option>`).join('')}
         </select>
       </div>
       <div class="fg">
@@ -1987,7 +2001,7 @@ async function carregarConjuntos(catId){
   if(S.productSets[catId]!==undefined) return;
   S.productSets[catId] = null;   // marca como "carregando" para não disparar de novo
   try{
-    const r = await api(`/${catId}/product_sets`,'GET',{fields:'id,name,product_count',limit:200});
+    const r = await api(`/${catId}/product_sets`,'GET',{fields:'id,name,product_count',limit:200}, (S.catalogToken||{})[catId]||null);
     S.productSets[catId] = (r.data||[]).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
   }catch(e){ S.productSets[catId] = []; alert('Não consegui ler os conjuntos desse catálogo: '+e.message); }
   render();
