@@ -257,6 +257,8 @@ function getAccountToken(accountId){
   return S.token; // fallback
 }
 function getActiveToken(){
+  // Campanha de catálogo roda inteira com o token que enxerga o catálogo (ver run()).
+  if(S._tokenForcado) return S._tokenForcado;
   return getAccountToken(S.selectedAccount) || S.token || S.tokens[0]?.token || '';
 }
 
@@ -654,6 +656,13 @@ async function run(){
 
   S.running = true;
   S.stopReq = false;
+  // Catálogo: o token da conta pode ser o do ROI Data, que não tem permissão de
+  // catálogo. Se um token enxerga o catálogo escolhido, a campanha inteira é
+  // criada com ele (o AUTOMAÇÃO CAMPANHAS tem ads_management em todas as contas;
+  // validado em 18/09/2026).
+  S._tokenForcado = null;
+  { const cat = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
+    if(cat && (S.catalogToken||{})[cat.catalogId]) S._tokenForcado = S.catalogToken[cat.catalogId]; }
   S.criados = {campanhas:0, conjuntos:0, anuncios:0};
   S.log = [];
   S.tab = 'log';
@@ -1102,6 +1111,7 @@ async function run(){
   }
 
   S.running = false;
+  S._tokenForcado = null;
   render();
 }
 
