@@ -340,13 +340,13 @@ function escolherMidia(url, thumb){
 }
 function variantesDe(g){ return g.variantes||g.copias||S.variantes||1; }
 function gruposValidos(){
-  return S.grupos.filter(g=>String(g.nome||'').trim() && String(g.img||'').trim() && String(g.video||'').trim());
+  return S.grupos.filter(g=>String(g.nome||'').trim() && String(g.img||'').trim());
 }
 function gruposIncompletos(){
   return S.grupos.filter(g=>{
     const n=String(g.nome||'').trim();
     if(!n) return false;                               // linha em branco não conta
-    return !String(g.img||'').trim() || !String(g.video||'').trim();
+    return !String(g.img||'').trim();
   });
 }
 function totalItens(){ return gruposValidos().reduce((s,g)=>s+variantesDe(g),0); }
@@ -379,11 +379,10 @@ function validar(){
   else if(!/^https?:\/\//i.test(S.fixos.url.trim())) e.push('A URL de destino precisa começar com http:// ou https://');
   if(!String(S.fixos.brand||'').trim()) e.push('Preencha o texto do anúncio (vai no campo "brand").');
   const g=gruposValidos();
-  if(!g.length) e.push('Cadastre pelo menos um grupo com nome, imagem e vídeo.');
+  if(!g.length) e.push('Cadastre pelo menos um grupo com nome e imagem.');
   const faltando=gruposIncompletos();
   faltando.forEach(x=>{
-    const o=[]; if(!String(x.img||'').trim()) o.push('imagem'); if(!String(x.video||'').trim()) o.push('vídeo');
-    e.push(`O grupo "${x.nome.trim()}" está sem ${o.join(' e ')}.`);
+    e.push(`O grupo "${x.nome.trim()}" está sem imagem.`);
   });
   const nomes=g.map(x=>x.nome.trim().toLowerCase());
   if(new Set(nomes).size!==nomes.length) e.push('Há grupos com o mesmo nome. O conjunto de produtos filtra por nome, então cada grupo precisa ser único.');
@@ -460,54 +459,22 @@ async function executar(){
       logar('ok',`  "${g.nome}" pronto (${criados} item(ns) no total até aqui)`); render();
     }
 
-    // 3. vídeos
-    // O vídeo não entra no POST /products: ele é anexado pelo items_batch, que
-    // aceita o campo `video` e casa o item pelo retailer_id. Uma chamada só
-    // resolve o catálogo inteiro. O Meta busca a URL e processa em segundo
-    // plano, então o vídeo aparece no item alguns minutos depois.
+    // 3. variantes
+    // O item_group_id é o que transforma as N cópias em variantes do mesmo
+    // produto. O vídeo NÃO vai por aqui: a API pública grava a URL e o Meta
+    // nunca processa (testado 21h com URL assinada, URL pública e upload por
+    // handle). Ele entra pelo botão de favoritos "Subir vídeos", que usa o
+    // próprio upload do Commerce Manager.
     if(!PARAR && porGrupo.length){
       const reqs=[];
       porGrupo.forEach(g=>g.ids.forEach(it=>reqs.push({
-        method:'UPDATE',
-        data:{ id:it.rid, item_group_id:g.grupoId, video:[{ url:g.video, tag:[g.nome] }] }
+        method:'UPDATE', data:{ id:it.rid, item_group_id:g.grupoId }
       })));
-      logar('in',`Agrupando as variantes e anexando o vídeo em ${reqs.length} item(ns)…`); render();
+      logar('in',`Agrupando as variantes de ${porGrupo.length} produto(s)…`); render();
       try{
-        const r=await gPost(`/${catId}/items_batch`,{ item_type:'PRODUCT_ITEM', requests:reqs });
-        videos=reqs.length;
-        logar('ok',`${porGrupo.length} produto(s) agrupado(s) e vídeo(s) enviado(s) para processamento${r.handles?` (handle ${String(r.handles[0]||'').slice(0,18)}…)`:''}.`);
-        logar('av','O Meta baixa e processa o vídeo em segundo plano. No Commerce Manager ele aparece no item em alguns minutos.');
-      }catch(e){
-        logar('er','O anexo do vídeo falhou: '+e.message);
-      }
-      // Honestidade sobre o que o Meta faz com esse campo. Testado em 16/09/26
-      // com URL assinada, URL pública estável e upload direto por handle: nos
-      // três casos o item guarda a URL mas o status fica em OUTDATED e o vídeo
-      // não aparece. O upload que funciona é o do Commerce Manager, que usa um
-      // endpoint interno fora do Graph API.
-      logar('av','⚠️ A URL do vídeo fica gravada no item, mas o Meta pode não processar: o upload de vídeo do Commerce Manager usa um caminho interno que a API pública não expõe. Se o vídeo não aparecer, arraste o arquivo no item pelo Commerce Manager. O resto (produto, variantes, imagem, textos) já fica pronto.');
-      render();
-
-      // Confere de verdade: lê um item de volta e vê se o vídeo colou. Sem isto
-      // o "enviado para processamento" seria só esperança.
-      logar('in','Conferindo se o vídeo colou no item…'); render();
-      let ok=false;
-      for(let t=0;t<6 && !ok;t++){
-        await new Promise(r=>setTimeout(r, t===0?6000:10000));
-        try{
-          const alvo=porGrupo[0].ids[0];
-          if(!alvo||!alvo.pid){ logar('av','  sem id de produto para reler; confira no Commerce Manager.'); break; }
-          const p=await gGet(`/${alvo.pid}`,{fields:'id,name,video_fetch_status,videos'});
-          if(p && ((p.videos&&p.videos.length) || ['DIRECT_UPLOAD','FETCHED','SUCCESS'].includes(p.video_fetch_status))){
-            ok=true;
-            logar('ok',`Confirmado no item "${p.name}": video_fetch_status = ${p.video_fetch_status||'—'}${p.videos&&p.videos.length?` · ${p.videos.length} vídeo(s)`:''}`);
-          } else if(p){
-            logar('av',`  ainda processando (status ${p.video_fetch_status||'—'})…`);
-          }
-        }catch(e){ logar('av','  não consegui reler agora: '+e.message); break; }
-        render();
-      }
-      if(!ok) logar('av','O Meta ainda não terminou de processar. Confira no Commerce Manager em alguns minutos; o envio em si não deu erro.');
+        await gPost(`/${catId}/items_batch`,{ item_type:'PRODUCT_ITEM', requests:reqs });
+        logar('ok',`${porGrupo.length} produto(s) com as variantes agrupadas.`);
+      }catch(e){ logar('er','Não consegui agrupar as variantes: '+e.message); }
       render();
     }
 
@@ -688,14 +655,13 @@ function cardGrupos(){
   const linhas=S.grupos.map((g,i)=>`<tr>
     <td style="min-width:190px"><input value="${esc(g.nome)}" oninput="setGrupo(${i},'nome',this.value)" placeholder="16 - QUERO"></td>
     ${cel(i,'img',g.imgThumb||g.img,'🖼')}
-    ${cel(i,'video',g.videoThumb,'🎬')}
     <td style="width:70px"><input type="number" min="1" max="50" value="${g.variantes==null?(g.copias==null?'':g.copias):g.variantes}" oninput="setGrupo(${i},'variantes',this.value)" placeholder="${esc(S.variantes)}"></td>
     <td style="width:40px"><button class="btn btn-cinza btn-sm" onclick="delGrupo(${i})" title="Remover grupo">✕</button></td>
     </tr>`).join('');
   return `<div class="card">
     <h2>4 · Grupos de criativo</h2>
-    <div class="mini" style="margin-bottom:10px">Clique na miniatura ou arraste o arquivo em cima dela para subir do seu computador, igual ao Commerce Manager (imagem até 8 MB, vídeo até 100 MB). O botão <b>biblioteca</b> é para reaproveitar criativo que já rodou. Cada grupo é <b>uma imagem e um vídeo</b>, e vira N itens iguais no catálogo mais, se marcar abaixo, um conjunto de produtos filtrando por esse nome. É o formato dos seus catálogos de hoje: 6 grupos de 4 cópias, 24 itens.</div>
-    <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th colspan="2">Vídeo</th><th>Variantes</th><th></th></tr></thead>
+    <div class="mini" style="margin-bottom:10px">Clique na miniatura ou arraste a imagem em cima dela para subir do seu computador (até 8 MB). O <b>vídeo não entra aqui</b>: ele vai pelo botão <b>📹 Subir vídeos</b> dos favoritos, lá no Commerce Manager, que é o único jeito que o Meta aceita. Por isso <b>dê ao arquivo de vídeo o mesmo nome do grupo</b>. Cada grupo vira N variantes do mesmo produto.</div>
+    <table><thead><tr><th>Nome do grupo</th><th colspan="2">Imagem</th><th>Variantes</th><th></th></tr></thead>
       <tbody>${linhas}</tbody></table>
     <div class="row" style="margin-top:12px;align-items:center">
       <div style="flex:0 0 auto"><button class="btn btn-cinza btn-sm" onclick="addGrupo()">+ grupo</button></div>
