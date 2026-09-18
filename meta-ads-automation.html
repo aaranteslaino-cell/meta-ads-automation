@@ -379,10 +379,22 @@ async function loadAccountAssets(accountId){
     const r = await api(`/${accountId}/adspixels`,'GET',{fields:'id,name',limit:200});
     S.pixels = r.data || [];
   } catch(e){ S.pixels=[]; }
+  // Catálogos: os ligados à conta + os do negócio dono dela. Catálogo recém-criado
+  // (pela ferramenta de catálogos) costuma não estar ligado à conta ainda.
+  S.catalogs = [];
   try {
-    const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name',limit:200});
+    const r = await api(`/${accountId}/product_catalogs`,'GET',{fields:'id,name,product_count',limit:200});
     S.catalogs = r.data || [];
-  } catch(e){ S.catalogs=[]; }
+  } catch(e){}
+  try {
+    const acc = await api(`/${accountId}`,'GET',{fields:'business'});
+    if(acc.business && acc.business.id){
+      const r2 = await api(`/${acc.business.id}/owned_product_catalogs`,'GET',{fields:'id,name,product_count',limit:200});
+      (r2.data||[]).forEach(c=>{ if(!S.catalogs.some(x=>x.id===c.id)) S.catalogs.push(c); });
+    }
+  } catch(e){}
+  S.catalogs.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  S.productSets = {};
   await loadRegulationOptions(accountId);
 }
 
@@ -599,14 +611,25 @@ function validate(){
     if(!a.pageId?.trim()) errs.push(`Anúncio ${n}: ID da Página obrigatório`);
     const hasText = (a.texts||[]).some(t=>t?.trim());
     if(!hasText) errs.push(`Anúncio ${n}: texto obrigatório`);
-    if(!a.linkUrl?.trim() && a.type!=='catalog') errs.push(`Anúncio ${n}: URL de destino obrigatória`);
+    if(!a.linkUrl?.trim()) errs.push(`Anúncio ${n}: URL de destino obrigatória`);
     if(a.type==='image' && !a.imageFile && !a.imageHash?.trim())
       errs.push(`Anúncio ${n}: imagem ou hash obrigatório`);
     if(a.type==='video' && !a.videoFile && !a.videoId?.trim())
       errs.push(`Anúncio ${n}: vídeo ou ID de vídeo obrigatório`);
+    if(a.type==='catalog' && !a.catalogId?.trim())
+      errs.push(`Anúncio ${n}: escolha o catálogo`);
     if(a.type==='catalog' && !a.productSetId?.trim())
-      errs.push(`Anúncio ${n}: ID do Product Set obrigatório`);
+      errs.push(`Anúncio ${n}: escolha o conjunto de produtos`);
   });
+  // Catálogo fica na campanha: todos os anúncios de catálogo precisam ser do
+  // mesmo catálogo, e não dá para misturar com anúncio de imagem/vídeo.
+  const catAds = S.ads.filter(a=>a.type==='catalog');
+  if(catAds.length){
+    if(c.objective!=='OUTCOME_SALES') errs.push('Anúncio de catálogo exige o objetivo Vendas (OUTCOME_SALES)');
+    if(catAds.length!==S.ads.length) errs.push('Campanha de catálogo: todos os anúncios precisam ser do tipo Catálogo');
+    const ids=new Set(catAds.map(a=>(a.catalogId||'').trim()).filter(Boolean));
+    if(ids.size>1) errs.push('Todos os anúncios de catálogo precisam usar o mesmo catálogo');
+  }
   return errs;
 }
 
@@ -659,6 +682,10 @@ async function run(){
       // ABO: Meta API exige declarar se conjuntos compartilham orçamento (checkbox da UI)
       campBody.is_adset_budget_sharing_enabled = !!c.shareAdsetBudget;
     }
+    // Catálogo: vai na CAMPANHA (promoted_object.product_catalog_id), não no
+    // conjunto. É assim nas campanhas de catálogo do Código FBA que rodam hoje.
+    const catAd = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
+    if(catAd) campBody.promoted_object = { product_catalog_id: catAd.catalogId.trim(), smart_pse_enabled: false };
     log('[Campaign body] '+JSON.stringify(campBody),'i');
     campR = await api(`/${acct}/campaigns`,'POST',campBody);
     log(`✓ Campanha criada: ${campR.id}`,'s');
@@ -782,9 +809,8 @@ async function run(){
         if(adset.startDate && !isNaN(st)) adsetBody.start_time = st;
         if(adset.endDate   && !isNaN(et)) adsetBody.end_time   = et;
 
-        // Catálogo no adset (campo separado, fora do promoted_object)
-        const catalogAd = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
-        if(catalogAd) adsetBody.product_catalog_id = catalogAd.catalogId;
+        // Catálogo NÃO vai no conjunto: fica na campanha. O conjunto de catálogo
+        // é igual ao de vendas normal (pixel + PURCHASE).
 
         log('[Adset body] '+JSON.stringify(adsetBody),'i');
         adsetR = await api(`/${acct}/adsets`,'POST',adsetBody);
@@ -982,22 +1008,34 @@ async function run(){
               }
 
             } else if(ad.type==='catalog'){
+              // Cópia do criativo das campanhas de catálogo que rodam (12/09, CA 06).
+              // media_type_automation OPT_IN é o que faz o anúncio mostrar o VÍDEO do
+              // item do catálogo; hide_price OPT_IN esconde o R$1,00.
+              const O=v=>({enroll_status:v});
               creativeBody = {
                 name: ad.name+' - Creative',
                 object_story_spec:{
                   page_id: ad.pageId,
                   template_data:{
-                    message: ad.text,
                     link: linkWithUtm,
-                    name: '{{product.name}}',
-                    description: '{{product.description}}',
-                    call_to_action:{
-                      type: ad.cta||'SHOP_NOW',
-                      value:{ link: linkWithUtm }
-                    }
+                    message: texts[0]||'',
+                    call_to_action:{ type: ad.cta||'LEARN_MORE' },
+                    multi_share_end_card: false,
+                    format_option: 'carousel_images_multi_items'
                   }
                 },
-                product_set_id: ad.productSetId
+                asset_feed_spec:{ ad_formats:['CAROUSEL','COLLECTION'], optimization_type:'FORMAT_AUTOMATION' },
+                product_set_id: ad.productSetId.trim(),
+                degrees_of_freedom_spec:{ creative_features_spec:{
+                  add_text_overlay:O('OPT_OUT'), advantage_plus_creative:O('OPT_OUT'),
+                  description_automation:O('OPT_OUT'), dynamic_partner_content:O('OPT_OUT'),
+                  enhance_cta:O('OPT_OUT'), hide_price:O('OPT_IN'),
+                  image_background_gen:O('OPT_IN'), image_uncrop:O('OPT_OUT'),
+                  inline_comment:O('OPT_OUT'), media_type_automation:O('OPT_IN'),
+                  product_browsing:O('OPT_OUT'), product_metadata_automation:O('OPT_OUT')
+                  // standard_enhancements aparece ao LER anúncio feito no Gerenciador, mas
+                  // o Meta recusa na criação ("foi descontinuado"). Validado sem ele.
+                }}
               };
               if(igActorId) creativeBody.object_story_spec.instagram_user_id = igActorId;
             }
@@ -1810,7 +1848,7 @@ function buildAdBox(ad){
         <select onchange="setAd(${ad.id},'type',this.value);render()">
           <option value="image" ${ad.type==='image'?'selected':''}>Imagem</option>
           <option value="video" ${ad.type==='video'?'selected':''}>Vídeo</option>
-          <option value="catalog" ${ad.type==='catalog'?'selected':''}>Catálogo</option>
+          <option value="catalog" ${ad.type==='catalog'?'selected':''}>Catálogo (Advantage+)</option>
         </select>
       </div>
     </div>
@@ -1910,22 +1948,82 @@ function buildMediaFields(ad){
       <div id="vid-chosen-${ad.id}" class="file-chosen" style="display:${ad.videoFile?'block':'none'}">${ad.videoFile?'✓ '+ad.videoFile.name:''}</div>
     </div>`;
 
-  if(ad.type==='catalog') return `
+  if(ad.type==='catalog'){
+    const sets = (S.productSets||{})[ad.catalogId] ;
+    if(ad.catalogId && sets===undefined) setTimeout(()=>carregarConjuntos(ad.catalogId),20);
+    const lista = (sets||[]).filter(x=>!/^all products$/i.test(x.name||''));
+    return `
     <div class="row">
       <div class="fg">
-        <label>ID do Catálogo</label>
-        <input value="${esc(ad.catalogId||'')}" oninput="setAd(${ad.id},'catalogId',this.value)"
-          placeholder="ID do catálogo" list="cat-${ad.id}">
-        <datalist id="cat-${ad.id}">
-          ${S.catalogs.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
-        </datalist>
+        <label>Catálogo</label>
+        <select onchange="escolherCatalogo(${ad.id},this.value)">
+          <option value="">escolher…</option>
+          ${S.catalogs.map(c=>`<option value="${esc(c.id)}" ${ad.catalogId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens</option>`).join('')}
+        </select>
       </div>
       <div class="fg">
-        <label>ID do Product Set</label>
-        <input value="${esc(ad.productSetId||'')}" oninput="setAd(${ad.id},'productSetId',this.value)" placeholder="ID do conjunto de produtos">
+        <label>Conjunto de produtos (o criativo)</label>
+        <select onchange="setAd(${ad.id},'productSetId',this.value);nomeDoConjunto(${ad.id})" ${ad.catalogId?'':'disabled'}>
+          <option value="">${!ad.catalogId?'escolha o catálogo primeiro':(sets===undefined?'carregando…':'escolher…')}</option>
+          ${(sets||[]).map(x=>`<option value="${esc(x.id)}" ${ad.productSetId===x.id?'selected':''}>${esc(x.name)} · ${x.product_count||0} itens</option>`).join('')}
+        </select>
       </div>
-    </div>`;
+    </div>
+    ${ad.catalogId&&lista.length?`
+    <div style="margin-top:6px;padding:10px 12px;background:#f3ecff;border-radius:8px;font-size:13px">
+      Este catálogo tem <b>${lista.length} conjunto(s)</b> de produtos (um por criativo).
+      <button class="btn btn-sm" style="margin-left:8px;background:#7b2ff7;color:#fff" onclick="umAnuncioPorConjunto(${ad.id})">➕ Criar um anúncio por conjunto</button>
+      <div style="font-size:12px;color:#666;margin-top:4px">Copia página, Instagram, texto, link, botão e UTM deste anúncio para os outros. O nome de cada anúncio vira o nome do conjunto.</div>
+    </div>`:''}
+    <div style="font-size:12px;color:#666;margin-top:6px">Formato igual às campanhas de catálogo que rodam hoje: Carrossel/Coleção automático, <b>mostra o vídeo do catálogo</b> e <b>esconde o preço</b>.</div>`;
+  }
   return '';
+}
+
+// ── Catálogo ────────────────────────────────────────────────────────────────
+async function carregarConjuntos(catId){
+  if(!catId) return;
+  S.productSets = S.productSets || {};
+  if(S.productSets[catId]!==undefined) return;
+  S.productSets[catId] = null;   // marca como "carregando" para não disparar de novo
+  try{
+    const r = await api(`/${catId}/product_sets`,'GET',{fields:'id,name,product_count',limit:200});
+    S.productSets[catId] = (r.data||[]).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  }catch(e){ S.productSets[catId] = []; alert('Não consegui ler os conjuntos desse catálogo: '+e.message); }
+  render();
+}
+function escolherCatalogo(adId, catId){
+  // Catálogo é da campanha: vale para todos os anúncios de catálogo.
+  S.ads.forEach(a=>{ if(a.type==='catalog' && a.catalogId!==catId){ a.catalogId=catId; a.productSetId=''; } });
+  const ad=S.ads.find(a=>a.id===adId); if(ad){ ad.catalogId=catId; ad.productSetId=''; }
+  saveState(); render();
+  carregarConjuntos(catId);
+}
+function nomeDoConjunto(adId){
+  const ad=S.ads.find(a=>a.id===adId); if(!ad) return;
+  const set=((S.productSets||{})[ad.catalogId]||[]).find(x=>x.id===ad.productSetId);
+  if(set && !ad.name?.trim()){ ad.name=set.name; saveState(); render(); }
+}
+function umAnuncioPorConjunto(adId){
+  const base=S.ads.find(a=>a.id===adId); if(!base) return;
+  const sets=((S.productSets||{})[base.catalogId]||[]).filter(x=>!/^all products$/i.test(x.name||''));
+  if(!sets.length){ alert('Esse catálogo não tem conjuntos de produtos. Crie na ferramenta de catálogos.'); return; }
+  const usados=new Set(S.ads.filter(a=>a.type==='catalog').map(a=>a.productSetId).filter(Boolean));
+  const faltam=sets.filter(x=>!usados.has(x.id));
+  if(!faltam.length){ alert('Todos os conjuntos desse catálogo já têm anúncio.'); return; }
+  if(!confirm(`Criar ${faltam.length} anúncio(s), um para cada conjunto de produtos, copiando os dados deste anúncio?`)) return;
+  // Se o anúncio-base ainda não tem conjunto, ele fica com o primeiro.
+  if(!base.productSetId){ const f=faltam.shift(); base.productSetId=f.id; if(!base.name?.trim()) base.name=f.name; }
+  faltam.forEach(x=>{
+    S.ads.push({
+      id:uid(), name:x.name, type:'catalog', pageId:base.pageId, igActorId:base.igActorId,
+      texts:[...(base.texts||[''])], headlines:[''], description:'', cta:base.cta||'LEARN_MORE',
+      linkUrl:base.linkUrl, utm:base.utm,
+      imageFile:null, imageHash:'', videoFile:null, videoId:'',
+      catalogId:base.catalogId, productSetId:x.id
+    });
+  });
+  saveState(); render();
 }
 
 // ── Aba Revisar ───────────────────────────────────────────────────────────────
