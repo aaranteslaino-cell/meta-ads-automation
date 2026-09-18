@@ -81,6 +81,7 @@ S.criarSets   = S.criarSets!==false;
 // este produto na fonte de dados original"), e a API não aceita vídeo. Por isso o
 // padrão é criar só o catálogo; os produtos entram pelo botão 📹 Montar produtos.
 S.soCatalogo  = S.soCatalogo!==false;
+S.vertical    = S.vertical||'commerce';
 S.grupos      = Array.isArray(S.grupos)&&S.grupos.length?S.grupos:[novoGrupo()];
 S.dark        = !!S.dark;
 
@@ -417,7 +418,7 @@ async function executar(){
     // 1. catálogo
     if(S.modo==='novo'){
       logar('in',`Criando catálogo "${S.catNome}" no negócio ${S.bizId}…`); render();
-      const r=await gPost(`/${S.bizId}/owned_product_catalogs`,{name:S.catNome.trim(), vertical:'commerce'});
+      const r=await gPost(`/${S.bizId}/owned_product_catalogs`,{name:S.catNome.trim(), vertical:S.vertical||'commerce'});
       catId=r.id;
       logar('ok',`Catálogo criado: ${catId}`);
       if(S.pixelId){
@@ -571,6 +572,22 @@ function cardToken(){
   </div>`;
 }
 
+// As 5 categorias da tela "Novo catálogo" do Commerce Manager, com os tipos que a
+// API aceita em cada uma (lista tirada da própria API). Todos os catálogos que já
+// rodam nesta conta são "commerce" (Produtos online), e é nesse tipo que o botão
+// 📹 Montar produtos foi testado: os outros tipos mudam as colunas da tela.
+const TIPOS_CATALOGO=[
+  ['Produtos físicos',[['commerce','Produtos online (o que você usa hoje)'],['offline_commerce','Produtos em loja física']]],
+  ['Produtos ou conteúdo digitais',[['apps_and_software','Apps e software'],['media_titles','Títulos de mídia (filmes, séries)'],['articles_and_publications','Artigos e publicações']]],
+  ['Serviços',[['services','Serviços'],['activities','Atividades']]],
+  ['Produtos ou serviços locais',[['local_service_businesses','Negócios de serviço local'],['location_based_items','Itens por localização']]],
+  ['Outro',[['generic','Genérico'],['destinations','Destinos'],['hotels','Hotéis'],['flights','Voos'],['home_listings','Imóveis'],['vehicles','Veículos'],['jobs','Vagas de emprego']]],
+];
+function opcoesTipo(){
+  return TIPOS_CATALOGO.map(([grupo,itens])=>`<optgroup label="${esc(grupo)}">${
+    itens.map(([v,n])=>`<option value="${v}" ${S.vertical===v?'selected':''}>${esc(n)}</option>`).join('')}</optgroup>`).join('');
+}
+
 function cardDestino(){
   const lista=CATALOGOS||[];
   return `<div class="card">
@@ -593,7 +610,9 @@ function cardDestino(){
     <div class="row" style="margin-top:12px">
       ${S.modo==='novo'
         ? `<div style="flex:2"><label>Nome do catálogo novo</label>
-             <input value="${esc(S.catNome)}" oninput="S.catNome=this.value;salvar()" placeholder="CATALOGO NATH FRONT 06"></div>`
+             <input value="${esc(S.catNome)}" oninput="S.catNome=this.value;salvar()" placeholder="CATALOGO NATH FRONT 06"></div>
+           <div style="flex:2"><label>Tipo de catálogo (não dá para mudar depois)</label>
+             <select onchange="set('vertical',this.value)">${opcoesTipo()}</select></div>`
         : `<div style="flex:2"><label>Catálogo de destino ${CARREGANDO_CAT?'<span class="load"></span>':''}</label>
              <select onchange="set('catId',this.value)">
                <option value="">escolher…</option>
@@ -607,7 +626,8 @@ function cardDestino(){
           ${(PIXELS||[]).map(x=>`<option value="${esc(x.id)}" ${S.pixelId===x.id?'selected':''}>${esc(x.name)} · ${esc(x.id)}</option>`).join('')}
         </select></div>
     </div>`:''}
-    <div class="mini" style="margin-top:8px">O catálogo nasce no vertical <b>commerce</b> ("Produtos online"), igual aos ${lista.length||'seus'} que já existem nesse negócio.${S.modo==='novo'&&!S.pixelId?' <b style="color:#b08900">Sem conjunto de dados ele sai diferente dos seus catálogos atuais, que estão todos ligados a um pixel.</b>':''}</div>
+    ${(S.modo==='novo'&&S.vertical!=='commerce')?`<div class="aviso alerta">⚠️ Tipo diferente de "Produtos online". Os seus catálogos que rodam hoje são todos Produtos online, e é nesse tipo que o anúncio de catálogo Advantage+ de vendas e o botão 📹 foram testados. Outros tipos têm colunas diferentes na tela e podem não servir para esse anúncio.</div>`:''}
+    <div class="mini" style="margin-top:8px">Tipo escolhido: <b>${esc(S.vertical)}</b>. Os ${lista.length||'seus'} catálogos que já existem nesse negócio são todos <b>commerce</b> ("Produtos online").${S.modo==='novo'&&!S.pixelId?' <b style="color:#b08900">Sem conjunto de dados ele sai diferente dos seus catálogos atuais, que estão todos ligados a um pixel.</b>':''}</div>
   </div>`;
 }
 
