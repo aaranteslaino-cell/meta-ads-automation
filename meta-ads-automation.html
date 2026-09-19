@@ -616,7 +616,8 @@ function validate(){
     S.adsets.forEach((a,i)=>{
       const n=i+1;
       if(!a.name?.trim()) errs.push(`Conjunto ${n}: nome obrigatório`);
-      if(['OUTCOME_SALES','OUTCOME_LEADS'].includes(c.objective) && !a.pixelId?.trim()) errs.push(`Conjunto ${n}: Pixel ID obrigatório para ${c.objective}`);
+      if(['OUTCOME_SALES','OUTCOME_LEADS'].includes(c.objective) && a.optimizationGoal!=='CONVERSATIONS_IG' && !a.pixelId?.trim()) errs.push(`Conjunto ${n}: Pixel ID obrigatório para ${c.objective}`);
+      if(a.optimizationGoal==='CONVERSATIONS_IG' && !['OUTCOME_SALES','OUTCOME_ENGAGEMENT'].includes(c.objective)) errs.push(`Conjunto ${n}: Conversas no Direct só com objetivo Vendas ou Engajamento`);
     });
   }
   if(!S.ads.length) errs.push('Adicione pelo menos um anúncio');
@@ -639,9 +640,13 @@ function validate(){
   });
   // Catálogo fica na campanha: todos os anúncios de catálogo precisam ser do
   // mesmo catálogo, e não dá para misturar com anúncio de imagem/vídeo.
+  if(S.adsets.some(a=>a.optimizationGoal==='CONVERSATIONS_IG') && S.ads.some(a=>a.type!=='catalog'))
+    errs.push('Conversas no Direct: por enquanto só com anúncio de catálogo (imagem/vídeo no Direct ainda não foi testado)');
   const catAds = S.ads.filter(a=>a.type==='catalog');
   if(catAds.length){
-    if(c.objective!=='OUTCOME_SALES') errs.push('Anúncio de catálogo exige o objetivo Vendas (OUTCOME_SALES)');
+    const todosDirect = S.adsets.length && S.adsets.every(a=>a.optimizationGoal==='CONVERSATIONS_IG');
+    if(!(c.objective==='OUTCOME_SALES' || (c.objective==='OUTCOME_ENGAGEMENT' && todosDirect)))
+      errs.push('Anúncio de catálogo: use o objetivo Vendas, ou Engajamento com a meta "Conversas no Direct do Instagram"');
     if(catAds.length!==S.ads.length) errs.push('Campanha de catálogo: todos os anúncios precisam ser do tipo Catálogo');
     const ids=new Set(catAds.map(a=>(a.catalogId||'').trim()).filter(Boolean));
     if(ids.size>1) errs.push('Todos os anúncios de catálogo precisam usar o mesmo catálogo');
@@ -718,7 +723,9 @@ async function run(){
     // Catálogo: vai na CAMPANHA (promoted_object.product_catalog_id), não no
     // conjunto. É assim nas campanhas de catálogo do Código FBA que rodam hoje.
     const catAd = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
-    if(catAd) campBody.promoted_object = { product_catalog_id: catAd.catalogId.trim(), smart_pse_enabled: false };
+    // Só Vendas e Reconhecimento aceitam catálogo na campanha (testado 18/09/2026).
+    if(catAd && ['OUTCOME_SALES','OUTCOME_AWARENESS'].includes(c.objective))
+      campBody.promoted_object = { product_catalog_id: catAd.catalogId.trim(), smart_pse_enabled: false };
     log('[Campaign body] '+JSON.stringify(campBody),'i');
     campR = await api(`/${acct}/campaigns`,'POST',campBody);
     log(`✓ Campanha criada: ${campR.id}`,'s');
@@ -756,10 +763,14 @@ async function run(){
         } else {
         log(`Criando conjunto: ${adsetName}…`,'i');
 
-        const optGoal = adset.optimizationGoal || OPT_GOAL[c.objective] || 'OFFSITE_CONVERSIONS';
+        // Direct do Instagram (catálogo): meta CONVERSATIONS, destino INSTAGRAM_DIRECT e
+        // objeto promovido = página. Validado 18/09/2026 em Vendas (catálogo na campanha)
+        // e em Engajamento (catálogo só no anúncio; com product_set no conjunto recusa).
+        const ehDirect = adset.optimizationGoal==='CONVERSATIONS_IG';
+        const optGoal = ehDirect ? 'CONVERSATIONS' : (adset.optimizationGoal || OPT_GOAL[c.objective] || 'OFFSITE_CONVERSIONS');
         const isLeadGenForm = c.objective === 'OUTCOME_LEADS' && optGoal === 'LEAD_GENERATION';
-        const needsPixel = c.objective === 'OUTCOME_SALES' ||
-          (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm);
+        const needsPixel = !ehDirect && (c.objective === 'OUTCOME_SALES' ||
+          (c.objective === 'OUTCOME_LEADS' && !isLeadGenForm));
 
         // Criativo dinâmico DESATIVADO por escolha do usuário.
         // Mesmo com múltiplas variações de texto/título, NÃO marca o conjunto como dinâmico.
@@ -795,7 +806,9 @@ async function run(){
         }
 
         // destination_type: LEAD_GENERATION usa ON_AD, não WEBSITE
-        if(isLeadGenForm){
+        if(ehDirect){
+          adsetBody.destination_type = 'INSTAGRAM_DIRECT';
+        } else if(isLeadGenForm){
           adsetBody.destination_type = 'ON_AD';
         } else {
           const destType = getDestinationType(c.objective);
@@ -814,6 +827,9 @@ async function run(){
             if(adset.attributionView)  spec.push({event_type:'VIEW_THROUGH',  window_days:parseInt(adset.attributionView)});
             adsetBody.attribution_spec = spec;
           }
+        } else if(ehDirect){
+          const pageId = S.ads[0]?.pageId?.trim();
+          if(pageId) adsetBody.promoted_object = { page_id: pageId };
         } else if(isLeadGenForm){
           // Instant Forms: promoted_object usa page_id (da página do anúncio)
           const pageId = S.ads[0]?.pageId?.trim();
@@ -1042,7 +1058,7 @@ async function run(){
 
             } else if(ad.type==='catalog'){
               if(!igActorId) igActorId = await igDoCatalogo(ad);
-              creativeBody = criativoCatalogo(ad, igActorId, linkWithUtm, texts);
+              creativeBody = criativoCatalogo(ad, igActorId, linkWithUtm, texts, adset.optimizationGoal==='CONVERSATIONS_IG');
             }
 
             // UTM vai no url_tags TANTO do creative QUANTO do ad — algumas contas leem só de um
@@ -1646,6 +1662,9 @@ function buildAdsetBox(a){
           <option value="IMPRESSIONS" ${a.optimizationGoal==='IMPRESSIONS'?'selected':''}>Maximizar impressões</option>
           <option value="POST_ENGAGEMENT" ${a.optimizationGoal==='POST_ENGAGEMENT'?'selected':''}>Maximizar engajamento com post</option>
           </optgroup>
+          <optgroup label="── Mensagens">
+          <option value="CONVERSATIONS_IG" ${a.optimizationGoal==='CONVERSATIONS_IG'?'selected':''}>Conversas no Direct do Instagram (catálogo)</option>
+          </optgroup>
           <optgroup label="── App">
           <option value="APP_INSTALLS" ${a.optimizationGoal==='APP_INSTALLS'?'selected':''}>Maximizar instalações de app</option>
           <option value="APP_EVENTS" ${a.optimizationGoal==='APP_EVENTS'?'selected':''}>Maximizar eventos no app</option>
@@ -1993,7 +2012,7 @@ function buildMediaFields(ad){
 // marcada. Padrão ligado. media_type_automation OPT_IN = "Mostrar vídeo quando
 // houver probabilidade de melhorar"; video_auto_crop OPT_OUT = "Corte de vídeo
 // automático" desmarcado. hide_price esconde o R$1,00.
-function criativoCatalogo(ad, igActorId, link, texts){
+function criativoCatalogo(ad, igActorId, link, texts, direct){
   const O=v=>({enroll_status:v});
   const body = {
     name: ad.name+' - Creative',
@@ -2001,7 +2020,8 @@ function criativoCatalogo(ad, igActorId, link, texts){
       page_id: ad.pageId,
       template_data:{
         link, message:(texts||[])[0]||'',
-        call_to_action:{ type: ad.cta||'LEARN_MORE' },
+        // Direct: o botão TEM que ser de mensagem; "Saiba mais" o Meta recusa.
+        call_to_action: direct ? { type:'INSTAGRAM_MESSAGE', value:{ app_destination:'INSTAGRAM_DIRECT' } } : { type: ad.cta||'LEARN_MORE' },
         format_option: 'single_video'
       }
     },
@@ -2048,7 +2068,8 @@ async function preTesteCatalogo(){
       ' não tem Instagram ligado. Use uma página que tenha Instagram, preencha o ID do Instagram no anúncio, '+
       'ou tire os posicionamentos do Instagram do conjunto.';
   }
-  const body = criativoCatalogo(ad, ig, https(ad.linkUrl), (ad.texts||[]).filter(t=>t?.trim()));
+  const direct = S.adsets.some(a=>a.optimizationGoal==='CONVERSATIONS_IG');
+  const body = criativoCatalogo(ad, ig, https(ad.linkUrl), (ad.texts||[]).filter(t=>t?.trim()), direct);
   body.execution_options = ['validate_only'];
   try{ await api(`/${S.selectedAccount}/adcreatives`,'POST',body); return null; }
   catch(e){
