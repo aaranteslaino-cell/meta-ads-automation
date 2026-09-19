@@ -1892,9 +1892,9 @@ function buildAdBox(ad){
         </div>`).join('')}
       ${(ad.texts||['']).length<5?`<button class="btn btn-gray btn-sm" onclick="addAdText(${ad.id})">+ Variação de texto</button>`:''}
     </div>
-    ${ad.type!=='catalog'?`
+    ${true?`
     <div class="fg" style="margin-top:10px">
-      <label>Título <span style="font-weight:400;color:#999">— até 5 variações</span></label>
+      <label>Título <span style="font-weight:400;color:#999">${ad.type==='catalog'?'— no catálogo vale o 1º; vazio = nome do produto':'— até 5 variações'}</span></label>
       ${(ad.headlines||['']).map((h,i)=>`
         <div style="margin-bottom:8px">
           <div style="display:flex;gap:6px;align-items:center">
@@ -1978,7 +1978,7 @@ function buildMediaFields(ad){
     ${ad.catalogId&&lista.length?`
     <div style="margin-top:8px;padding:14px;background:#f3ecff;border:2px solid #7b2ff7;border-radius:10px;font-size:13px">
       <button class="btn" style="width:100%;background:#7b2ff7;color:#fff;font-size:15px;padding:12px" onclick="umAnuncioPorConjunto(${ad.id})">🚀 Subir todos os conjuntos deste catálogo (${lista.length})</button>
-      <div style="font-size:12px;color:#555;margin-top:8px;line-height:1.5">Cria <b>um anúncio para cada conjunto</b> (um por criativo), com o nome do conjunto. Página, Instagram, texto, link, botão e UTM vêm deste anúncio. O "All Products" fica de fora.</div>
+      <div style="font-size:12px;color:#555;margin-top:8px;line-height:1.5">Cria <b>um anúncio para cada conjunto</b> (um por criativo), com o nome do conjunto. Página, Instagram, texto, título, descrição, link, botão e UTM vêm deste anúncio. O "All Products" fica de fora.</div>
     </div>`:''}
     <div style="font-size:12px;color:#666;margin-top:6px">Formato <b>imagem ou vídeo único</b> (sem carrossel e sem coleção), com <b>Priorizar vídeo</b> e <b>Mostrar vídeo</b> ligados, <b>Corte automático</b> desligado e <b>preço escondido</b>. Anúncio de catálogo exige Instagram: a página <b>Rafael Coelhoo</b> já tem o do Coelho ligado.</div>`;
   }
@@ -2017,6 +2017,11 @@ function criativoCatalogo(ad, igActorId, link, texts){
       // standard_enhancements aparece ao LER anúncio do Gerenciador, mas a criação recusa.
     }}
   };
+  // Título do anúncio: no catálogo vai em template_data.name. Vazio = o Meta usa
+  // o nome do produto. Descrição idem (template_data.description). Validado 18/09.
+  const titulo = (ad.headlines||[]).map(h=>h?.trim()).find(Boolean);
+  if(titulo) body.object_story_spec.template_data.name = titulo;
+  if(ad.description?.trim()) body.object_story_spec.template_data.description = ad.description.trim();
   if(igActorId) body.object_story_spec.instagram_user_id = igActorId;
   if(ad.utm?.trim()) body.url_tags = ad.utm.trim();
   return body;
@@ -2093,7 +2098,7 @@ function umAnuncioPorConjunto(adId){
   faltam.forEach(x=>{
     S.ads.push({
       id:uid(), name:x.name, type:'catalog', pageId:base.pageId, igActorId:base.igActorId,
-      texts:[...(base.texts||[''])], headlines:[''], description:'', cta:base.cta||'LEARN_MORE',
+      texts:[...(base.texts||[''])], headlines:[...(base.headlines||[''])], description:base.description||'', cta:base.cta||'LEARN_MORE',
       linkUrl:base.linkUrl, utm:base.utm,
       imageFile:null, imageHash:'', videoFile:null, videoId:'',
       catalogId:base.catalogId, productSetId:x.id
