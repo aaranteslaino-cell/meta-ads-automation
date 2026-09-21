@@ -645,8 +645,13 @@ function validate(){
   const catAds = S.ads.filter(a=>a.type==='catalog');
   if(catAds.length){
     const todosDirect = S.adsets.length && S.adsets.every(a=>a.optimizationGoal==='CONVERSATIONS_IG');
-    if(!(c.objective==='OUTCOME_SALES' || (c.objective==='OUTCOME_ENGAGEMENT' && todosDirect)))
-      errs.push('Anúncio de catálogo: use o objetivo Vendas, ou Engajamento com a meta "Conversas no Direct do Instagram"');
+    // Vendas e Leads levam o anúncio de catálogo direto (em Leads o catálogo
+    // fica só no anúncio, testado na ROI 10 em 21/09/2026). Engajamento só no
+    // Direct, que é o que foi validado.
+    const objOk = ['OUTCOME_SALES','OUTCOME_LEADS'].includes(c.objective)
+      || (c.objective==='OUTCOME_ENGAGEMENT' && todosDirect);
+    if(!objOk)
+      errs.push('Anúncio de catálogo: use o objetivo Vendas ou Leads, ou Engajamento com a meta "Conversas no Direct do Instagram"');
     if(catAds.length!==S.ads.length) errs.push('Campanha de catálogo: todos os anúncios precisam ser do tipo Catálogo');
     const ids=new Set(catAds.map(a=>(a.catalogId||'').trim()).filter(Boolean));
     if(ids.size>1) errs.push('Todos os anúncios de catálogo precisam usar o mesmo catálogo');
