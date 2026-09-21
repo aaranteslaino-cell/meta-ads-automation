@@ -1,0 +1,81 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meta Ads — Ferramentas</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--txt:#1a1a1a;--mut:#666;--bor:#e3e5e9;--rox:#7b2ff7;--verd:#137333;--amar:#b08900}
+body.dark{--bg:#15171c;--card:#1d2027;--txt:#e8eaed;--mut:#9aa0a6;--bor:#2f333c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:18px}
+.topo{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+h1{font-size:22px;margin:0 0 2px;color:var(--rox)}
+h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+.sub{color:var(--mut);margin:0}
+.card{background:var(--card);border:1px solid var(--bor);border-radius:12px;padding:16px;margin-bottom:14px}
+.btn{padding:9px 16px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn-cinza{background:var(--bor);color:var(--txt)}
+.btn-sm{padding:5px 10px;font-size:12px}
+.mini{font-size:12px;color:var(--mut)}
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+a.ferramenta{display:flex;flex-direction:column;text-decoration:none;color:inherit;background:var(--card);border:1px solid var(--bor);border-radius:12px;padding:18px;transition:border-color .15s,transform .15s}
+a.ferramenta:hover{border-color:var(--rox);transform:translateY(-2px)}
+.emoji{font-size:26px;line-height:1;margin-bottom:10px}
+.nome{font-size:17px;font-weight:700;margin-bottom:6px}
+.desc{font-size:13px;color:var(--mut);line-height:1.5;flex:1}
+.passos{margin:0;padding-left:18px;font-size:13px;color:var(--mut);line-height:1.7}
+.passos strong{color:var(--txt)}
+.aviso{padding:10px 12px;border-radius:8px;font-size:13px;margin-top:10px;background:rgba(176,137,0,.12);color:var(--amar)}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bor);padding:1px 5px;border-radius:4px}
+hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
+</style>
+
+<div class="wrap">
+  <div class="topo">
+    <div>
+      <h1>Meta Ads — Ferramentas</h1>
+      <p class="sub">Painéis da Roi Ventures para criar catálogo, subir campanha e decidir o que escalar. Tudo roda no seu navegador, com o seu token.</p>
+    </div>
+    <button class="btn btn-cinza btn-sm" id="tema" onclick="toggleDark()">🌙</button>
+  </div>
+
+  <div class="grade">
+    <a class="ferramenta" href="meta-ads-catalogos.html">
+      <div class="emoji">📦</div>
+      <div class="nome">Catálogos</div>
+      <div class="desc">Cria o catálogo e liga o pixel, monta os produtos com imagem e vídeo pelo botão de favoritos, gera os conjuntos de produtos e duplica um catálogo inteiro para outra conta.</div>
+    </a>
+
+    <a class="ferramenta" href="meta-ads-automation.html">
+      <div class="emoji">🚀</div>
+      <div class="nome">Subir campanhas</div>
+      <div class="desc">Cria campanha, conjuntos e anúncios em lote, inclusive anúncio de catálogo e conversas no Direct do Instagram. Dá para subir todos os conjuntos de um catálogo de uma vez.</div>
+    </a>
+
+    <a class="ferramenta" href="meta-ads-otimizacao.html">
+      <div class="emoji">📊</div>
+      <div class="nome">Otimização</div>
+      <div class="desc">Diagnóstico automático do que escalar e do que cortar, por conta, lance e oferta, cruzando o gasto do Meta com a receita real. Com botão para executar a ação direto na conta.</div>
+    </a>
+  </div>
+
+  <div class="card">
+    <h2>Como começar</h2>
+    <ol class="passos">
+      <li>Abra a ferramenta que quiser e <strong>cole o seu token</strong> do Meta no primeiro passo. Ele fica salvo só no seu navegador.</li>
+      <li>O token precisa das permissões <code>ads_management</code> e <code>business_management</code>. Para a ferramenta de catálogos, também <code>catalog_management</code>.</li>
+      <li>Você precisa ter acesso ao negócio (BM) e à conta de anúncios com que vai trabalhar, senão as listas vêm vazias.</li>
+    </ol>
+    <div class="aviso">Um token colado aqui dá acesso às contas de anúncio dele. Use sempre o seu, e não compartilhe o seu com outra pessoa.</div>
+  </div>
+</div>
+
+<script>
+const CHAVE='maoIndexTema';
+function aplicar(d){ document.body.className = d ? 'dark' : ''; const b=document.getElementById('tema'); if(b) b.textContent = d ? '☀️' : '🌙'; }
+function escuroAgora(){
+  try{ const s=localStorage.getItem(CHAVE); if(s!==null) return s==='1'; }catch(e){}
+  try{ return matchMedia('(prefers-color-scheme: dark)').matches; }catch(e){ return false; }
+}
+function toggleDark(){ const d=!(document.body.className==='dark'); try{ localStorage.setItem(CHAVE, d?'1':'0'); }catch(e){} aplicar(d); }
+aplicar(escuroAgora());
+</script>
