@@ -263,8 +263,34 @@ function getActiveToken(){
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
+// 22/09/2026: o Meta parou de mandar cabeçalho de CORS em
+// /{catálogo}/product_sets. O navegador barra a resposta e o erro chega como
+// "Failed to fetch". O endpoint de lote (POST na raiz) responde com CORS e
+// chega no mesmo lugar, então conjunto de produtos passa por ele.
+const SEM_CORS = /\/product_sets(\?|$)/;
+async function apiLote(path, method, data, t){
+  const corpo = Object.entries(data||{})
+    .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v)).join('&');
+  const req = {method, relative_url: path.replace(/^\//,'') + (method==='GET'&&corpo?'?'+corpo:'')};
+  if(method!=='GET' && corpo) req.body = corpo;
+  const fd = new URLSearchParams();
+  fd.set('access_token', t); fd.set('include_headers','false');
+  fd.set('batch', JSON.stringify([req]));
+  const res = await fetch(GQL+'/', {method:'POST', body:fd});
+  const lote = await res.json();
+  if(lote && lote.error) throw new Error(`(${lote.error.code}) ${lote.error.message}`);
+  const item = (lote||[])[0] || {};
+  const json = item.body ? JSON.parse(item.body) : {};
+  if(json.error){
+    const e = json.error;
+    throw new Error(`(${e.code}${e.error_subcode?'/'+e.error_subcode:''}) ${e.message}`);
+  }
+  return json;
+}
+
 async function api(path, method='GET', data=null, tok=null){
   const t = tok || getActiveToken();
+  if(SEM_CORS.test(path)) return apiLote(path, method, data, t);
   let url = path.startsWith('http') ? path : GQL+path;
   const opts = {method, headers:{}};
 
