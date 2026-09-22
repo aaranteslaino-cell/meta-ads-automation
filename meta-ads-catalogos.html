@@ -131,8 +131,31 @@ function removerToken(id){
 }
 
 // ── API ─────────────────────────────────────────────────────────────────────
+// 22/09/2026: o Meta parou de mandar cabeçalho de CORS em
+// /{catálogo}/product_sets, tanto na leitura quanto na criação. O navegador
+// barra a resposta e o erro chega como "Failed to fetch" (na criação o
+// conjunto até nasce, só não dá para ler a resposta). O endpoint de lote
+// responde com CORS e chega no mesmo lugar, então conjunto passa por ele.
+const SEM_CORS=/\/product_sets(\?|$)/;
+async function gLote(path, method, dados){
+  const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  const corpo=Object.entries(dados||{})
+    .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v)).join('&');
+  const req={method, relative_url:path.replace(/^\//,'')+(method==='GET'&&corpo?'?'+corpo:'')};
+  if(method!=='GET' && corpo) req.body=corpo;
+  const fd=new URLSearchParams();
+  fd.set('access_token',tok); fd.set('include_headers','false');
+  fd.set('batch', JSON.stringify([req]));
+  const lote=await (await fetch(`${GQL}/`,{method:'POST',body:fd})).json();
+  if(lote && lote.error) throw new Error(`(${lote.error.code}) ${lote.error.message}`);
+  const item=(lote||[])[0]||{};
+  const j=item.body?JSON.parse(item.body):{};
+  if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+  return j;
+}
 async function gGet(path, params){
   const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  if(SEM_CORS.test(path)) return gLote(path,'GET',params);
   const qs=Object.entries(params||{}).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
   const url=`${GQL}${path}?${qs?qs+'&':''}access_token=${encodeURIComponent(tok)}`;
   const j=await (await fetch(url)).json();
@@ -141,6 +164,7 @@ async function gGet(path, params){
 }
 async function gPost(path, body){
   const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  if(SEM_CORS.test(path)) return gLote(path,'POST',body);
   const fd=new FormData();
   Object.entries(body||{}).forEach(([k,v])=>fd.append(k, typeof v==='object'?JSON.stringify(v):v));
   fd.append('access_token', tok);
@@ -151,6 +175,18 @@ async function gPost(path, body){
 /** Percorre todas as páginas de uma edge. */
 async function gTudo(path, params, limite){
   const tok=tokenAtual();
+  if(SEM_CORS.test(path)){
+    // Pelo lote não dá para seguir o "next" (ele é um endereço inteiro e voltaria
+    // a ser barrado), então caminho pelo cursor.
+    const out=[]; let depois=null, pg=0;
+    while(pg<40 && (!limite||out.length<limite)){ pg++;
+      const j=await gLote(path,'GET',{...(params||{}), ...(depois?{after:depois}:{})});
+      out.push(...(j.data||[]));
+      depois=(j.paging&&j.paging.next&&j.paging.cursors)?j.paging.cursors.after:null;
+      if(!depois) break;
+    }
+    return out;
+  }
   const qs=Object.entries(params||{}).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
   let url=`${GQL}${path}?${qs?qs+'&':''}access_token=${encodeURIComponent(tok)}`;
   const out=[]; let pg=0;
