@@ -239,7 +239,10 @@ async function conectar(){
   if(!tokenAtual()){ alert('Escolha ou cole um token primeiro.'); return; }
   logar('in','Lendo contas e negócios…'); render();
   try{
-    const contas=await gTudo('/me/adaccounts',{fields:'id,name,currency,business{id,name}',limit:50});
+    // Só contas ATIVAS: conta desativada não serve para nada aqui e ainda é o que
+    // estoura o limite do Meta (80004) quando a lista inteira é pedida.
+    const soAtivas=JSON.stringify([{field:'account_status',operator:'EQUAL',value:1}]);
+    const contas=await gTudo('/me/adaccounts',{fields:'id,name,currency,business{id,name}',limit:50,filtering:soAtivas});
     CONTAS=contas;
     const mapa={};
     contas.forEach(c=>{ const b=c.business; if(b) mapa[b.id]=b.name; });
