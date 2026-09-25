@@ -263,11 +263,16 @@ function getActiveToken(){
 }
 
 // ── API ───────────────────────────────────────────────────────────────────────
-// 22/09/2026: o Meta parou de mandar cabeçalho de CORS em
-// /{catálogo}/product_sets. O navegador barra a resposta e o erro chega como
-// "Failed to fetch". O endpoint de lote (POST na raiz) responde com CORS e
-// chega no mesmo lugar, então conjunto de produtos passa por ele.
-const SEM_CORS = /\/product_sets(\?|$)/;
+// O Meta vem tirando o cabeçalho de CORS dos endereços de catálogo, um por um:
+// 22/09/2026 saiu de /product_sets e 25/09/2026 de /products. Sem ele o
+// navegador barra a resposta e o erro chega como "Failed to fetch". O endpoint
+// de lote (POST na raiz) responde com CORS e chega no mesmo lugar: os endereços
+// conhecidos já vão por ele, e qualquer outro que falhar por rede é repetido
+// pelo lote e anotado para as próximas chamadas.
+const SEM_CORS = /\/(product_sets|products|product_groups)(\?|$)/;
+const FALHOU_CORS = new Set();
+const edgeDe = p => String(p||'').split('?')[0].replace(/\/+$/,'').split('/').pop() || '';
+const viaLote = p => SEM_CORS.test(p) || FALHOU_CORS.has(edgeDe(p));
 async function apiLote(path, method, data, t){
   const corpo = Object.entries(data||{})
     .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v)).join('&');
@@ -290,7 +295,7 @@ async function apiLote(path, method, data, t){
 
 async function api(path, method='GET', data=null, tok=null){
   const t = tok || getActiveToken();
-  if(SEM_CORS.test(path)) return apiLote(path, method, data, t);
+  if(viaLote(path)) return apiLote(path, method, data, t);
   let url = path.startsWith('http') ? path : GQL+path;
   const opts = {method, headers:{}};
 
@@ -305,8 +310,19 @@ async function api(path, method='GET', data=null, tok=null){
     opts.body = JSON.stringify({...(data||{}), access_token:t});
   }
 
-  const res = await fetch(url, opts);
-  const json = await res.json();
+  let json;
+  try{
+    const res = await fetch(url, opts);
+    json = await res.json();
+  }catch(err){
+    // TypeError = nem houve resposta legível (CORS ou rede). Tenta pelo lote e
+    // anota o endereço, para as próximas já irem direto por lá.
+    if(err instanceof TypeError && !(data instanceof FormData)){
+      FALHOU_CORS.add(edgeDe(path));
+      return apiLote(path, method, data, t);
+    }
+    throw err;
+  }
   if(json.error){
     const e = json.error;
     const sub = e.error_subcode ? '/'+e.error_subcode : '';
