@@ -1314,6 +1314,7 @@ function buildMain(){
     {id:'campaign',l:'Campanha'},
     {id:'adsets',l:`Conjuntos (${S.adsets.length})`},
     {id:'ads',l:`Anúncios (${S.ads.length})`},
+    {id:'duplicar',l:'Duplicar anúncio'},
     {id:'review',l:'Revisar'},
     {id:'log',l:'Log'}
   ];
@@ -1362,9 +1363,183 @@ function buildTab(){
   if(S.tab==='campaign') return buildCamp();
   if(S.tab==='adsets')   return buildAdsets();
   if(S.tab==='ads')      return buildAds();
+  if(S.tab==='duplicar') return buildDuplicar();
   if(S.tab==='review')   return buildReview();
   if(S.tab==='log')      return buildLog();
   return '';
+}
+
+// ── Aba Duplicar anúncio ────────────────────────────────────────────────────
+/**
+ * Copia um anúncio que já existe para onde ele mandar, sem passar pelo fluxo de
+ * montar campanha. O anúncio novo aponta para o MESMO criativo do original
+ * (creative_id), então sai idêntico: mesma mídia, mesmo texto, mesmo catálogo.
+ * Nasce pausado por padrão, para ele conferir antes de gastar.
+ */
+function buildDuplicar(){
+  const d = S.dup || (S.dup = {campId:'',adsetId:'',adId:'',destCampId:'',destAdsetId:'',qtd:'1',status:'PAUSED',nome:''});
+  const opt=(v,l,sel)=>`<option value="${esc(v)}" ${sel===v?'selected':''}>${esc(l)}</option>`;
+  const camps=(S._destCamps||[]);
+  const sets=(S._dupSets||[]);
+  const setsDestino=(S._dupSetsDest||sets);
+  const ads=((S._dupAds||{})[d.adsetId]||[]);
+  const carregando=S._dupLoading?'<span class="mini"> carregando…</span>':'';
+
+  if(!S.selectedAccount) return `<div class="card"><h2>Duplicar anúncio</h2>
+    <div class="mini">Escolha uma conta de anúncios no topo primeiro.</div></div>`;
+
+  return `<div class="card">
+    <h2>Duplicar um anúncio</h2>
+    <div class="mini" style="margin-bottom:12px">Copia um anúncio que já existe para o mesmo conjunto ou para outro.
+      O anúncio novo usa o <b>mesmo criativo</b> do original, então fica idêntico.</div>
+
+    <h3>1 · Qual anúncio copiar</h3>
+    <div class="fg">
+      <label>Campanha (só ativas)${carregando}</label>
+      <select onchange="dupSetCamp(this.value)">
+        ${opt('','— escolha —',d.campId)}
+        ${camps.map(x=>opt(x.id,x.name,d.campId)).join('')}
+      </select>
+      ${!S._destCamps&&!S._dupLoading?`<div class="mini" style="margin-top:4px">
+        <a href="#" onclick="carregarCampanhasExistentes();return false">carregar campanhas</a></div>`:''}
+    </div>
+    <div class="fg" style="margin-top:8px">
+      <label>Conjunto</label>
+      <select onchange="dupSetAdset(this.value)" ${d.campId?'':'disabled'}>
+        ${opt('','— escolha —',d.adsetId)}
+        ${sets.map(x=>opt(x.id,x.name,d.adsetId)).join('')}
+      </select>
+    </div>
+    <div class="fg" style="margin-top:8px">
+      <label>Anúncio</label>
+      <select onchange="dupSetAd(this.value)" ${d.adsetId?'':'disabled'}>
+        ${opt('','— escolha —',d.adId)}
+        ${ads.map(x=>opt(x.id,`${x.effective_status==='ACTIVE'?'● ':'○ '}${x.name}`,d.adId)).join('')}
+      </select>
+      ${d.adsetId&&!ads.length?`<div class="mini" style="margin-top:4px">Este conjunto não tem anúncio.</div>`:''}
+    </div>
+
+    <h3 style="margin-top:16px">2 · Para onde vai a cópia</h3>
+    <div class="fg">
+      <label>Campanha de destino</label>
+      <select onchange="dupSetDestCamp(this.value)">
+        ${opt('','a mesma do original',d.destCampId)}
+        ${camps.map(x=>opt(x.id,x.name,d.destCampId)).join('')}
+      </select>
+    </div>
+    <div class="fg" style="margin-top:8px">
+      <label>Conjunto de destino</label>
+      <select onchange="S.dup.destAdsetId=this.value;saveState();render()">
+        ${opt('','o mesmo do original',d.destAdsetId)}
+        ${setsDestino.map(x=>opt(x.id,x.name,d.destAdsetId)).join('')}
+      </select>
+      <div class="mini" style="margin-top:4px">Conjunto de destino precisa combinar com o anúncio.
+        Anúncio de catálogo, por exemplo, não entra em conjunto que não aceita catálogo.</div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="fg">
+        <label>Quantas cópias</label>
+        <input type="number" min="1" max="20" value="${esc(d.qtd||'1')}"
+          oninput="S.dup.qtd=this.value;saveState()">
+      </div>
+      <div class="fg">
+        <label>Status da cópia</label>
+        <select onchange="S.dup.status=this.value;saveState();render()">
+          ${opt('PAUSED','Pausado (recomendado)',d.status)}
+          ${opt('ACTIVE','Ativo',d.status)}
+        </select>
+      </div>
+    </div>
+    <div class="fg" style="margin-top:8px">
+      <label>Nome do anúncio novo</label>
+      <input value="${esc(d.nome||'')}" placeholder="em branco = mesmo nome do original"
+        oninput="S.dup.nome=this.value;saveState()">
+      <div class="mini" style="margin-top:4px">Com mais de uma cópia, eu numero no fim: (2), (3)…</div>
+    </div>
+
+    <button class="btn btn-blue" style="margin-top:14px" onclick="duplicarAnuncio()"
+      ${d.adId&&!S._dupRodando?'':'disabled'}>
+      ${S._dupRodando?'duplicando…':'📄 Duplicar anúncio'}</button>
+    <div id="logbox" class="log-wrap" style="min-height:90px;margin-top:12px">
+      ${S.log.map(l=>`<div class="lg ${l.type}">[${l.t}] ${esc(l.msg)}</div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function dupSetCamp(id){
+  S.dup.campId=id; S.dup.adsetId=''; S.dup.adId='';
+  S._dupSets=null; S._dupAds=null;
+  saveState(); render();
+  if(id) dupCarregarEstrutura(id);
+}
+function dupSetAdset(id){ S.dup.adsetId=id; S.dup.adId=''; saveState(); render(); }
+function dupSetAd(id){
+  S.dup.adId=id;
+  const ads=((S._dupAds||{})[S.dup.adsetId]||[]);
+  const a=ads.find(x=>x.id===id);
+  if(a && !S.dup.nome) S.dup.nome=a.name;
+  saveState(); render();
+}
+function dupSetDestCamp(id){
+  S.dup.destCampId=id; S.dup.destAdsetId='';
+  S._dupSetsDest=null; saveState(); render();
+  if(id) dupCarregarSetsDestino(id);
+}
+
+/** Conjuntos da campanha e os anúncios de cada um, em dois pedidos. */
+async function dupCarregarEstrutura(campId){
+  S._dupLoading=true; render();
+  try{
+    const sets=await _listarTudo(`/${campId}/adsets?fields=name,effective_status&limit=200`);
+    sets.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    S._dupSets=sets;
+    const ads=await _listarTudo(`/${campId}/ads?fields=name,effective_status,adset_id&limit=500`);
+    const porSet={};
+    ads.forEach(a=>{ (porSet[a.adset_id]=porSet[a.adset_id]||[]).push(a); });
+    S._dupAds=porSet;
+    log(`${sets.length} conjunto(s) e ${ads.length} anúncio(s) nesta campanha.`,'i');
+  }catch(e){ S._dupSets=[]; S._dupAds={}; log(`Erro ao ler a campanha: ${e.message}`,'e'); }
+  S._dupLoading=false; render();
+}
+async function dupCarregarSetsDestino(campId){
+  S._dupLoading=true; render();
+  try{
+    const sets=await _listarTudo(`/${campId}/adsets?fields=name,effective_status&limit=200`);
+    sets.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    S._dupSetsDest=sets;
+  }catch(e){ S._dupSetsDest=[]; log(`Erro ao listar conjuntos do destino: ${e.message}`,'e'); }
+  S._dupLoading=false; render();
+}
+
+async function duplicarAnuncio(){
+  const d=S.dup||{};
+  if(!d.adId){ alert('Escolha o anúncio que você quer copiar.'); return; }
+  const acct=S.selectedAccount;
+  const destino=d.destAdsetId || d.adsetId;
+  const qtd=Math.max(1, Math.min(20, parseInt(d.qtd)||1));
+  const setsTodos=[...(S._dupSets||[]), ...(S._dupSetsDest||[])];
+  const nomeDestino=(setsTodos.find(x=>x.id===destino)||{}).name||destino;
+  if(!confirm(`Criar ${qtd} cópia(s) do anúncio em "${nomeDestino}", com status ${d.status==='ACTIVE'?'ATIVO':'pausado'}?`)) return;
+
+  S._dupRodando=true; S.tab='duplicar'; render();
+  try{
+    const src=await api(`/${d.adId}`,'GET',{fields:'name,creative{id},adset_id'});
+    const creativeId=src.creative&&src.creative.id;
+    if(!creativeId) throw new Error('Não consegui ler o criativo do anúncio original.');
+    log(`Original: "${src.name}" · criativo ${creativeId}`,'i');
+    const base=(d.nome||src.name||'').trim()||src.name;
+    let feitos=0;
+    for(let i=1;i<=qtd;i++){
+      const nome = qtd>1 ? `${base} (${i+1})` : base;
+      const body={ name:nome, adset_id:destino, creative:{creative_id:creativeId}, status:d.status||'PAUSED' };
+      try{
+        const r=await api(`/${acct}/ads`,'POST',body);
+        feitos++; log(`✓ cópia ${i}/${qtd} criada: ${r.id} — "${nome}"`,'s');
+      }catch(e){ log(`✗ cópia ${i}/${qtd}: ${e.message}`,'e'); }
+    }
+    log(feitos===qtd?`Pronto: ${feitos} cópia(s) criada(s) em "${nomeDestino}".`:`Terminou com ${feitos} de ${qtd}.`, feitos?'s':'e');
+  }catch(e){ log(`Falhou: ${e.message}`,'e'); }
+  S._dupRodando=false; render();
 }
 
 // ── Aba Campanha ──────────────────────────────────────────────────────────────
