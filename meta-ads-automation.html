@@ -1296,6 +1296,36 @@ function addAd(){
   saveState(); render();
 }
 function delAd(id){ S.ads=S.ads.filter(a=>a.id!==id); saveState(); render(); }
+/**
+ * Duplica o anúncio que está sendo montado, aqui na tela, e coloca a cópia
+ * logo abaixo dele. Copia tudo: textos, títulos, página, catálogo, mídia já
+ * escolhida. O arquivo do computador vai junto (é a mesma referência, o
+ * navegador não copia o conteúdo à toa).
+ */
+function duplicarAdCard(id){
+  const i = S.ads.findIndex(a=>a.id===id);
+  if(i<0) return;
+  const o = S.ads[i];
+  const copia = {
+    ...o,
+    id: uid(),
+    texts: [...(o.texts||[''])],
+    headlines: [...(o.headlines||[''])],
+    placements: o.placements ? [...o.placements] : undefined,
+    name: (o.name||'').trim() ? proximoNomeDeCopia(o.name.trim()) : ''
+  };
+  S.ads.splice(i+1, 0, copia);
+  saveState(); render();
+}
+/** "ADS 01" → "ADS 01 (2)"; "ADS 01 (2)" → "ADS 01 (3)", sem repetir nome. */
+function proximoNomeDeCopia(nome){
+  const m = /^(.*?)\s*\((\d+)\)$/.exec(nome);
+  const base = m ? m[1] : nome;
+  let n = m ? parseInt(m[2])+1 : 2;
+  const usados = new Set(S.ads.map(a=>(a.name||'').trim()));
+  while(usados.has(`${base} (${n})`)) n++;
+  return `${base} (${n})`;
+}
 function setAd(id,k,v){ const a=S.ads.find(a=>a.id===id); if(a){ a[k]=v; saveState(); }}
 function addAdText(id){ const a=S.ads.find(a=>a.id===id); if(a&&a.texts.length<5){a.texts.push('');saveState();render();}}
 function removeAdText(id,i){ const a=S.ads.find(a=>a.id===id); if(a&&a.texts.length>1){a.texts.splice(i,1);saveState();render();}}
@@ -2119,6 +2149,8 @@ function buildAds(){
   ${S.ads.map(buildAdBox).join('')}
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn btn-gray" onclick="addAd()">+ Adicionar Anúncio</button>
+    ${S.ads.length?`<button class="btn btn-gray" onclick="duplicarAdCard(S.ads[S.ads.length-1].id)"
+      title="Copia o último anúncio da lista, com tudo preenchido">⧉ Duplicar o último</button>`:''}
     <button class="btn btn-blue" onclick="document.getElementById('bulk-upload').click()">📦 Upload em massa</button>
     ${S.ads.length>1?`<button class="btn btn-green" onclick="applyTemplateToAll()">🔄 Aplicar template do Anúncio 1 a todos</button>`:''}
     <input type="file" id="bulk-upload" multiple accept="image/*,video/*" style="display:none" onchange="handleBulkUpload(this.files);this.value=''">
@@ -2183,7 +2215,11 @@ function buildAdBox(ad){
   <div class="box">
     <div class="box-header">
       <h3>Anúncio ${S.ads.indexOf(ad)+1}</h3>
-      <button class="btn btn-red btn-sm" onclick="delAd(${ad.id})">Remover</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-gray btn-sm" onclick="duplicarAdCard(${ad.id})"
+          title="Cria outro anúncio aqui embaixo com tudo igual a este">⧉ Duplicar</button>
+        <button class="btn btn-red btn-sm" onclick="delAd(${ad.id})">Remover</button>
+      </div>
     </div>
     <div class="row">
       <div class="fg">
