@@ -365,7 +365,7 @@ async function apiForm(path, fd, tok=null){
 // guardo a lista, para ele conseguir trabalhar mesmo com o Meta travado.
 const _ehLimite = c => [4,17,32,613].includes(c) || (c>=80000 && c<=80014);
 const _codigoDoErro = m => { const x=/\((\d+)[/)]/.exec(String(m||'')); return x?parseInt(x[1]):0; };
-const CACHE_CONTAS = 'maa_contas';
+const CACHE_CONTAS = 'maa_contas_v2';   // v2: guarda só contas ativas
 const VALIDADE_CACHE = 12*3600e3;   // 12h: lista de contas muda pouco
 function salvarContasCache(contas, paginas){
   try{ localStorage.setItem(CACHE_CONTAS, JSON.stringify({ts:Date.now(), contas, paginas:paginas||[]})); }catch(e){}
@@ -377,9 +377,17 @@ function lerContasCache(){
   }catch(e){ return null; }
 }
 const idadeDoCache = c => !c ? '' : (()=>{ const h=Math.round((Date.now()-c.ts)/36e5); return h<1?'menos de 1h':h+'h'; })();
-/** Contas de um token, de 25 em 25, aguentando o limite no meio do caminho. */
+/**
+ * Contas ATIVAS de um token, de 25 em 25, aguentando o limite no meio do caminho.
+ * O filtro por account_status=1 faz duas coisas: tira da lista conta desativada,
+ * que não serve para subir nada, e evita o 80004. Medido em 25/09/2026: pedir a
+ * lista inteira batia no limite por causa da ROI 01 (desativada, 102% de CPU),
+ * enquanto a mesma chamada com o filtro respondia na hora, com as 8 ativas.
+ * Só EQUAL funciona nesse campo; IN e GREATER_THAN o Meta recusa.
+ */
+const SO_ATIVAS = encodeURIComponent(JSON.stringify([{field:'account_status',operator:'EQUAL',value:1}]));
 async function _contasDoToken(tk){
-  let url = '/me/adaccounts?fields=id,name,account_id,currency&limit=25';
+  let url = `/me/adaccounts?fields=id,name,account_id,currency&limit=25&filtering=${SO_ATIVAS}`;
   const out=[]; let voltas=0, erro=null;
   while(url && voltas++ < 40){
     try{
@@ -481,7 +489,7 @@ async function connect(forcar=false){
   S.pixels = []; S.catalogs = []; S.igCache = {};
 
   S.connected = true;
-  log(`Conectado! ${S.accounts.length} conta(s) encontrada(s) em ${S.tokens.length} token(s). Selecione a conta para começar.`,'s');
+  log(`Conectado! ${S.accounts.length} conta(s) ativa(s) em ${S.tokens.length} token(s). Conta desativada não entra na lista.`,'s');
   if(bateuLimite) log('⚠️ O Meta limitou as chamadas agora há pouco (80004). Se faltar alguma conta na lista, espere uns minutos e reconecte.','w');
   if(tokenErrors.length) tokenErrors.forEach(e=>log('⚠️ '+e,'w'));
   S.tab = 'campaign';
