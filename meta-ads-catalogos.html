@@ -152,6 +152,15 @@ function anotarCors(path,err){
 // Dentro do lote o Meta estraga caractere fora do ASCII (o emoji 🟦 do nome dos
 // criativos do Tomé virava lixo e o filtro não achava produto nenhum, o que dava
 // "não permitimos conjuntos vazios"). Mandando o JSON com \uXXXX ele lê certo.
+// O Meta manda a explicação de verdade em error_user_msg; a mensagem curta
+// costuma ser só "Invalid parameter" e esconde o motivo (foi o que atrasou o
+// diagnóstico do conjunto vazio em 25/09/2026).
+function erroDe(j){
+  const e=j.error||{};
+  const sub=e.error_subcode?'/'+e.error_subcode:'';
+  const extra=e.error_user_msg&&e.error_user_msg!==e.message?' → '+e.error_user_msg:'';
+  return new Error(`(${e.code}${sub}) ${e.message}${extra}`);
+}
 const paraAscii=s=>String(s).replace(/[\u007f-￿]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
 // Tira emoji (e o caractere quebrado que o Meta deixa no lugar) do NOME do conjunto.
 const semEmoji=s=>String(s||'').replace(/[\uD800-\uDFFF]/g,'').replace(/�/g,'').replace(/\s{2,}/g,' ').trim();
@@ -169,7 +178,7 @@ async function gLote(path, method, dados){
   if(lote && lote.error) throw new Error(`(${lote.error.code}) ${lote.error.message}`);
   const item=(lote||[])[0]||{};
   const j=item.body?JSON.parse(item.body):{};
-  if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+  if(j.error) throw erroDe(j);
   return j;
 }
 async function gGet(path, params){
@@ -180,7 +189,7 @@ async function gGet(path, params){
   let j;
   try{ j=await (await fetch(url)).json(); }
   catch(e){ if(anotarCors(path,e)) return gLote(path,'GET',params); throw e; }
-  if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+  if(j.error) throw erroDe(j);
   return j;
 }
 async function gPost(path, body){
@@ -192,7 +201,7 @@ async function gPost(path, body){
   let j;
   try{ j=await (await fetch(`${GQL}${path}`,{method:'POST',body:fd})).json(); }
   catch(e){ if(anotarCors(path,e)) return gLote(path,'POST',body); throw e; }
-  if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+  if(j.error) throw erroDe(j);
   return j;
 }
 /** Percorre todas as páginas de uma edge. */
@@ -218,7 +227,7 @@ async function gTudo(path, params, limite){
     let j;
     try{ j=await (await fetch(url)).json(); }
     catch(e){ if(anotarCors(path,e) && !out.length) return porLote(); throw e; }
-    if(j.error) throw new Error(`(${j.error.code}) ${j.error.message}`);
+    if(j.error) throw erroDe(j);
     out.push(...(j.data||[]));
     url=(j.paging&&j.paging.next)?j.paging.next:null;
   }
@@ -831,16 +840,33 @@ async function criarConjuntosDoCatalogo(){
   try{
     const prods=await gTudo(`/${cat}/products`,{fields:'name',limit:200});
     const nomes=[...new Set(prods.map(x=>String(x.name||'').trim()).filter(Boolean))];
-    const sets=await gTudo(`/${cat}/product_sets`,{fields:'name',limit:200});
-    // O Meta não guarda emoji no nome do conjunto (vira caractere quebrado), então
-    // comparo e crio sem ele. O filtro continua com o nome original do produto.
-    const jaTem=new Set(sets.map(x=>semEmoji(x.name).toLowerCase()));
-    const faltam=nomes.filter(n=>!jaTem.has(semEmoji(n).toLowerCase()));
-    logar('in',`${prods.length} item(ns), ${nomes.length} produto(s), ${faltam.length} conjunto(s) para criar.`); render();
+    const sets=await gTudo(`/${cat}/product_sets`,{fields:'name,filter',limit:200});
+    // Para não repetir conjunto, olho duas coisas de cada um que já existe:
+    // 1. o FILTRO, que guarda o nome exato do produto (é a identificação segura,
+    //    porque sobrevive a emoji e a nome cortado);
+    // 2. o NOME, sem emoji, como reserva para conjunto criado na mão.
+    const porFiltro=new Set(), porNome=new Set();
+    sets.forEach(s=>{
+      let f=s.filter;
+      if(typeof f==='string'){ try{ f=JSON.parse(f); }catch(e){ f=null; } }
+      const eq=f&&f.name&&f.name.eq;
+      if(eq) porFiltro.add(String(eq).trim().toLowerCase());
+      if(s.name) porNome.add(semEmoji(s.name).toLowerCase());
+    });
+    const jaExiste=n=>porFiltro.has(String(n).trim().toLowerCase())||porNome.has(semEmoji(n).toLowerCase());
+    const faltam=nomes.filter(n=>!jaExiste(n));
+    const repetidos=nomes.length-faltam.length;
+    logar('in',`${prods.length} item(ns), ${nomes.length} produto(s), ${sets.length} conjunto(s) no catálogo.`);
+    if(repetidos) logar('ok',`${repetidos} já tinha(m) conjunto, vou pular.`);
+    logar('in',`${faltam.length} conjunto(s) para criar.`); render();
     let n=0;
     for(const nome of faltam){
       try{ await gPost(`/${cat}/product_sets`,{name:semEmoji(nome)||nome, filter:{name:{eq:nome}}}); n++; logar('ok',`  conjunto "${semEmoji(nome)||nome}"`); }
-      catch(e){ logar('er',`  "${nome}": ${e.message}`); }
+      catch(e){
+        // 1798073 é o que o Meta devolve quando já existe conjunto com esse filtro.
+        if(/1798073/.test(e.message)) logar('av',`  "${semEmoji(nome)||nome}": já existia, pulei.`);
+        else logar('er',`  "${nome}": ${e.message}`);
+      }
       render(); await new Promise(r=>setTimeout(r,150));
     }
     logar('ok',`Pronto: ${n} conjunto(s) criado(s).`);
