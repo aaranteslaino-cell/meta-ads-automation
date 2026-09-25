@@ -149,10 +149,17 @@ function anotarCors(path,err){
   FALHOU_CORS.add(edgeDe(path));
   return true;
 }
+// Dentro do lote o Meta estraga caractere fora do ASCII (o emoji 🟦 do nome dos
+// criativos do Tomé virava lixo e o filtro não achava produto nenhum, o que dava
+// "não permitimos conjuntos vazios"). Mandando o JSON com \uXXXX ele lê certo.
+const paraAscii=s=>String(s).replace(/[\u007f-￿]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
+// Tira emoji (e o caractere quebrado que o Meta deixa no lugar) do NOME do conjunto.
+const semEmoji=s=>String(s||'').replace(/[\uD800-\uDFFF]/g,'').replace(/�/g,'').replace(/\s{2,}/g,' ').trim();
+const jsonAscii=v=>paraAscii(JSON.stringify(v));
 async function gLote(path, method, dados){
   const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
   const corpo=Object.entries(dados||{})
-    .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v)).join('&');
+    .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?jsonAscii(v):v)).join('&');
   const req={method, relative_url:path.replace(/^\//,'')+(method==='GET'&&corpo?'?'+corpo:'')};
   if(method!=='GET' && corpo) req.body=corpo;
   const fd=new URLSearchParams();
@@ -825,12 +832,14 @@ async function criarConjuntosDoCatalogo(){
     const prods=await gTudo(`/${cat}/products`,{fields:'name',limit:200});
     const nomes=[...new Set(prods.map(x=>String(x.name||'').trim()).filter(Boolean))];
     const sets=await gTudo(`/${cat}/product_sets`,{fields:'name',limit:200});
-    const jaTem=new Set(sets.map(x=>String(x.name||'').trim().toLowerCase()));
-    const faltam=nomes.filter(n=>!jaTem.has(n.toLowerCase()));
+    // O Meta não guarda emoji no nome do conjunto (vira caractere quebrado), então
+    // comparo e crio sem ele. O filtro continua com o nome original do produto.
+    const jaTem=new Set(sets.map(x=>semEmoji(x.name).toLowerCase()));
+    const faltam=nomes.filter(n=>!jaTem.has(semEmoji(n).toLowerCase()));
     logar('in',`${prods.length} item(ns), ${nomes.length} produto(s), ${faltam.length} conjunto(s) para criar.`); render();
     let n=0;
     for(const nome of faltam){
-      try{ await gPost(`/${cat}/product_sets`,{name:nome, filter:{name:{eq:nome}}}); n++; logar('ok',`  conjunto "${nome}"`); }
+      try{ await gPost(`/${cat}/product_sets`,{name:semEmoji(nome)||nome, filter:{name:{eq:nome}}}); n++; logar('ok',`  conjunto "${semEmoji(nome)||nome}"`); }
       catch(e){ logar('er',`  "${nome}": ${e.message}`); }
       render(); await new Promise(r=>setTimeout(r,150));
     }
