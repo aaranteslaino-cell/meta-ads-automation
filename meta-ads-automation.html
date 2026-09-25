@@ -671,8 +671,9 @@ function validate(){
     const n=i+1;
     if(!a.name?.trim()) errs.push(`Anúncio ${n}: nome obrigatório`);
     if(!a.pageId?.trim()) errs.push(`Anúncio ${n}: ID da Página obrigatório`);
-    const hasText = (a.texts||[]).some(t=>t?.trim());
-    if(!hasText) errs.push(`Anúncio ${n}: texto obrigatório`);
+    // Texto não é obrigatório: testado em 25/09/2026 com validate_only na ROI 10,
+    // o Meta aceita anúncio de catálogo e de imagem sem texto, sem título e sem
+    // descrição. Fica só o aviso na revisão.
     if(!a.linkUrl?.trim()) errs.push(`Anúncio ${n}: URL de destino obrigatória`);
     if(a.type==='image' && !a.imageFile && !a.imageHash?.trim())
       errs.push(`Anúncio ${n}: imagem ou hash obrigatório`);
@@ -2370,6 +2371,14 @@ function buildReview(){
     <div class="info-box">
       ✓ Pronto para criar: 1 campanha · ${totalAdsets} conjunto(s) · ${totalAds} anúncio(s)
     </div>`}
+  ${(()=>{
+    // Aviso, não erro: o Meta aceita anúncio sem texto, mas quase sempre é esquecimento.
+    const semTexto = S.ads.filter(a=>!((a.texts||[]).some(t=>t?.trim())));
+    if(!semTexto.length) return '';
+    return `<div class="info-box" style="background:#fff8e1;border-color:#ffc107">
+      ⚠️ ${semTexto.length} anúncio(s) sem texto: ${semTexto.map(a=>esc(a.name||'sem nome')).join(', ')}.
+      O Meta aceita assim, é só para você conferir se foi de propósito.</div>`;
+  })()}
   <div class="rv"><span class="rv-lbl">Campanha</span><span class="rv-val">${esc(c.name)||'—'}</span></div>
   <div class="rv"><span class="rv-lbl">Objetivo</span><span class="rv-val">${c.objective}</span></div>
   <div class="rv"><span class="rv-lbl">Orçamento</span><span class="rv-val">${c.budgetType} · R$ ${c.budget||0}/dia</span></div>
