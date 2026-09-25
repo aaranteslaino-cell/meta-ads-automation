@@ -296,7 +296,7 @@ async function apiLote(path, method, data, t){
   return json;
 }
 
-async function api(path, method='GET', data=null, tok=null){
+async function api(path, method='GET', data=null, tok=null, tentativa=0){
   const t = tok || getActiveToken();
   if(viaLote(path)) return apiLote(path, method, data, t);
   let url = path.startsWith('http') ? path : GQL+path;
@@ -328,6 +328,14 @@ async function api(path, method='GET', data=null, tok=null){
   }
   if(json.error){
     const e = json.error;
+    // Limite do Meta numa LEITURA: espera e tenta de novo, duas vezes. Em
+    // criação eu não repito, para não subir a mesma coisa duas vezes.
+    if(method==='GET' && _ehLimite(e.code) && tentativa<2){
+      const espera = 15000*(tentativa+1);
+      log(`Meta limitou as chamadas (${e.code}). Esperando ${espera/1000}s e tentando de novo…`,'w');
+      await new Promise(r=>setTimeout(r, espera));
+      return api(path, method, data, tok, tentativa+1);
+    }
     const sub = e.error_subcode ? '/'+e.error_subcode : '';
     const detail = e.error_user_msg && e.error_user_msg !== e.message ? ' → '+e.error_user_msg : '';
     throw new Error(`(${e.code}${sub}) ${e.message}${detail}`);
@@ -348,6 +356,38 @@ async function apiForm(path, fd, tok=null){
   return json;
 }
 
+// ── Limite de chamadas do Meta ──────────────────────────────────────────────
+// 4/17/32/613 é limite do app; 80000–80014 é limite POR CONTA DE ANÚNCIO
+// (80004 é o que mais aparece). Uma conta estourada derruba o pedido inteiro de
+// /me/adaccounts quando ele vem numa página grande, então peço de 25 em 25 e
+// guardo a lista, para ele conseguir trabalhar mesmo com o Meta travado.
+const _ehLimite = c => [4,17,32,613].includes(c) || (c>=80000 && c<=80014);
+const _codigoDoErro = m => { const x=/\((\d+)[/)]/.exec(String(m||'')); return x?parseInt(x[1]):0; };
+const CACHE_CONTAS = 'maa_contas';
+function salvarContasCache(contas){
+  try{ localStorage.setItem(CACHE_CONTAS, JSON.stringify({ts:Date.now(), contas})); }catch(e){}
+}
+function lerContasCache(){
+  try{
+    const c=JSON.parse(localStorage.getItem(CACHE_CONTAS)||'null');
+    return c && Array.isArray(c.contas) && c.contas.length ? c : null;
+  }catch(e){ return null; }
+}
+/** Contas de um token, de 25 em 25, aguentando o limite no meio do caminho. */
+async function _contasDoToken(tk){
+  let url = '/me/adaccounts?fields=id,name,account_id,currency&limit=25';
+  const out=[]; let voltas=0, erro=null;
+  while(url && voltas++ < 40){
+    try{
+      const r = await api(url,'GET',null,tk.token);
+      out.push(...(r.data||[]));
+      const nx = r.paging && r.paging.next;
+      url = nx ? nx.replace(/^https:\/\/graph\.facebook\.com\/v\d+\.\d+/,'') : null;
+    }catch(e){ erro = e; break; }   // fica com as páginas que já vieram
+  }
+  return {contas:out, erro};
+}
+
 // ── Conectar ──────────────────────────────────────────────────────────────────
 async function connect(){
   if(!S.tokens.length){ alert('Adicione pelo menos 1 token antes de conectar.'); return; }
@@ -358,15 +398,15 @@ async function connect(){
   S.accounts = [];
   S.pages = [];
   const tokenErrors = [];
+  let bateuLimite = false;
 
   for(const tk of S.tokens){
     if(!tk.token) continue;
-    try {
-      const r1 = await api('/me/adaccounts','GET',{fields:'id,name,account_id,currency',limit:500}, tk.token);
-      const accs = (r1.data || []).map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label}));
-      S.accounts.push(...accs);
-    } catch(e){
-      tokenErrors.push(`[${tk.label}] ${e.message}`);
+    const {contas, erro} = await _contasDoToken(tk);
+    if(contas.length) S.accounts.push(...contas.map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label})));
+    if(erro){
+      if(_ehLimite(_codigoDoErro(erro.message))) bateuLimite = true;
+      tokenErrors.push(`[${tk.label}] ${erro.message}`);
     }
     try {
       const r2 = await api('/me/accounts','GET',{fields:'id,name,access_token',limit:500}, tk.token);
@@ -382,12 +422,29 @@ async function connect(){
     seen.add(a.id); return true;
   });
 
+  // Meta travado e nenhuma conta na mão: usa a última lista que deu certo, para
+  // ele não ficar parado esperando o limite passar.
+  let doCache = false;
+  if(!S.accounts.length){
+    const c = lerContasCache();
+    if(c){
+      S.accounts = c.contas; doCache = true;
+      const horas = Math.round((Date.now()-c.ts)/36e5);
+      log(`Meta recusou a lista de contas. Usando a última lista guardada (${c.contas.length} conta(s), de ${horas>0?horas+'h atrás':'menos de 1h atrás'}).`,'w');
+    }
+  }
+
   if(!S.accounts.length){
     if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
-    const msg = tokenErrors.length ? '\n\nErros:\n'+tokenErrors.join('\n') : '';
-    alert('Nenhuma conta de anúncios encontrada.'+msg);
+    const limite = bateuLimite
+      ? 'O Meta bloqueou temporariamente as chamadas desta conta de anúncios (limite de uso, código 80004).\n'
+        + 'Isso passa sozinho, normalmente em minutos. Espere um pouco e clique em Conectar de novo.\n'
+      : '';
+    const msg = tokenErrors.length ? '\nDetalhe técnico:\n'+tokenErrors.join('\n') : '';
+    alert('Nenhuma conta de anúncios encontrada.\n\n'+limite+msg);
     return;
   }
+  if(!doCache) salvarContasCache(S.accounts);
 
   // Não pré-seleciona nenhuma conta — usuário escolhe manualmente
   S.selectedAccount = '';
@@ -396,6 +453,7 @@ async function connect(){
 
   S.connected = true;
   log(`Conectado! ${S.accounts.length} conta(s) encontrada(s) em ${S.tokens.length} token(s). Selecione a conta para começar.`,'s');
+  if(bateuLimite) log('⚠️ O Meta limitou as chamadas agora há pouco (80004). Se faltar alguma conta na lista, espere uns minutos e reconecte.','w');
   if(tokenErrors.length) tokenErrors.forEach(e=>log('⚠️ '+e,'w'));
   S.tab = 'campaign';
   saveState();
