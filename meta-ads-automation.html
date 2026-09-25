@@ -330,8 +330,10 @@ async function api(path, method='GET', data=null, tok=null, tentativa=0){
     const e = json.error;
     // Limite do Meta numa LEITURA: espera e tenta de novo, duas vezes. Em
     // criação eu não repito, para não subir a mesma coisa duas vezes.
-    if(method==='GET' && _ehLimite(e.code) && tentativa<2){
-      const espera = 15000*(tentativa+1);
+    // Uma tentativa só: o bloqueio por conta costuma durar dezenas de minutos e
+    // cada tentativa conta como uso, ou seja, insistir atrasa a liberação.
+    if(method==='GET' && _ehLimite(e.code) && tentativa<1){
+      const espera = 20000;
       log(`Meta limitou as chamadas (${e.code}). Esperando ${espera/1000}s e tentando de novo…`,'w');
       await new Promise(r=>setTimeout(r, espera));
       return api(path, method, data, tok, tentativa+1);
@@ -364,8 +366,9 @@ async function apiForm(path, fd, tok=null){
 const _ehLimite = c => [4,17,32,613].includes(c) || (c>=80000 && c<=80014);
 const _codigoDoErro = m => { const x=/\((\d+)[/)]/.exec(String(m||'')); return x?parseInt(x[1]):0; };
 const CACHE_CONTAS = 'maa_contas';
-function salvarContasCache(contas){
-  try{ localStorage.setItem(CACHE_CONTAS, JSON.stringify({ts:Date.now(), contas})); }catch(e){}
+const VALIDADE_CACHE = 12*3600e3;   // 12h: lista de contas muda pouco
+function salvarContasCache(contas, paginas){
+  try{ localStorage.setItem(CACHE_CONTAS, JSON.stringify({ts:Date.now(), contas, paginas:paginas||[]})); }catch(e){}
 }
 function lerContasCache(){
   try{
@@ -373,6 +376,7 @@ function lerContasCache(){
     return c && Array.isArray(c.contas) && c.contas.length ? c : null;
   }catch(e){ return null; }
 }
+const idadeDoCache = c => !c ? '' : (()=>{ const h=Math.round((Date.now()-c.ts)/36e5); return h<1?'menos de 1h':h+'h'; })();
 /** Contas de um token, de 25 em 25, aguentando o limite no meio do caminho. */
 async function _contasDoToken(tk){
   let url = '/me/adaccounts?fields=id,name,account_id,currency&limit=25';
@@ -388,8 +392,17 @@ async function _contasDoToken(tk){
   return {contas:out, erro};
 }
 
+/** Relê a lista de contas no Meta, ignorando a guardada. */
+async function atualizarContas(){
+  if(!confirm('Reler a lista de contas no Meta?\n\nSó vale a pena se você criou ou recebeu acesso a uma conta nova. Listar consome cota, e é isso que costuma dar o erro 80004.')) return;
+  const antes = S.accounts.length;
+  S.connected = false;
+  await connect(true);
+  if(S.connected) log(`Lista atualizada: ${antes} → ${S.accounts.length} conta(s).`, 'i');
+}
+
 // ── Conectar ──────────────────────────────────────────────────────────────────
-async function connect(){
+async function connect(forcar=false){
   if(!S.tokens.length){ alert('Adicione pelo menos 1 token antes de conectar.'); return; }
 
   const btn = $('btn-connect');
@@ -399,6 +412,23 @@ async function connect(){
   S.pages = [];
   const tokenErrors = [];
   let bateuLimite = false;
+
+  // Lista de contas muda pouco e listar custa caro: o /me/adaccounts consome
+  // cota de TODAS as contas do token, e basta uma estourada (a ROI 01 vive
+  // assim) para derrubar o pedido inteiro. Então, com lista recente guardada,
+  // entro direto por ela. O botão "Atualizar contas" força a releitura.
+  const cache = lerContasCache();
+  if(!forcar && cache && (Date.now()-cache.ts) < VALIDADE_CACHE){
+    S.accounts = cache.contas;
+    S.pages = cache.paginas || [];
+    S.selectedAccount=''; S.token='';
+    S.pixels=[]; S.catalogs=[]; S.igCache={};
+    S.connected = true;
+    log(`Conectado com a lista guardada: ${S.accounts.length} conta(s), de ${idadeDoCache(cache)} atrás. Use "Atualizar contas" se faltar alguma.`,'s');
+    S.tab='campaign'; saveState(); render();
+    if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
+    return;
+  }
 
   for(const tk of S.tokens){
     if(!tk.token) continue;
@@ -425,26 +455,25 @@ async function connect(){
   // Meta travado e nenhuma conta na mão: usa a última lista que deu certo, para
   // ele não ficar parado esperando o limite passar.
   let doCache = false;
-  if(!S.accounts.length){
-    const c = lerContasCache();
-    if(c){
-      S.accounts = c.contas; doCache = true;
-      const horas = Math.round((Date.now()-c.ts)/36e5);
-      log(`Meta recusou a lista de contas. Usando a última lista guardada (${c.contas.length} conta(s), de ${horas>0?horas+'h atrás':'menos de 1h atrás'}).`,'w');
-    }
+  if(!S.accounts.length && cache){
+    S.accounts = cache.contas; doCache = true;
+    if(!S.pages.length) S.pages = cache.paginas || [];
+    log(`Meta recusou a lista de contas. Usando a última lista guardada (${cache.contas.length} conta(s), de ${idadeDoCache(cache)} atrás).`,'w');
   }
 
   if(!S.accounts.length){
     if(btn){ btn.disabled=false; btn.textContent='Conectar'; }
     const limite = bateuLimite
-      ? 'O Meta bloqueou temporariamente as chamadas desta conta de anúncios (limite de uso, código 80004).\n'
-        + 'Isso passa sozinho, normalmente em minutos. Espere um pouco e clique em Conectar de novo.\n'
+      ? 'O Meta bloqueou as chamadas por excesso de uso (código 80004).\n\n'
+        + 'Basta UMA conta estourada para ele recusar a lista inteira, e o bloqueio pode durar de alguns minutos\n'
+        + 'a meia hora. Tentar de novo seguido só piora, porque cada tentativa conta como uso.\n'
+        + 'Espere uns 20 minutos e conecte outra vez.\n'
       : '';
     const msg = tokenErrors.length ? '\nDetalhe técnico:\n'+tokenErrors.join('\n') : '';
     alert('Nenhuma conta de anúncios encontrada.\n\n'+limite+msg);
     return;
   }
-  if(!doCache) salvarContasCache(S.accounts);
+  if(!doCache) salvarContasCache(S.accounts, S.pages);
 
   // Não pré-seleciona nenhuma conta — usuário escolhe manualmente
   S.selectedAccount = '';
@@ -1402,6 +1431,7 @@ function buildMain(){
         })()}
       </select>
       <div style="display:flex;gap:6px">
+        <button class="btn btn-gray btn-sm" onclick="atualizarContas()" title="Reler a lista de contas no Meta">🔄</button>
         <button class="btn btn-gray btn-sm" onclick="importConfig()" title="Importar configuração">📂</button>
         <button class="btn btn-gray btn-sm" onclick="exportConfig()" title="Exportar configuração">💾</button>
         <button class="btn btn-gray btn-sm" onclick="disconnect()">Desconectar</button>
