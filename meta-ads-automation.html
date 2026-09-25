@@ -273,9 +273,12 @@ const SEM_CORS = /\/(product_sets|products|product_groups)(\?|$)/;
 const FALHOU_CORS = new Set();
 const edgeDe = p => String(p||'').split('?')[0].replace(/\/+$/,'').split('/').pop() || '';
 const viaLote = p => SEM_CORS.test(p) || FALHOU_CORS.has(edgeDe(p));
+// Dentro do lote o Meta estraga caractere fora do ASCII (emoji vira lixo e o
+// texto do anúncio chegaria quebrado). Mandando o JSON com \uXXXX ele lê certo.
+const paraAscii = s => String(s).replace(/[\u007f-￿]/g, c => '\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'));
 async function apiLote(path, method, data, t){
   const corpo = Object.entries(data||{})
-    .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?JSON.stringify(v):v)).join('&');
+    .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?paraAscii(JSON.stringify(v)):v)).join('&');
   const req = {method, relative_url: path.replace(/^\//,'') + (method==='GET'&&corpo?'?'+corpo:'')};
   if(method!=='GET' && corpo) req.body = corpo;
   const fd = new URLSearchParams();
