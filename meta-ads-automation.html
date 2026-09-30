@@ -2630,6 +2630,38 @@ async function changeAcct(id){
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 render();
+
+/**
+ * A lista de contas fica salva no navegador, então quem abre a ferramenta
+ * continua vendo a lista da última vez, inclusive sem a conta nova que entrou na
+ * BM depois. Foi o que aconteceu com a "BK Rental 003 1": aparecia para um e não
+ * para o outro, com o mesmo token. Então, se a lista tiver mais de 12h, releio
+ * uma vez, quieto, ao abrir.
+ */
+async function sincronizarContas(){
+  if(!S.connected || !S.tokens || !S.tokens.length) return;
+  const c = lerContasCache();
+  if(c && (Date.now()-c.ts) < VALIDADE_CACHE) return;
+  try{
+    const antes = new Set(S.accounts.map(a=>a.id));
+    const novas = [];
+    for(const tk of S.tokens){
+      if(!tk.token) continue;
+      const {contas} = await _contasDoToken(tk);
+      novas.push(...contas.map(a=>({...a, _tokenId:tk.id, _tokenLabel:tk.label})));
+    }
+    if(!novas.length) return;                  // Meta travado: fica com a lista de antes
+    const vistos = new Set();
+    S.accounts = novas.filter(a=>vistos.has(a.id) ? false : vistos.add(a.id));
+    salvarContasCache(S.accounts, S.pages);
+    const entraram = S.accounts.filter(a=>!antes.has(a.id)).map(a=>a.name);
+    const sairam = [...antes].filter(id=>!S.accounts.some(a=>a.id===id));
+    if(entraram.length) log(`Lista de contas atualizada. Entrou: ${entraram.join(', ')}.`,'s');
+    if(sairam.length) log(`${sairam.length} conta(s) saíram da lista (desativadas ou sem acesso).`,'w');
+    saveState(); render();
+  }catch(e){ /* sem internet ou Meta travado: segue com a lista salva */ }
+}
+sincronizarContas();
 </script>
 </body>
 </html>
