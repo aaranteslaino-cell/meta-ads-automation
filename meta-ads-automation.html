@@ -214,6 +214,20 @@ if(S.token && (!S.tokens || !S.tokens.length)){
 }
 if(!Array.isArray(S.tokens)) S.tokens = [];
 
+// As três ferramentas moram no mesmo endereço, então compartilham o armazenamento
+// do navegador. O painel de otimização e o monitor já puxavam token daqui; agora
+// é dos dois lados, e token colado em qualquer uma vale em todas.
+(function importarTokensDasOutras(){
+  ['mao_state','mam_state'].forEach(k=>{
+    let src; try{ src=JSON.parse(localStorage.getItem(k)); }catch(e){ return; }
+    (src && src.tokens || []).forEach(t=>{
+      const val = t.token || t.value;
+      if(!val || S.tokens.some(x=>x.token===val)) return;
+      S.tokens.push({id:Date.now()+S.tokens.length, label:t.label||t.nome||'importado', token:val});
+    });
+  });
+})();
+
 function loadState(){
   try{ return JSON.parse(localStorage.getItem('maa_state')); }catch(e){ return null; }
 }
