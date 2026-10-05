@@ -26,6 +26,16 @@ a.ferramenta:hover{border-color:var(--rox);transform:translateY(-2px)}
 .passos strong{color:var(--txt)}
 .aviso{padding:10px 12px;border-radius:8px;font-size:13px;margin-top:10px;background:rgba(176,137,0,.12);color:var(--amar)}
 code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bor);padding:1px 5px;border-radius:4px}
+input{padding:8px 10px;border:1px solid var(--bor);border-radius:8px;background:var(--card);color:var(--txt);font:inherit}
+.btn{padding:9px 14px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn-rox{background:var(--rox);color:#fff}
+.btn-cinza{background:var(--bor);color:var(--txt)}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.linha-token{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tk{display:flex;gap:8px;align-items:center;border:1px solid var(--bor);border-radius:8px;padding:8px 10px;margin-bottom:8px}
+.tk b{font-size:13px}
+.tk .mono{font:12px ui-monospace,Menlo,monospace;color:var(--mut);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ok{color:var(--verd)}.ruim{color:#c5221f}
 hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
 </style>
 
@@ -59,6 +69,18 @@ hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
   </div>
 
   <div class="card">
+    <h2>Tokens</h2>
+    <p class="sub" style="font-size:13px;margin-bottom:12px">Colado aqui, o token vale nas <b>três ferramentas</b>. Ele fica salvo só neste navegador e nunca sai dele, a não ser para o próprio Meta.</p>
+    <div id="lista-tokens"></div>
+    <div class="linha-token" style="margin-top:12px">
+      <input id="tk-label" placeholder="Nome (ex: Roi Ventures, MAds)" style="flex:1;min-width:150px">
+      <input id="tk-valor" type="password" placeholder="Cole o token aqui" style="flex:2;min-width:200px">
+      <button class="btn btn-rox" id="tk-add" onclick="adicionarToken()">Verificar e salvar</button>
+    </div>
+    <div id="tk-msg" class="mini" style="margin-top:8px"></div>
+  </div>
+
+  <div class="card">
     <h2>Como começar</h2>
     <ol class="passos">
       <li>Abra a ferramenta que quiser e <strong>cole o seu token</strong> do Meta no primeiro passo. Ele fica salvo só no seu navegador.</li>
@@ -78,4 +100,99 @@ function escuroAgora(){
 }
 function toggleDark(){ const d=!(document.body.className==='dark'); try{ localStorage.setItem(CHAVE, d?'1':'0'); }catch(e){} aplicar(d); }
 aplicar(escuroAgora());
+
+// ── Tokens ──────────────────────────────────────────────────────────────────
+// As três ferramentas moram neste mesmo endereço, então dividem o armazenamento
+// do navegador. Cada uma guarda os tokens na sua chave e lê a dos outros, então
+// escrevo nas três de uma vez: token colado aqui aparece em todas.
+const CHAVES_TOKEN = ['maa_state','mao_state','mam_state'];
+const GQL = 'https://graph.facebook.com/v21.0';
+
+function lerTokens(){
+  const vistos = new Map();
+  CHAVES_TOKEN.forEach(k=>{
+    let s=null; try{ s=JSON.parse(localStorage.getItem(k)||'null'); }catch(e){}
+    ((s && s.tokens) || []).forEach(t=>{
+      const v = t.token || t.value;
+      if(v && !vistos.has(v)) vistos.set(v, {id:t.id||Date.now()+vistos.size, label:t.label||t.nome||'sem nome', token:v});
+    });
+  });
+  return [...vistos.values()];
+}
+function gravarTokens(lista){
+  CHAVES_TOKEN.forEach(k=>{
+    let s=null; try{ s=JSON.parse(localStorage.getItem(k)||'null'); }catch(e){}
+    if(!s || typeof s!=='object') s={};
+    s.tokens = lista.map(t=>({id:t.id, label:t.label, token:t.token}));
+    try{ localStorage.setItem(k, JSON.stringify(s)); }catch(e){}
+  });
+}
+const esconde = t => t.slice(0,6)+'…'+t.slice(-6);
+
+function pintarTokens(){
+  const alvo = document.getElementById('lista-tokens');
+  const lista = lerTokens();
+  alvo.innerHTML = lista.length
+    ? lista.map((t,i)=>`<div class="tk">
+         <b>${t.label.replace(/</g,'&lt;')}</b>
+         <span class="mono">${esconde(t.token)}</span>
+         <button class="btn btn-cinza" style="padding:5px 10px;font-size:12px" onclick="removerToken(${i})">Remover</button>
+       </div>`).join('')
+    : '<div class="mini">Nenhum token salvo neste navegador ainda.</div>';
+}
+function removerToken(i){
+  const lista = lerTokens();
+  const t = lista[i];
+  if(!t || !confirm(`Remover o token "${t.label}"? As três ferramentas deixam de enxergar as contas dele.`)) return;
+  lista.splice(i,1);
+  gravarTokens(lista);
+  pintarTokens();
+  document.getElementById('tk-msg').innerHTML = '<span class="ok">Token removido das três ferramentas.</span>';
+}
+
+async function adicionarToken(){
+  const msg = document.getElementById('tk-msg');
+  const btn = document.getElementById('tk-add');
+  const label = document.getElementById('tk-label').value.trim();
+  const valor = document.getElementById('tk-valor').value.trim();
+  if(!valor){ msg.innerHTML = '<span class="ruim">Cole o token antes.</span>'; return; }
+  if(lerTokens().some(t=>t.token===valor)){ msg.innerHTML = '<span class="ruim">Esse token já está salvo.</span>'; return; }
+
+  btn.disabled = true; msg.textContent = 'Conferindo o token no Meta…';
+  try{
+    // Confere antes de salvar: token errado ou vencido daria lista vazia depois,
+    // sem explicação nenhuma dentro das ferramentas.
+    const d = await (await fetch(`${GQL}/debug_token?input_token=${encodeURIComponent(valor)}&access_token=${encodeURIComponent(valor)}`)).json();
+    const dados = d.data || {};
+    if(d.error || !dados.is_valid){
+      msg.innerHTML = '<span class="ruim">Token recusado pelo Meta: '+((d.error&&d.error.message)||'inválido ou vencido')+'</span>';
+      return;
+    }
+    const escopos = dados.scopes || [];
+    const falta = ['ads_management','business_management'].filter(p=>!escopos.includes(p));
+    const soAtivas = encodeURIComponent(JSON.stringify([{field:'account_status',operator:'EQUAL',value:1}]));
+    let contas = 0;
+    try{
+      const c = await (await fetch(`${GQL}/me/adaccounts?fields=id&limit=100&filtering=${soAtivas}&access_token=${encodeURIComponent(valor)}`)).json();
+      contas = (c.data||[]).length;
+    }catch(e){}
+
+    const lista = lerTokens();
+    lista.push({id:Date.now(), label: label || dados.application || 'Token '+(lista.length+1), token: valor});
+    gravarTokens(lista);
+    document.getElementById('tk-label').value=''; document.getElementById('tk-valor').value='';
+    pintarTokens();
+    const validade = dados.expires_at ? new Date(dados.expires_at*1000).toLocaleDateString('pt-BR') : 'não expira';
+    msg.innerHTML = `<span class="ok">Salvo nas três ferramentas.</span> App <b>${(dados.application||'?')}</b>, ${validade}, `
+      + `<b>${contas}</b> conta(s) ativa(s).`
+      + (falta.length ? `<br><span class="ruim">Faltam permissões: ${falta.join(', ')}.</span>` : '')
+      + (!escopos.includes('catalog_management') ? '<br><span class="mini">Sem <code>catalog_management</code>: não serve para a ferramenta de catálogos.</span>' : '')
+      + (!escopos.includes('read_insights') ? '<br><span class="mini">Sem <code>read_insights</code>: o painel de otimização não lê as métricas dessas contas.</span>' : '');
+  }catch(e){
+    msg.innerHTML = '<span class="ruim">Não consegui falar com o Meta: '+e.message+'</span>';
+  }finally{
+    btn.disabled = false;
+  }
+}
+pintarTokens();
 </script>
