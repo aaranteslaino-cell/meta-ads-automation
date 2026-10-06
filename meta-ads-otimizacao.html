@@ -5030,6 +5030,18 @@ function setCfg(k,v){ S[k]=v; saveState(); render(); }
 
 if(S.darkMode) document.body.classList.add('dark');
 render();
+
+// Arquivo aberto do computador (file://) tem armazenamento próprio, separado do
+// site publicado: os tokens colados numa ferramenta não aparecem na outra. Já
+// confundiu, então aviso na cara em vez de deixar a pessoa procurando.
+if(location.protocol==='file:'){
+  const aviso=document.createElement('div');
+  aviso.style.cssText='position:sticky;top:0;z-index:9999;background:#fff3cd;color:#664d03;'+
+    'border-bottom:2px solid #ffc107;padding:10px 14px;font:14px -apple-system,system-ui,sans-serif';
+  aviso.innerHTML='⚠️ <b>Você abriu o arquivo salvo no computador.</b> Assim os tokens e as listas ficam '+
+    'separados do resto das ferramentas. Abra por aqui: <a href="https://aaranteslaino-cell.github.io/meta-ads-automation/meta-ads-otimizacao.html" style="color:#7b2ff7;font-weight:700">https://aaranteslaino-cell.github.io/meta-ads-automation/meta-ads-otimizacao.html</a>';
+  document.body.prepend(aviso);
+}
 </script>
 </body>
 </html>
