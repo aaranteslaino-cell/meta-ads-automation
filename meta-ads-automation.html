@@ -837,6 +837,26 @@ async function run(){
   const c = S.camp;
   const DEST = S.destino || {modo:'nova'};
 
+  // Pixel de outra conta derruba a campanha só na hora de criar o ANÚNCIO, com
+  // "Permissions error" (200/1815045), depois de campanha e conjunto já criados.
+  // Confirmo antes, perguntando ao Meta quais pixels a conta enxerga de fato.
+  {
+    const usados = [...new Set(S.adsets.map(a=>(a.pixelId||'').trim()).filter(Boolean))];
+    if(usados.length){
+      try{
+        const r = await api(`/${acct}/adspixels`,'GET',{fields:'id,name',limit:200});
+        const daConta = (r.data||[]);
+        const fora = usados.filter(p=>!daConta.some(x=>x.id===p));
+        if(daConta.length && fora.length){
+          log(`✗ Nada foi criado. O pixel ${fora.join(', ')} não está liberado para esta conta de anúncios. `+
+              `Escolha um destes: ${daConta.map(x=>x.name+' ('+x.id+')').join(', ')}. `+
+              `Se quiser usar o outro mesmo, atribua ele a esta conta nas configurações do negócio.`,'e');
+          S.running=false; S._tokenForcado=null; render(); return;
+        }
+      }catch(e){ log(`Não consegui conferir os pixels da conta (${e.message}). Sigo mesmo assim.`,'w'); }
+    }
+  }
+
   if(S.ads.some(a=>a.type==='catalog')){
     log('Testando o anúncio de catálogo no Meta antes de criar qualquer coisa…','i');
     const erroPre = await preTesteCatalogo();
