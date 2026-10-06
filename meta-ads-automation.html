@@ -2420,10 +2420,37 @@ function criativoCatalogo(ad, igActorId, link, texts, direct){
 }
 // Anúncio de catálogo EXIGE Instagram declarado (erro 1772103 sem ele), diferente
 // do de imagem/vídeo. Se o campo está vazio, usa o Instagram ligado à página.
+/**
+ * Instagram do anúncio de catálogo. Ordem:
+ *   1. o ID que ele digitou no anúncio;
+ *   2. o Instagram ligado à página;
+ *   3. a conta do Instagram DA PRÓPRIA PÁGINA (page-backed), que é o que o
+ *      Gerenciador cria quando você deixa "Perfil do Instagram: usar a Página
+ *      do Facebook". Testado em 06/10/2026: com página sem Instagram o Meta
+ *      recusa o anúncio (1772103), e com essa conta ele cria normalmente.
+ *      Só funciona com o token DA PÁGINA, não com o do usuário de sistema.
+ */
+async function igDaPagina(pageId){
+  const pg = (S.pages||[]).find(p=>p.id===pageId);
+  const tkPg = pg && pg.access_token;
+  if(!tkPg) return null;
+  try{
+    const r = await api(`/${pageId}/page_backed_instagram_accounts`,'GET',{fields:'id'}, tkPg);
+    if(r.data && r.data[0] && r.data[0].id) return r.data[0].id;
+  }catch(e){}
+  try{
+    const c = await api(`/${pageId}/page_backed_instagram_accounts`,'POST',{}, tkPg);
+    if(c && c.id){ log(`Criei a conta do Instagram da página ${pageId} (igual ao "usar a Página do Facebook" do Gerenciador).`,'i'); return c.id; }
+  }catch(e){ log(`Não consegui usar a página como Instagram: ${e.message}`,'w'); }
+  return null;
+}
 async function igDoCatalogo(ad){
   const d = ad.igActorId?.trim(); if(d && /^\d+$/.test(d)) return d;
-  try{ const r = await api(`/${ad.pageId}`,'GET',{fields:'instagram_business_account'}); return r.instagram_business_account?.id || null; }
-  catch(e){ return null; }
+  try{
+    const r = await api(`/${ad.pageId}`,'GET',{fields:'instagram_business_account'});
+    if(r.instagram_business_account?.id) return r.instagram_business_account.id;
+  }catch(e){}
+  return await igDaPagina(ad.pageId);
 }
 // Testa o 1º anúncio no Meta (validate_only) ANTES de criar campanha e conjunto.
 // Sem isso, um erro no anúncio deixava campanha e conjunto vazios criados.
@@ -2436,9 +2463,10 @@ async function preTesteCatalogo(){
   const temIg = (S.destino&&S.destino.modo==='conjunto') ||
     S.adsets.some(a=>a.placementType==='auto' || (a.placements||[]).some(p=>String(p).startsWith('ig_')));
   if(temIg && !ig){
-    return 'Anúncio de catálogo precisa de uma conta do Instagram, e a página '+ad.pageId+
-      ' não tem Instagram ligado. Use uma página que tenha Instagram, preencha o ID do Instagram no anúncio, '+
-      'ou tire os posicionamentos do Instagram do conjunto.';
+    return 'Anúncio de catálogo precisa de uma conta do Instagram. A página '+ad.pageId+
+      ' não tem Instagram ligado e eu também não consegui usar a própria página como Instagram '+
+      '(para isso o token precisa ter acesso a essa página). Preencha o ID do Instagram no anúncio, '+
+      'use uma página que tenha Instagram, ou tire os posicionamentos do Instagram do conjunto.';
   }
   const direct = S.adsets.some(a=>a.optimizationGoal==='CONVERSATIONS_IG');
   const body = criativoCatalogo(ad, ig, https(ad.linkUrl), (ad.texts||[]).filter(t=>t?.trim()), direct);
