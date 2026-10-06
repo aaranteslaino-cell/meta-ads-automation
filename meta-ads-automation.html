@@ -2430,10 +2430,35 @@ function criativoCatalogo(ad, igActorId, link, texts, direct){
  *      recusa o anúncio (1772103), e com essa conta ele cria normalmente.
  *      Só funciona com o token DA PÁGINA, não com o do usuário de sistema.
  */
+/**
+ * Acha a página e o token DELA. A lista de páginas pode estar velha no
+ * navegador (quem conecta pela lista guardada não refaz a busca, e token novo
+ * traz páginas novas), então, se não achar, pergunto ao Meta na hora, token por
+ * token, e já aproveito para atualizar a lista inteira.
+ */
+async function acharPagina(pageId){
+  let pg = (S.pages||[]).find(p=>p.id===pageId && p.access_token);
+  if(pg) return pg;
+  for(const tk of (S.tokens||[])){
+    if(!tk.token) continue;
+    try{
+      const r = await api('/me/accounts','GET',{fields:'id,name,access_token',limit:200}, tk.token);
+      S.pages = S.pages || [];
+      (r.data||[]).forEach(p=>{
+        const i = S.pages.findIndex(x=>x.id===p.id);
+        if(i<0) S.pages.push({...p, _tokenId:tk.id});
+        else if(!S.pages[i].access_token && p.access_token) S.pages[i] = {...p, _tokenId:tk.id};
+      });
+      const achou = (r.data||[]).find(p=>p.id===pageId && p.access_token);
+      if(achou){ log(`Achei a página ${pageId} no token "${tk.label}".`,'i'); saveState(); return achou; }
+    }catch(e){}
+  }
+  return null;
+}
 async function igDaPagina(pageId){
-  const pg = (S.pages||[]).find(p=>p.id===pageId);
+  const pg = await acharPagina(pageId);
   const tkPg = pg && pg.access_token;
-  if(!tkPg) return null;
+  if(!tkPg){ log(`Nenhum token salvo tem acesso à página ${pageId}.`,'w'); return null; }
   try{
     const r = await api(`/${pageId}/page_backed_instagram_accounts`,'GET',{fields:'id'}, tkPg);
     if(r.data && r.data[0] && r.data[0].id) return r.data[0].id;
