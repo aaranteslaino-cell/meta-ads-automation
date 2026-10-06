@@ -34,7 +34,8 @@ input{padding:8px 10px;border:1px solid var(--bor);border-radius:8px;background:
 .linha-token{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .tk{display:flex;gap:8px;align-items:center;border:1px solid var(--bor);border-radius:8px;padding:8px 10px;margin-bottom:8px}
 .tk b{font-size:13px}
-.tk .mono{font:12px ui-monospace,Menlo,monospace;color:var(--mut);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk{align-items:flex-start}
+.tk-token{font:11px ui-monospace,Menlo,monospace;color:var(--mut);word-break:break-all;line-height:1.45;margin-top:3px;user-select:all}
 .ok{color:var(--verd)}.ruim{color:#c5221f}
 hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
 </style>
@@ -127,18 +128,27 @@ function gravarTokens(lista){
     try{ localStorage.setItem(k, JSON.stringify(s)); }catch(e){}
   });
 }
-const esconde = t => t.slice(0,6)+'…'+t.slice(-6);
-
 function pintarTokens(){
   const alvo = document.getElementById('lista-tokens');
   const lista = lerTokens();
+  // Token inteiro na tela, a pedido dele: serve para conferir e para copiar e
+  // passar para outra máquina sem ter que ir caçar no gerenciador do Meta.
   alvo.innerHTML = lista.length
     ? lista.map((t,i)=>`<div class="tk">
-         <b>${t.label.replace(/</g,'&lt;')}</b>
-         <span class="mono">${esconde(t.token)}</span>
+         <div style="flex:1;min-width:0">
+           <b>${t.label.replace(/</g,'&lt;')}</b>
+           <div class="tk-token">${t.token.replace(/</g,'&lt;')}</div>
+         </div>
+         <button class="btn btn-cinza" style="padding:5px 10px;font-size:12px" onclick="copiarToken(${i})">Copiar</button>
          <button class="btn btn-cinza" style="padding:5px 10px;font-size:12px" onclick="removerToken(${i})">Remover</button>
        </div>`).join('')
     : '<div class="mini">Nenhum token salvo neste navegador ainda.</div>';
+}
+async function copiarToken(i){
+  const t = lerTokens()[i]; if(!t) return;
+  const msg = document.getElementById('tk-msg');
+  try{ await navigator.clipboard.writeText(t.token); msg.innerHTML = `<span class="ok">Token "${t.label}" copiado.</span>`; }
+  catch(e){ msg.innerHTML = '<span class="ruim">O navegador não deixou copiar. Selecione o texto e use Cmd+C.</span>'; }
 }
 function removerToken(i){
   const lista = lerTokens();
