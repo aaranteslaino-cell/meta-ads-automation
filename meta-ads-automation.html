@@ -2441,7 +2441,12 @@ async function igDaPagina(pageId){
   try{
     const c = await api(`/${pageId}/page_backed_instagram_accounts`,'POST',{}, tkPg);
     if(c && c.id){ log(`Criei a conta do Instagram da página ${pageId} (igual ao "usar a Página do Facebook" do Gerenciador).`,'i'); return c.id; }
-  }catch(e){ log(`Não consegui usar a página como Instagram: ${e.message}`,'w'); }
+  }catch(e){
+    // Esse endereço exige pages_read_engagement no token. Sem ela o Meta
+    // responde 200, e a pessoa fica sem saber o que marcar ao gerar o token.
+    S._faltaPagesRead = /pages_read_engagement/.test(e.message||'');
+    log(`Não consegui usar a página como Instagram: ${e.message}`,'w');
+  }
   return null;
 }
 async function igDoCatalogo(ad){
@@ -2463,6 +2468,12 @@ async function preTesteCatalogo(){
   const temIg = (S.destino&&S.destino.modo==='conjunto') ||
     S.adsets.some(a=>a.placementType==='auto' || (a.placements||[]).some(p=>String(p).startsWith('ig_')));
   if(temIg && !ig){
+    if(S._faltaPagesRead){
+      return 'Anúncio de catálogo precisa de uma conta do Instagram. A página '+ad.pageId+' não tem Instagram ligado, '+
+        'e para usar a própria página como Instagram (o "usar a Página do Facebook" do Gerenciador) falta a permissão '+
+        'pages_read_engagement no token. Gere o token de novo marcando pages_read_engagement, ou preencha o ID do '+
+        'Instagram no anúncio, ou tire os posicionamentos do Instagram do conjunto.';
+    }
     return 'Anúncio de catálogo precisa de uma conta do Instagram. A página '+ad.pageId+
       ' não tem Instagram ligado e eu também não consegui usar a própria página como Instagram '+
       '(para isso o token precisa ter acesso a essa página). Preencha o ID do Instagram no anúncio, '+
