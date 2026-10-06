@@ -192,6 +192,47 @@ async function gGet(path, params){
   if(j.error) throw erroDe(j);
   return j;
 }
+// Explica o erro mais comum de catálogo: criar exige ser ADMIN do negócio.
+function explicarErro(e){
+  const m = e && e.message || String(e);
+  if(/1690129/.test(m) || /não é um administrador|not .*administrator/i.test(m)){
+    const negocio = (BIZ.find(b=>b.id===S.bizId)||{}).name || S.bizId;
+    return m + `  ⟶ Nenhum token salvo é administrador do negócio "${negocio}". `
+      + 'Escolha no passo 2 um negócio onde você é administrador, ou crie o catálogo em outro negócio: '
+      + 'catálogo de um negócio funciona em conta de anúncio de outro, já foi testado.';
+  }
+  return m;
+}
+/**
+ * Criar catálogo exige ser ADMINISTRADOR daquele negócio, e cada token é
+ * administrador só do negócio dele (medido em 06/10/2026: o da Roi Ventures
+ * cria na Roi Ventures, o do MAds cria no MAds, e no BK R 22 nenhum dos dois
+ * cria). Como a ferramenta pode ter vários tokens salvos, se o escolhido for
+ * recusado por falta de permissão eu tento os outros antes de desistir.
+ */
+const SEM_PERMISSAO = e => /1690129/.test(e.message||'') || /\(10[/)]/.test(e.message||'');
+async function gPostComQualquerToken(path, body){
+  const atual=tokenAtual();
+  try{ return await gPost(path, body); }
+  catch(e){
+    if(!SEM_PERMISSAO(e) || S.tokens.length<2) throw e;
+    for(const t of S.tokens){
+      if(t.token===atual) continue;
+      const antes=S.tokenSel; S.tokenSel=t.id;
+      try{
+        const r=await gPost(path, body);
+        // Deixo esse token selecionado de propósito: o resto do fluxo (pixel,
+        // conjuntos, itens) é no catálogo que ele acabou de criar.
+        salvar();
+        logar('av',`O token "${t.nome}" é que tinha permissão nesse negócio. Segui com ele.`);
+        return r;
+      }catch(e2){ S.tokenSel=antes; }
+      S.tokenSel=antes;
+    }
+    throw e;
+  }
+}
+
 async function gPost(path, body){
   const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
   if(viaLote(path)) return gLote(path,'POST',body);
@@ -253,7 +294,7 @@ async function conectar(){
     logar('ok',`${contas.length} conta(s) e ${BIZ.length} negócio(s).`);
     await listarCatalogos();
     await listarPixels();
-  }catch(e){ logar('er','Falhou: '+e.message); }
+  }catch(e){ logar('er','Falhou: '+explicarErro(e)); }
   render();
 }
 
@@ -492,7 +533,7 @@ async function executar(){
     // 1. catálogo
     if(S.modo==='novo'){
       logar('in',`Criando catálogo "${S.catNome}" no negócio ${S.bizId}…`); render();
-      const r=await gPost(`/${S.bizId}/owned_product_catalogs`,{name:S.catNome.trim(), vertical:S.vertical||'commerce'});
+      const r=await gPostComQualquerToken(`/${S.bizId}/owned_product_catalogs`,{name:S.catNome.trim(), vertical:S.vertical||'commerce'});
       catId=r.id;
       logar('ok',`Catálogo criado: ${catId}`);
       if(S.pixelId){
@@ -595,7 +636,7 @@ async function executar(){
       : `Pronto: ${criados} item(ns), ${videos} vídeo(s) e ${sets} conjunto(s) em ${seg}s.`);
     if(S.modo==='novo'){ S.modo='existente'; S.catId=catId; CATALOGOS=null; salvar(); listarCatalogos(); }
   }catch(e){
-    logar('er','Parou com erro: '+e.message);
+    logar('er','Parou com erro: '+explicarErro(e));
     RESULTADO={catId, criados, falhas, sets, videos, seg:Math.round((Date.now()-t0)/1000), erro:e.message};
   }
   RODANDO=false; render();
@@ -873,7 +914,7 @@ async function criarConjuntosDoCatalogo(){
       render(); await new Promise(r=>setTimeout(r,150));
     }
     logar('ok',`Pronto: ${n} conjunto(s) criado(s).`);
-  }catch(e){ logar('er','Falhou: '+e.message); }
+  }catch(e){ logar('er','Falhou: '+explicarErro(e)); }
   CRIANDO_SETS=false; render();
 }
 
@@ -909,7 +950,7 @@ async function duplicarCatalogo(){
     const semVideo=produtos.filter(p=>!p.video).length;
     logar('ok',`${itens.length} item(ns) em ${produtos.length} produto(s)${semVideo?` · ${semVideo} sem vídeo no original`:''}.`); render();
 
-    const novo=await gPost(`/${S.bizId}/owned_product_catalogs`,{name:nome, vertical:info.vertical||'commerce'});
+    const novo=await gPostComQualquerToken(`/${S.bizId}/owned_product_catalogs`,{name:nome, vertical:info.vertical||'commerce'});
     logar('ok',`Catálogo novo criado: ${novo.id}`);
     if(pixel){
       try{ await gPost(`/${novo.id}/external_event_sources`,{external_event_sources:[pixel.id]}); logar('ok',`Conjunto de dados "${pixel.name}" conectado, igual ao original.`); }
@@ -920,7 +961,7 @@ async function duplicarCatalogo(){
     DUP={id:novo.id, nome, codigo, produtos:produtos.length, variantes:itens.length, semVideo};
     S.modo='existente'; S.catId=novo.id; CATALOGOS=null; salvar(); listarCatalogos();
     logar('ok','Código pronto. Copie e cole no botão 📹 Montar produtos.');
-  }catch(e){ logar('er','Falhou: '+e.message); }
+  }catch(e){ logar('er','Falhou: '+explicarErro(e)); }
   DUPLICANDO=false; render();
 }
 function copiarCodigoDup(){
