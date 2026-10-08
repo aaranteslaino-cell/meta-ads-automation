@@ -87,6 +87,16 @@ S.dark        = !!S.dark;
 
 // não persistem
 let BIZ=[], CONTAS=[], CATALOGOS=null, CARREGANDO_CAT=false;
+// Cada negócio, conta e catálogo vem de um token específico. Guardo de quem é
+// cada id para a chamada sair sempre com o token que enxerga aquele ativo, sem
+// ele precisar trocar o token selecionado e reconectar.
+const TOKEN_DO_ID = {};
+function anotarDono(id, tok){ if(id && tok) TOKEN_DO_ID[String(id).replace(/^act_/,'')] = tok; }
+function tokenPara(path){
+  const ids = String(path||'').match(/\d{6,}/g) || [];
+  for(const id of ids){ if(TOKEN_DO_ID[id]) return TOKEN_DO_ID[id]; }
+  return tokenAtual();
+}
 let IMAGENS=null, CARREGANDO_IMG=false;
 let VIDEOS=null, CARREGANDO_VID=false;
 let PIXELS=null;
@@ -166,7 +176,7 @@ const paraAscii=s=>String(s).replace(/[\u007f-￿]/g,c=>'\\u'+c.charCodeAt(0).to
 const semEmoji=s=>String(s||'').replace(/[\uD800-\uDFFF]/g,'').replace(/�/g,'').replace(/\s{2,}/g,' ').trim();
 const jsonAscii=v=>paraAscii(JSON.stringify(v));
 async function gLote(path, method, dados){
-  const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  const tok=tokenPara(path); if(!tok) throw new Error('Sem token selecionado.');
   const corpo=Object.entries(dados||{})
     .map(([k,v])=>k+'='+encodeURIComponent(typeof v==='object'?jsonAscii(v):v)).join('&');
   const req={method, relative_url:path.replace(/^\//,'')+(method==='GET'&&corpo?'?'+corpo:'')};
@@ -182,7 +192,7 @@ async function gLote(path, method, dados){
   return j;
 }
 async function gGet(path, params){
-  const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  const tok=tokenPara(path); if(!tok) throw new Error('Sem token selecionado.');
   if(viaLote(path)) return gLote(path,'GET',params);
   const qs=Object.entries(params||{}).map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
   const url=`${GQL}${path}?${qs?qs+'&':''}access_token=${encodeURIComponent(tok)}`;
@@ -234,7 +244,7 @@ async function gPostComQualquerToken(path, body){
 }
 
 async function gPost(path, body){
-  const tok=tokenAtual(); if(!tok) throw new Error('Sem token selecionado.');
+  const tok=tokenPara(path); if(!tok) throw new Error('Sem token selecionado.');
   if(viaLote(path)) return gLote(path,'POST',body);
   const fd=new FormData();
   Object.entries(body||{}).forEach(([k,v])=>fd.append(k, typeof v==='object'?JSON.stringify(v):v));
@@ -245,9 +255,17 @@ async function gPost(path, body){
   if(j.error) throw erroDe(j);
   return j;
 }
+/** Mesma varredura, mas com um token escolhido na mão (usado ao juntar tokens). */
+async function gTudoComToken(path, params, tok){
+  const antes=S.tokenSel;
+  const achado=(S.tokens||[]).find(t=>t.token===tok);
+  if(achado) S.tokenSel=achado.id;
+  try{ return await gTudo(path, params); }
+  finally{ S.tokenSel=antes; }
+}
 /** Percorre todas as páginas de uma edge. */
 async function gTudo(path, params, limite){
-  const tok=tokenAtual();
+  const tok=tokenPara(path);
   // Pelo lote não dá para seguir o "next" (ele é um endereço inteiro e voltaria
   // a ser barrado), então caminho pelo cursor.
   async function porLote(){
@@ -282,16 +300,29 @@ async function conectar(){
   try{
     // Só contas ATIVAS: conta desativada não serve para nada aqui e ainda é o que
     // estoura o limite do Meta (80004) quando a lista inteira é pedida.
+    // Percorre TODOS os tokens salvos e junta tudo numa lista só, marcando de
+    // quem é cada ativo. Antes só valia o token selecionado, e ele tinha que
+    // trocar e reconectar para enxergar os catálogos da outra BM.
     const soAtivas=JSON.stringify([{field:'account_status',operator:'EQUAL',value:1}]);
-    const contas=await gTudo('/me/adaccounts',{fields:'id,name,currency,business{id,name}',limit:50,filtering:soAtivas});
+    const contas=[]; const mapa={}; let comErro=0;
+    for(const t of S.tokens){
+      if(!t.token) continue;
+      try{
+        const r=await gTudoComToken('/me/adaccounts',{fields:'id,name,currency,business{id,name}',limit:50,filtering:soAtivas}, t.token);
+        r.forEach(c=>{
+          anotarDono(c.id, t.token);
+          if(!contas.some(x=>x.id===c.id)) contas.push({...c, _tk:t.nome||'token'});
+          const bz=c.business;
+          if(bz){ mapa[bz.id]=bz.name; anotarDono(bz.id, t.token); }
+        });
+      }catch(e){ comErro++; logar('av',`Token "${t.nome||'sem nome'}": ${e.message}`); }
+    }
     CONTAS=contas;
-    const mapa={};
-    contas.forEach(c=>{ const b=c.business; if(b) mapa[b.id]=b.name; });
-    BIZ=Object.entries(mapa).map(([id,name])=>({id,name}));
-    if(!S.bizId && BIZ.length) S.bizId=BIZ[0].id;
-    if(!S.contaImg && contas.length) S.contaImg=contas[0].id;
+    BIZ=Object.entries(mapa).map(([id,name])=>({id,name})).sort((a,b)=>a.name.localeCompare(b.name));
+    if((!S.bizId || !BIZ.some(b=>b.id===S.bizId)) && BIZ.length) S.bizId=BIZ[0].id;
+    if((!S.contaImg || !contas.some(c=>c.id===S.contaImg)) && contas.length) S.contaImg=contas[0].id;
     salvar();
-    logar('ok',`${contas.length} conta(s) e ${BIZ.length} negócio(s).`);
+    logar('ok',`${contas.length} conta(s) e ${BIZ.length} negócio(s), somando ${S.tokens.length} token(s).`);
     await listarCatalogos();
     await listarPixels();
   }catch(e){ logar('er','Falhou: '+explicarErro(e)); }
@@ -299,13 +330,22 @@ async function conectar(){
 }
 
 async function listarCatalogos(){
-  if(!S.bizId) return;
+  if(!BIZ.length) return;
   CARREGANDO_CAT=true; render();
-  try{
-    CATALOGOS=await gTudo(`/${S.bizId}/owned_product_catalogs`,{fields:'id,name,vertical,product_count',limit:100});
-    CATALOGOS.sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
-    logar('ok',`${CATALOGOS.length} catálogo(s) no negócio.`);
-  }catch(e){ CATALOGOS=[]; logar('er','Não consegui listar catálogos: '+e.message); }
+  const juntos=[];
+  for(const b of BIZ){
+    try{
+      const r=await gTudo(`/${b.id}/owned_product_catalogs`,{fields:'id,name,vertical,product_count',limit:100});
+      const dono=TOKEN_DO_ID[String(b.id)];
+      r.forEach(c=>{ anotarDono(c.id, dono); if(!juntos.some(x=>x.id===c.id)) juntos.push({...c, _bm:b.name, _bmId:b.id}); });
+    }catch(e){ logar('av',`Catálogos de "${b.name}": ${e.message}`); }
+  }
+  // Os do negócio escolhido primeiro, que é onde ele costuma trabalhar.
+  juntos.sort((x,y)=> (x._bmId===S.bizId?0:1)-(y._bmId===S.bizId?0:1)
+    || String(x._bm).localeCompare(String(y._bm))
+    || String(x.name||'').localeCompare(String(y.name||'')));
+  CATALOGOS=juntos;
+  logar('ok',`${CATALOGOS.length} catálogo(s) em ${BIZ.length} negócio(s).`);
   CARREGANDO_CAT=false; render();
 }
 
@@ -683,7 +723,7 @@ function cardToken(){
       <div style="flex:0 0 auto"><button class="btn btn-cinza" onclick="addTokenManual(document.getElementById('tokmanual').value)">Adicionar</button></div>
     </div>
     <div class="mini" style="margin-top:8px">Precisa das permissões <b>catalog_management</b> e <b>business_management</b>. Sem elas a API recusa a criação do catálogo.</div>
-    ${conectado?`<div class="aviso ok">Conectado · ${CONTAS.length} conta(s) · ${BIZ.length} negócio(s)</div>`:''}
+    ${conectado?`<div class="aviso ok">Conectado · ${CONTAS.length} conta(s) · ${BIZ.length} negócio(s) · ${(CATALOGOS||[]).length} catálogo(s), de ${S.tokens.length} token(s)</div>`:''}
   </div>`;
 }
 
@@ -713,7 +753,7 @@ function cardDestino(){
     </label>
     <div class="row">
       <div><label>Negócio dono</label>
-        <select onchange="set('bizId',this.value);PIXELS=null;S.pixelId='';listarCatalogos().then(listarPixels)">
+        <select onchange="set('bizId',this.value);PIXELS=null;S.pixelId='';listarPixels()">
           ${BIZ.map(b=>`<option value="${esc(b.id)}" ${S.bizId===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}
         </select></div>
       <div><label>Ação</label>
@@ -731,7 +771,7 @@ function cardDestino(){
         : `<div style="flex:2"><label>Catálogo de destino ${CARREGANDO_CAT?'<span class="load"></span>':''}</label>
              <select onchange="set('catId',this.value)">
                <option value="">escolher…</option>
-               ${lista.map(c=>`<option value="${esc(c.id)}" ${S.catId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens</option>`).join('')}
+               ${lista.map(c=>`<option value="${esc(c.id)}" ${S.catId===c.id?'selected':''}>${esc(c.name)} · ${c.product_count||0} itens ${c._bm?"· "+esc(c._bm):""}</option>`).join('')}
              </select></div>`}
     </div>
     ${S.modo==='novo'?`<div class="row" style="margin-top:12px">
