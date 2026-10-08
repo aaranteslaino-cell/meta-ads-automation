@@ -127,7 +127,12 @@ function importarTokens(){
   if(!S.tokenSel && S.tokens.length) S.tokenSel=S.tokens[0].id;
   salvar();
 }
-function tokenAtual(){ const t=S.tokens.find(x=>x.id===S.tokenSel); return t?t.token:''; }
+// Sem seletor na tela: o token "atual" é só o padrão para caminhos sem ativo
+// conhecido (/me/...). Se nada estiver marcado, uso o primeiro da lista.
+function tokenAtual(){
+  const t=S.tokens.find(x=>x.id===S.tokenSel);
+  return t ? t.token : ((S.tokens[0]||{}).token || '');
+}
 function addTokenManual(v){
   v=String(v||'').trim(); if(!v) return;
   if(S.tokens.some(x=>x.token===v)){ alert('Esse token já está na lista.'); return; }
@@ -707,16 +712,15 @@ function cardToken(){
   const conectado=CONTAS.length>0;
   return `<div class="card">
     <h2>1 · Token</h2>
-    ${S.tokens.length?`<div class="row" style="align-items:flex-end">
-      <div style="flex:2"><label>Token em uso</label>
-        <select onchange="set('tokenSel',this.value)">
-          ${S.tokens.map(t=>`<option value="${esc(t.id)}" ${S.tokenSel===t.id?'selected':''}>${esc(t.nome)} · ${esc(t.token.slice(0,14))}…</option>`).join('')}
-        </select></div>
-      <div style="flex:0 0 auto">
-        <button class="btn btn-rox" onclick="conectar()">${conectado?'Reconectar':'Conectar'}</button>
-        <button class="btn btn-cinza btn-sm" onclick="removerToken('${esc(S.tokenSel)}')" title="Tira este token da lista">remover</button>
-      </div>
-    </div>`:`<div class="aviso alerta">Nenhum token encontrado no navegador. Cole um abaixo, ou abra a automação/monitor nesta mesma origem para compartilhar.</div>`}
+    ${S.tokens.length?`
+      <div class="mini" style="margin-bottom:8px"><b>${S.tokens.length} token(s) salvos.</b> Uso todos juntos: as contas, os negócios e os catálogos de cada um aparecem na mesma lista, e cada chamada sai com o token dono daquele ativo.</div>
+      ${S.tokens.map(t=>`<div style="display:flex;gap:8px;align-items:center;border:1px solid var(--bor);border-radius:8px;padding:6px 10px;margin-bottom:6px">
+        <b style="font-size:13px">${esc(t.nome||'sem nome')}</b>
+        <span class="mini" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.token.slice(0,16))}…${esc(t.token.slice(-6))}</span>
+        <button class="btn btn-cinza btn-sm" onclick="removerToken('${esc(t.id)}')" title="Tira este token da lista">remover</button>
+      </div>`).join('')}
+      <button class="btn btn-rox" style="margin-top:4px" onclick="conectar()">${conectado?'Reconectar':'Conectar'}</button>
+    `:`<div class="aviso alerta">Nenhum token encontrado no navegador. Cole um abaixo, ou abra a automação/monitor nesta mesma origem para compartilhar.</div>`}
     <div class="row" style="margin-top:10px">
       <div style="flex:3"><label>Colar um token à mão</label>
         <input id="tokmanual" placeholder="EAA…" ></div>
