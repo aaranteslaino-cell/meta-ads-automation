@@ -936,7 +936,33 @@ async function run(){
     // Destino em conjunto existente: pula toda a criação de conjunto e vai
     // direto para os anúncios, uma única vez.
     const listaAdsets = (DEST.modo==='conjunto') ? [{__existente:true}] : S.adsets;
-    for(const adset of listaAdsets){
+
+    // Duas passadas: a primeira cria os conjuntos e TODOS os anúncios de imagem,
+    // de todos os conjuntos; depois a espera; a segunda só acrescenta os vídeos
+    // nos conjuntos que já existem. Antes a espera caía no primeiro vídeo e as
+    // imagens dos conjuntos seguintes ficavam para depois dela.
+    const temVideo  = S.ads.some(a=>a.type==='video');
+    const temOutros = S.ads.some(a=>a.type!=='video');
+    const duasPassadas = atrasoVideo > 0 && temVideo && temOutros;
+    const passadas = duasPassadas ? [1,2] : [0];
+    const conjuntosFeitos = {};
+
+    for(const passada of passadas){
+    if(S.stopReq) break;
+    if(passada === 2){
+      log(`⏳ Imagens no ar. Esperando ${atrasoVideo} min antes de criar os anúncios de vídeo…`,'w');
+      const fimEspera = Date.now() + atrasoVideo*60000;
+      let avisado = -1;
+      while(Date.now() < fimEspera && !S.stopReq){
+        const faltam = Math.ceil((fimEspera - Date.now())/60000);
+        if(faltam !== avisado){ avisado = faltam; msgEspera(faltam); }
+        await new Promise(r=>setTimeout(r, 2000));
+      }
+      if(pararAqui('durante a espera dos vídeos')) break;
+      log('Espera terminada. Criando os anúncios de vídeo.','s');
+    }
+    for(let ai=0; ai<listaAdsets.length; ai++){
+      const adset = listaAdsets[ai];
       if(S.stopReq) break;
       const dups = Math.max(1, parseInt(adset.duplicateCount)||1);
 
@@ -951,8 +977,16 @@ async function run(){
             adsetName = `${adsetName} - ${adNameSuffix}`;
           }
         if(pararAqui(`antes do conjunto "${adsetName}"`)) break;
+        // Na passada dos vídeos o conjunto já existe: só entram anúncios nele.
+        const adsDaPassada = passada === 0 ? adsInGroup
+          : adsInGroup.filter(a => passada === 1 ? a.type !== 'video' : a.type === 'video');
+        if(passada === 2 && !adsDaPassada.length) continue;
+        const chaveConj = `${campIdx}|${ai}|${d}|${g}`;
         let adsetR = null;
-        if(DEST.modo==='conjunto'){
+        if(conjuntosFeitos[chaveConj]){
+          adsetR = { id: conjuntosFeitos[chaveConj] };
+          log(`Usando o conjunto "${adsetName}" criado na primeira passada.`,'i');
+        } else if(DEST.modo==='conjunto'){
           adsetR = { id: DEST.adsetId };
           log(`Usando conjunto existente: ${DEST.adsetId}`,'i');
         } else {
@@ -1061,11 +1095,12 @@ async function run(){
         log(`✓ Conjunto criado: ${adsetR.id}`,'s');
         S.criados.conjuntos++;
         }
+        if(adsetR && adsetR.id) conjuntosFeitos[chaveConj] = adsetR.id;
 
         // ── 3. Anúncios (do grupo deste conjunto)
-        for(const ad of adsInGroup){
+        for(const ad of adsDaPassada){
           if(pararAqui(`antes do anúncio "${ad.name}"`)) break;
-          if(ad.type === 'video' && atrasoVideo && !S._esperouVideo){
+          if(passada === 0 && ad.type === 'video' && atrasoVideo && !S._esperouVideo){
             S._esperouVideo = true;
             log(`⏳ Imagens no ar. Esperando ${atrasoVideo} min antes de criar os anúncios de vídeo…`,'w');
             const fimEspera = Date.now() + atrasoVideo*60000;
@@ -1297,6 +1332,7 @@ async function run(){
         } // fim for(let g=0; g<adGroups.length; g++)
       }
     }
+    } // fim for(const passada of passadas)
 
     if(campDups>1) log(`✓ Campanha ${campIdx+1}/${campDups} concluída`,'s');
    } // fim for(let campIdx=0; campIdx<campDups; campIdx++)
