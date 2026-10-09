@@ -198,6 +198,10 @@ function pedirParada(){
   render();
 }
 /** Checagem entre passos. Devolve true quando é para sair do laço. */
+/** Mostra quanto falta da espera do vídeo, uma linha por minuto. */
+function msgEspera(faltam){
+  if(faltam > 0) log(`   faltam ${faltam} min para os vídeos…`,'i');
+}
 function pararAqui(onde){
   if(!S.stopReq) return false;
   log(`⏹ Interrompido ${onde}.`,'w');
@@ -914,7 +918,18 @@ async function run(){
 
     // ── 2. Adsets
     // Quando oneAdsetPerAd, cria N grupos (1 ad por grupo). Senão, 1 grupo com todos.
-    const adGroups = c.oneAdsetPerAd ? S.ads.map(a=>[a]) : [S.ads];
+    // Atraso do vídeo: ele quer as imagens no ar primeiro e os vídeos depois de
+    // um tempo. Reordeno para vídeo ficar por último e espero uma vez, antes do
+    // primeiro anúncio de vídeo da rodada.
+    const atrasoVideo = Math.max(0, Math.min(240, parseInt(c.atrasoVideo) || 0));
+    let adGroups = c.oneAdsetPerAd ? S.ads.map(a=>[a]) : [S.ads];
+    if(atrasoVideo){
+      const ehVideo = x => x.type === 'video';
+      adGroups = adGroups.map(g => [...g].sort((x,y) => (ehVideo(x)?1:0) - (ehVideo(y)?1:0)));
+      adGroups = [...adGroups].sort((g1,g2) => (g1.some(ehVideo)?1:0) - (g2.some(ehVideo)?1:0));
+      log(`Os anúncios de vídeo ficam para o fim, com ${atrasoVideo} min de espera antes deles.`,'i');
+    }
+    S._esperouVideo = false;
 
     // A parada precisa subir por todos os laços aninhados: um break só sai do
     // mais interno e a execução seguiria para o próximo conjunto.
@@ -1050,6 +1065,19 @@ async function run(){
         // ── 3. Anúncios (do grupo deste conjunto)
         for(const ad of adsInGroup){
           if(pararAqui(`antes do anúncio "${ad.name}"`)) break;
+          if(ad.type === 'video' && atrasoVideo && !S._esperouVideo){
+            S._esperouVideo = true;
+            log(`⏳ Imagens no ar. Esperando ${atrasoVideo} min antes de criar os anúncios de vídeo…`,'w');
+            const fimEspera = Date.now() + atrasoVideo*60000;
+            let avisado = -1;
+            while(Date.now() < fimEspera && !S.stopReq){
+              const faltam = Math.ceil((fimEspera - Date.now())/60000);
+              if(faltam !== avisado){ avisado = faltam; msgEspera(faltam); }
+              await new Promise(r=>setTimeout(r, 2000));
+            }
+            if(pararAqui('durante a espera dos vídeos')) break;
+            log('Espera terminada. Criando os anúncios de vídeo.','s');
+          }
           log(`Criando anúncio: ${ad.name}…`,'i');
           try {
             const linkUrl = https(ad.linkUrl);
@@ -2180,6 +2208,14 @@ function buildAds(){
   <div class="info-box" style="margin-bottom:14px">
     💡 <strong>Upload em massa:</strong> preencha o primeiro anúncio como modelo (texto, título, página, CTA, link). Depois clique em "📦 Upload em massa" e selecione vários arquivos — cada um vira um anúncio novo herdando o modelo.
   </div>
+  ${S.ads.some(a=>a.type==='video') && S.ads.some(a=>a.type!=='video') ? `
+  <div class="fg" style="background:#f5f7fb;padding:12px;border-radius:8px;margin-bottom:14px">
+    <label style="font-weight:700">Esperar antes dos anúncios de vídeo (minutos)</label>
+    <input type="number" min="0" max="240" style="max-width:140px" value="${esc(S.camp.atrasoVideo||'')}"
+      oninput="S.camp.atrasoVideo=this.value;saveState()" placeholder="0 = sem espera">
+    <div class="hint">Com um número aqui, eu crio primeiro todos os anúncios de <b>imagem</b>, espero esse tempo e só então crio os de <b>vídeo</b>.
+      A aba precisa ficar aberta durante a espera, e o botão Parar continua valendo.</div>
+  </div>` : ''}
   ${S.ads.map(buildAdBox).join('')}
   <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn btn-gray" onclick="addAd()">+ Adicionar Anúncio</button>
