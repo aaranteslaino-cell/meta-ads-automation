@@ -35,6 +35,9 @@ input{padding:8px 10px;border:1px solid var(--bor);border-radius:8px;background:
 .tk{display:flex;gap:8px;align-items:center;border:1px solid var(--bor);border-radius:8px;padding:8px 10px;margin-bottom:8px}
 .tk b{font-size:13px}
 .tk{align-items:flex-start}
+.tk-nome{font-weight:700;font-size:13px;border:1px solid transparent;background:transparent;color:var(--txt);padding:2px 4px;border-radius:6px;width:100%;max-width:260px}
+.tk-nome:hover{border-color:var(--bor)}
+.tk-nome:focus{border-color:var(--rox);outline:none;background:var(--card)}
 .tk-token{font:11px ui-monospace,Menlo,monospace;color:var(--mut);word-break:break-all;line-height:1.45;margin-top:3px;user-select:all}
 .ok{color:var(--verd)}.ruim{color:#c5221f}
 hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
@@ -136,13 +139,23 @@ function pintarTokens(){
   alvo.innerHTML = lista.length
     ? lista.map((t,i)=>`<div class="tk">
          <div style="flex:1;min-width:0">
-           <b>${t.label.replace(/</g,'&lt;')}</b>
+           <input class="tk-nome" value="${t.label.replace(/"/g,'&quot;')}" title="Clique para renomear"
+             onchange="renomearToken(${i}, this.value)">
            <div class="tk-token">${t.token.replace(/</g,'&lt;')}</div>
          </div>
          <button class="btn btn-cinza" style="padding:5px 10px;font-size:12px" onclick="copiarToken(${i})">Copiar</button>
          <button class="btn btn-cinza" style="padding:5px 10px;font-size:12px" onclick="removerToken(${i})">Remover</button>
        </div>`).join('')
     : '<div class="mini">Nenhum token salvo neste navegador ainda.</div>';
+}
+// Renomear vale nas três ferramentas, porque o nome é gravado nas três chaves.
+function renomearToken(i, nome){
+  const lista = lerTokens();
+  if(!lista[i]) return;
+  lista[i].label = String(nome||'').trim() || lista[i].label;
+  gravarTokens(lista);
+  pintarTokens();
+  document.getElementById('tk-msg').innerHTML = `<span class="ok">Renomeado para "${lista[i].label}".</span>`;
 }
 async function copiarToken(i){
   const t = lerTokens()[i]; if(!t) return;
