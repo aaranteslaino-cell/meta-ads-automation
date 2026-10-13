@@ -2120,6 +2120,11 @@ function buildAdsetBox(a){
           <option value="APP_EVENTS" ${a.optimizationGoal==='APP_EVENTS'?'selected':''}>Maximizar eventos no app</option>
           </optgroup>
         </select>
+        ${a.optimizationGoal==='CONVERSATIONS_IG' ? `<div class="hint" style="color:${S.camp.objective==='OUTCOME_ENGAGEMENT'?'#137333':'#c47a00'}">
+          ${S.camp.objective==='OUTCOME_ENGAGEMENT'
+            ? '✓ Com Engajamento o conjunto sai idêntico às suas campanhas de Direct que já rodam.'
+            : 'Testado em 13/10/2026: Vendas também cria tudo, mas o Meta acrescenta um evento de compra no objeto promovido, e aí o Gerenciador às vezes não mostra o destino da mensagem. Para Direct, o caminho igual ao das suas campanhas que entregam é o objetivo <b>Engajamento</b>.'}
+        </div>` : ''}
       </div>
       ${['LOWEST_COST_WITH_BID_CAP','COST_CAP','MINIMUM_ROAS'].includes(S.camp.bidStrategy) ? `
       <div class="fg">
