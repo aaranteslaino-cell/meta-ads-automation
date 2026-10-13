@@ -1374,6 +1374,21 @@ function addAdset(){
 }
 function delAdset(id){ S.adsets=S.adsets.filter(a=>a.id!==id); saveState(); render(); }
 function setAdset(id,k,v){ const a=S.adsets.find(a=>a.id===id); if(a){ a[k]=v; saveState(); }}
+/**
+ * Escolher "Conversas no Direct" já troca o objetivo para Engajamento, que é o
+ * que sai idêntico às campanhas de Direct dele que entregam (medido 13/10/2026:
+ * em Vendas o Meta enfia um custom_event_type PURCHASE no objeto promovido).
+ * Ele pode voltar para Vendas na mão; aí o aviso laranja aparece.
+ */
+function setMetaConjunto(id, valor){
+  setAdset(id, 'optimizationGoal', valor);
+  if(valor === 'CONVERSATIONS_IG' && S.camp.objective !== 'OUTCOME_ENGAGEMENT'){
+    S.camp.objective = 'OUTCOME_ENGAGEMENT';
+    saveState();
+    log('Objetivo da campanha mudou para Engajamento, que é o caminho certo para Direct. Dá para voltar para Vendas na aba Campanha.','w');
+  }
+  render();
+}
 function togglePl(adsetId,pl){
   const a=S.adsets.find(a=>a.id===adsetId); if(!a) return;
   a.placements = a.placements.includes(pl)
@@ -2094,7 +2109,7 @@ function buildAdsetBox(a){
     <div class="row">
       <div class="fg">
         <label>Meta de Desempenho</label>
-        <select onchange="setAdset(${a.id},'optimizationGoal',this.value)">
+        <select onchange="setMetaConjunto(${a.id},this.value)">
           <option value="" ${!a.optimizationGoal?'selected':''}>Padrão do objetivo</option>
           <optgroup label="── Conversões / Vendas">
           <option value="OFFSITE_CONVERSIONS" ${a.optimizationGoal==='OFFSITE_CONVERSIONS'?'selected':''}>Maximizar o número de conversões</option>
