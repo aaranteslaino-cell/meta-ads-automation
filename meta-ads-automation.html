@@ -1382,10 +1382,20 @@ function setAdset(id,k,v){ const a=S.adsets.find(a=>a.id===id); if(a){ a[k]=v; s
  */
 function setMetaConjunto(id, valor){
   setAdset(id, 'optimizationGoal', valor);
-  if(valor === 'CONVERSATIONS_IG' && S.camp.objective !== 'OUTCOME_ENGAGEMENT'){
-    S.camp.objective = 'OUTCOME_ENGAGEMENT';
+  if(valor === 'CONVERSATIONS_IG'){
+    if(S.camp.objective !== 'OUTCOME_ENGAGEMENT'){
+      S.camp.objective = 'OUTCOME_ENGAGEMENT';
+      log('Objetivo da campanha mudou para Engajamento, que é o caminho certo para Direct. Dá para voltar para Vendas na aba Campanha.','w');
+    }
+    // O Meta exige o campo de link no criativo de catálogo, mas no Direct ele
+    // ignora esse endereço: o botão vai para a conversa. Então preencho sozinho
+    // o que estiver em branco, para ele não ter que inventar uma URL.
+    const vazios = S.ads.filter(x => !x.linkUrl || !x.linkUrl.trim());
+    if(vazios.length){
+      vazios.forEach(x => { x.linkUrl = 'https://www.instagram.com/'; });
+      log(`Preenchi a URL de destino de ${vazios.length} anúncio(s) com instagram.com: no Direct o Meta exige o campo, mas o clique vai para a conversa.`,'i');
+    }
     saveState();
-    log('Objetivo da campanha mudou para Engajamento, que é o caminho certo para Direct. Dá para voltar para Vendas na aba Campanha.','w');
   }
   render();
 }
