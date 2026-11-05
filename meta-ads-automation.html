@@ -2655,6 +2655,7 @@ async function carregarConjuntos(catId){
   S.productSets[catId] = null;   // marca como "carregando" para não disparar de novo
   try{
     const r = await api(`/${catId}/product_sets`,'GET',{fields:'id,name,product_count',limit:200}, (S.catalogToken||{})[catId]||null);
+    if(!(r.data||[]).length) console.warn('[conjuntos] catálogo', catId, 'voltou vazio');
     S.productSets[catId] = (r.data||[]).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
   }catch(e){ S.productSets[catId] = []; alert('Não consegui ler os conjuntos desse catálogo: '+e.message); }
   render();
@@ -2741,27 +2742,43 @@ async function criarCampanhaDeCatalogo(d){
   // O Meta não guarda emoji em nome de conjunto, então o nome vai sem.
   const semEmoji = s => String(s||'').replace(/[\uD800-\uDFFF]/g,'').replace(/�/g,'').replace(/\s{2,}/g,' ').trim();
   if((d.produtos||[]).length){
+    // O token tem que ser o DONO do catálogo, não o "ativo" da tela: catálogo
+    // de outra BM é recusado pelo ativo. Se o dono não estiver mapeado, tento
+    // os outros tokens salvos, igual faz a ferramenta de catálogos.
+    const dono = (S.catalogToken||{})[d.catalogId] || null;
+    const candidatos = [dono, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i);
+    let tkCat = dono;
     let existentes = [];
-    try{
-      const r = await api(`/${d.catalogId}/product_sets`,'GET',{fields:'id,name,filter',limit:500});
-      existentes = r.data || [];
-    }catch(e){ log('Não consegui ler os conjuntos existentes: '+e.message,'w'); }
+    for(const tk of candidatos){
+      try{
+        const r = await api(`/${d.catalogId}/product_sets`,'GET',{fields:'id,name,filter',limit:500}, tk);
+        existentes = r.data || []; tkCat = tk;
+        if(!dono){ S.catalogToken = S.catalogToken||{}; S.catalogToken[d.catalogId] = tk; }
+        break;
+      }catch(e){ /* token não enxerga este catálogo, tento o próximo */ }
+    }
+    if(!tkCat) throw new Error('nenhum token salvo enxerga o catálogo '+d.catalogId);
+
     const jaTem = new Set();
     existentes.forEach(x=>{
       const alvo = x.filter && x.filter.name && x.filter.name.eq;
       jaTem.add(semEmoji(alvo || x.name).toLowerCase());
     });
+    let criados = 0, falhou = [];
     for(const nome of d.produtos){
       const limpo = semEmoji(nome);
       if(!limpo || jaTem.has(limpo.toLowerCase())) continue;
       try{
-        await api(`/${d.catalogId}/product_sets`,'POST',{ name: limpo, filter: { name: { eq: nome } } });
+        await api(`/${d.catalogId}/product_sets`,'POST',{ name: limpo, filter: { name: { eq: nome } } }, tkCat);
         log(`✓ Conjunto criado: ${limpo}`,'s');
+        criados++;
       }catch(e){
-        if(/1798073/.test(e.message)) log(`• Conjunto "${limpo}" já existia`,'i');
-        else log(`✗ Conjunto "${limpo}": ${e.message}`,'e');
+        if(/1798073/.test(e.message)){ log(`• Conjunto "${limpo}" já existia`,'i'); }
+        else { log(`✗ Conjunto "${limpo}": ${e.message}`,'e'); falhou.push(limpo+' ('+e.message+')'); }
       }
     }
+    if(!criados && !existentes.length && falhou.length)
+      throw new Error('não consegui criar nenhum conjunto: '+falhou[0]);
   }
 
   S.productSets = S.productSets || {};
