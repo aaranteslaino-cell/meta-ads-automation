@@ -1321,6 +1321,9 @@ async function run(){
             const adR = await api(`/${acct}/ads`,'POST',adBody);
             log(`✓ Anúncio criado: ${adR.id}`,'s');
             S.criados.anuncios++;
+            // Guarda nome + id para a extensão saber qual anúncio é de qual
+            // produto e só inserir o vídeo depois que aquele for aprovado.
+            (S._adsCriados = S._adsCriados || []).push({ produto: ad.name, adId: adR.id, productSetId: ad.productSetId || '' });
 
           } catch(e){
             if(e.message==='PARADA_SOLICITADA') break;
@@ -2668,6 +2671,151 @@ function nomeDoConjunto(adId){
   const set=((S.productSets||{})[ad.catalogId]||[]).find(x=>x.id===ad.productSetId);
   if(set && !ad.name?.trim()){ ad.name=set.name; saveState(); render(); }
 }
+/* ============================================================
+   PONTE COM A EXTENSÃO "Montar produtos ROI"
+   ------------------------------------------------------------
+   A extensão monta o catálogo e os produtos no Commerce Manager, e
+   chama esta ferramenta numa aba atrás para criar a campanha usando
+   uma RECEITA salva aqui. Receita é só a configuração: conta,
+   página, orçamento, público, textos, botão e link. O que muda de
+   campanha para campanha (catálogo e conjuntos) vem da extensão.
+
+   Nada disso muda o uso normal da tela.
+   ============================================================ */
+const RECEITAS = 'maa_receitas';
+const lerReceitas = () => { try { return JSON.parse(localStorage.getItem(RECEITAS) || '[]'); } catch(e){ return []; } };
+
+function salvarReceita(){
+  const base = S.ads.find(a=>a.type==='catalog') || S.ads[0];
+  if(!base){ alert('Monte um anúncio na aba Anúncios antes de salvar a receita.'); return; }
+  if(!S.selectedAccount){ alert('Escolha a conta de anúncio antes de salvar a receita.'); return; }
+  const nome = prompt('Nome da receita (ex.: "Catálogo Coelho - Vendas"):', S.camp.name || 'Catálogo');
+  if(!nome) return;
+  const r = {
+    id: 'rc'+Date.now().toString(36),
+    nome: nome.trim(),
+    conta: S.selectedAccount,
+    camp: JSON.parse(JSON.stringify(S.camp)),
+    adsets: JSON.parse(JSON.stringify(S.adsets)),
+    anuncio: {
+      pageId: base.pageId, igActorId: base.igActorId,
+      texts: [...(base.texts||[''])], headlines: [...(base.headlines||[''])],
+      description: base.description || '', cta: base.cta || 'LEARN_MORE',
+      linkUrl: base.linkUrl || '', utm: base.utm || ''
+    }
+  };
+  const lista = lerReceitas().filter(x=>x.nome !== r.nome);
+  lista.unshift(r);
+  try{ localStorage.setItem(RECEITAS, JSON.stringify(lista.slice(0,20))); }catch(e){}
+  avisarExtensao();
+  alert('Receita "'+r.nome+'" salva.\n\nAgora ela aparece no painel da extensão, no Gerenciador de Comércio. De lá você sobe a campanha inteira num botão só.');
+}
+
+function avisarExtensao(){
+  try{
+    window.postMessage({ __mp:1, para:'ponte', tipo:'receitas',
+      dados:{ lista: lerReceitas().map(r=>({ id:r.id, nome:r.nome })) } }, location.origin);
+  }catch(e){}
+}
+
+/**
+ * Chamado pela extensão. Monta os anúncios (um por conjunto de produtos do
+ * catálogo) em cima da receita e roda a criação normal, a mesma do botão Criar.
+ * Devolve nome do produto + id do anúncio, que é o que a extensão usa para
+ * esperar a aprovação de cada um.
+ */
+async function criarCampanhaDeCatalogo(d){
+  const receitas = lerReceitas();
+  const rec = receitas.find(r=>r.id === d.receitaId) || receitas[0];
+  if(!rec) throw new Error('nenhuma receita salva nesta ferramenta');
+  if(!d.catalogId) throw new Error('não veio o número do catálogo');
+
+  if(!S.connected) await connect(true);
+  const conta = rec.conta || S.selectedAccount;
+  if(!conta) throw new Error('a receita não diz em qual conta de anúncio criar');
+  S.selectedAccount = conta;
+  await loadAccountAssets(conta);
+
+  // Conjuntos de produtos: um por produto, filtrando pelo nome exato. Se o
+  // catálogo ainda não tem, crio aqui, para a extensão não precisar de token.
+  // O Meta não guarda emoji em nome de conjunto, então o nome vai sem.
+  const semEmoji = s => String(s||'').replace(/[\uD800-\uDFFF]/g,'').replace(/�/g,'').replace(/\s{2,}/g,' ').trim();
+  if((d.produtos||[]).length){
+    let existentes = [];
+    try{
+      const r = await api(`/${d.catalogId}/product_sets`,'GET',{fields:'id,name,filter',limit:500});
+      existentes = r.data || [];
+    }catch(e){ log('Não consegui ler os conjuntos existentes: '+e.message,'w'); }
+    const jaTem = new Set();
+    existentes.forEach(x=>{
+      const alvo = x.filter && x.filter.name && x.filter.name.eq;
+      jaTem.add(semEmoji(alvo || x.name).toLowerCase());
+    });
+    for(const nome of d.produtos){
+      const limpo = semEmoji(nome);
+      if(!limpo || jaTem.has(limpo.toLowerCase())) continue;
+      try{
+        await api(`/${d.catalogId}/product_sets`,'POST',{ name: limpo, filter: { name: { eq: nome } } });
+        log(`✓ Conjunto criado: ${limpo}`,'s');
+      }catch(e){
+        if(/1798073/.test(e.message)) log(`• Conjunto "${limpo}" já existia`,'i');
+        else log(`✗ Conjunto "${limpo}": ${e.message}`,'e');
+      }
+    }
+  }
+
+  S.productSets = S.productSets || {};
+  delete S.productSets[d.catalogId];
+  await carregarConjuntos(d.catalogId);
+  const sets = (S.productSets[d.catalogId] || []).filter(x=>!/^all products$/i.test(x.name||''));
+  if(!sets.length) throw new Error('esse catálogo ainda não tem conjuntos de produtos');
+
+  S.camp = JSON.parse(JSON.stringify(rec.camp));
+  S.camp.name = (rec.camp.name || 'Catálogo') + ' ' + new Date().toLocaleDateString('pt-BR');
+  // O atraso que vale aqui é o do VÍDEO DO CATÁLOGO, que a extensão controla.
+  // O atraso de anúncio de vídeo da ferramenta não entra nesse fluxo.
+  S.camp.atrasoVideo = '';
+  S.adsets = JSON.parse(JSON.stringify(rec.adsets || []));
+  S.ads = sets.map(x=>({
+    id: uid(), name: x.name, type:'catalog',
+    pageId: rec.anuncio.pageId, igActorId: rec.anuncio.igActorId,
+    texts: [...(rec.anuncio.texts||[''])], headlines: [...(rec.anuncio.headlines||[''])],
+    description: rec.anuncio.description, cta: rec.anuncio.cta,
+    linkUrl: rec.anuncio.linkUrl, utm: rec.anuncio.utm,
+    imageFile:null, imageHash:'', videoFile:null, videoId:'',
+    catalogId: d.catalogId, productSetId: x.id
+  }));
+  S._adsCriados = [];
+  saveState(); render();
+
+  const erros = validate();
+  if(erros.length) throw new Error('a receita está incompleta: ' + erros.join('; '));
+
+  await run();
+  if(!S._adsCriados.length) throw new Error('a criação terminou sem nenhum anúncio');
+  // O token vai junto só para a extensão poder PERGUNTAR o status de cada
+  // anúncio enquanto espera a aprovação. É o mesmo token que já está guardado
+  // aqui nesta tela.
+  return { anuncios: S._adsCriados.slice(), token: (S.catalogToken||{})[d.catalogId] || S.token || '' };
+}
+
+window.addEventListener('message', async e => {
+  const d = e.data;
+  if(!d || d.__mp !== 1 || d.para !== 'painel' || e.source !== window) return;
+  if(d.tipo === 'pedirReceitas'){ avisarExtensao(); return; }
+  if(d.tipo !== 'campanhaDeCatalogo') return;
+  let resposta;
+  try { resposta = Object.assign({ ok:true }, await criarCampanhaDeCatalogo(d.dados||{})); }
+  catch(err){ resposta = { ok:false, erro: String((err && err.message) || err) }; }
+  try{
+    window.postMessage({ __mp:1, para:'ponte', tipo:'campanhaPronta',
+      dados: Object.assign({ trabalho: (d.dados||{}).trabalho }, resposta) }, location.origin);
+  }catch(e2){}
+});
+
+// Assim que a tela abre, conta para a extensão quais receitas existem.
+setTimeout(avisarExtensao, 1500);
+
 function umAnuncioPorConjunto(adId){
   const base=S.ads.find(a=>a.id===adId); if(!base) return;
   const sets=((S.productSets||{})[base.catalogId]||[]).filter(x=>!/^all products$/i.test(x.name||''));
@@ -2742,7 +2890,16 @@ function buildReview(){
      onclick="pedirParada()" ${S.stopReq?'disabled':''}>
      ${S.stopReq?'⏸ Parando após o item atual…':'⏹ Parar'}
    </button>
-   <div class="mini" style="margin-top:6px;text-align:center">Parar não desfaz o que já foi criado no Meta.</div>`:''}`;
+   <div class="mini" style="margin-top:6px;text-align:center">Parar não desfaz o que já foi criado no Meta.</div>`:''}
+  <div style="margin-top:14px;padding:10px;border:1px solid #d9c6ff;background:#faf7ff;border-radius:9px">
+    <b style="font-size:12px;color:#7b2ff7">📹 Campanha de catálogo com vídeo atrasado</b>
+    <div class="mini" style="margin:4px 0 8px">
+      Salve esta configuração como <b>receita</b> e a extensão "Montar produtos ROI" sobe tudo num botão só,
+      lá no Gerenciador de Comércio: catálogo, produtos com a imagem, conjuntos, campanha, e o vídeo entrando
+      em cada produto conforme o anúncio dele for aprovado. Aqui você só configura; não precisa voltar.
+    </div>
+    <button class="btn btn-full" style="background:#7b2ff7;color:#fff" onclick="salvarReceita()">Salvar como receita de catálogo</button>
+  </div>`;
 }
 
 // ── Aba Log ───────────────────────────────────────────────────────────────────
