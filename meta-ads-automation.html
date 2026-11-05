@@ -878,8 +878,11 @@ async function run(){
     const enxerga = async caminho => { try{ await api(caminho,'GET',{fields:'id'}, tk); return true; }catch(e){ return false; } };
 
     // Compartilha um ativo com a BM do token e atribui o usuário de sistema.
+    // Só mexe no que está FALTANDO: se o token já enxerga o ativo, sai sem
+    // fazer nada e sem escrever no log.
     async function liberar(rotulo, id, tarefas){
       if(await enxerga('/'+id)) return true;
+      log(`Falta acesso a ${rotulo} ${id}. Vou liberar para "${bm.name}".`,'w');
       let dividiu = false;
       for(const outro of [tk, ...todos]){
         try{
@@ -899,8 +902,10 @@ async function run(){
       return false;
     }
 
+    // Só ADVERTISE na página: é o bastante para criar anúncio. MANAGE seria
+    // acesso de administrador, mais do que esta rotina precisa.
     const pages = [...new Set(S.ads.map(a=>a.pageId).filter(Boolean))];
-    for(const p of pages) await liberar('a página', p, ['ADVERTISE','MANAGE']);
+    for(const p of pages) await liberar('a página', p, ['ADVERTISE']);
 
     // Pixel: o que falta não é "enxergar", é estar compartilhado COM A CONTA.
     const pixels = [...new Set(S.adsets.map(a=>a.pixelId).filter(Boolean))];
@@ -1065,6 +1070,7 @@ async function run(){
   // A escolha do token vem DEPOIS de limpar o log, senão as linhas de
   // diagnóstico são apagadas (foi o que aconteceu em 05/11 e me cegou).
   await escolherTokenDaCampanha();
+  await resolverPermissoes();
   render();
 
   const acct = S.selectedAccount;
