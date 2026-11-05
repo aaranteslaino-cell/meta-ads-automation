@@ -889,23 +889,39 @@ async function run(){
         const info = await api('/'+S.selectedAccount,'GET',{fields:'business'}, tkBom);
         negocio = info.business || null;
       }catch(e){}
-      if(!negocio){ log('⚠️ Não descobri a qual negócio a conta pertence.','w'); }
+      // São DOIS negócios que precisam enxergar o catálogo:
+      //  1. o dono da conta de anúncio (ex.: Nccaps, de uma conta alugada);
+      //  2. o negócio onde mora o usuário de sistema do token (ex.: MAds), que
+      //     é quem de fato faz as chamadas. Compartilhar só com o primeiro não
+      //     resolve, e foi o que aconteceu em 05/11.
+      const alvos = [];
+      if(negocio) alvos.push(negocio);
+      try{
+        const meus = await api('/me/businesses','GET',{fields:'id,name',limit:25}, tkBom);
+        (meus.data||[]).forEach(b=>{ if(!alvos.some(x=>x.id===b.id)) alvos.push(b); });
+      }catch(e){ log(`• Não consegui listar os negócios do token: ${e.message}`,'i'); }
+
+      if(!alvos.length){ log('⚠️ Não descobri com qual negócio compartilhar o catálogo.','w'); }
       else{
-        log(`A conta pertence ao negócio "${negocio.name}" (${negocio.id}). Compartilhando o catálogo com ele…`,'i');
+        log(`Negócios que precisam enxergar o catálogo: ${alvos.map(b=>b.name).join(', ')}`,'i');
         let dividiu = false;
-        for(const tk of todos){
-          try{
-            await api(`/${catId}/agencies`,'POST',{ business: negocio.id, permitted_tasks:['MANAGE','ADVERTISE'] }, tk);
-            log(`✓ "${nomeDe(tk)}" compartilhou o catálogo com "${negocio.name}".`,'s');
-            dividiu = true; break;
-          }catch(e){
-            if(/already|já/i.test(e.message)){ log(`• Catálogo já estava compartilhado com "${negocio.name}".`,'i'); dividiu = true; break; }
-            log(`• "${nomeDe(tk)}" não pôde compartilhar: ${e.message}`,'i');
+        for(const alvo of alvos){
+          let ok = false;
+          for(const tk of todos){
+            try{
+              await api(`/${catId}/agencies`,'POST',{ business: alvo.id, permitted_tasks:['MANAGE','ADVERTISE'] }, tk);
+              log(`✓ "${nomeDe(tk)}" compartilhou o catálogo com "${alvo.name}".`,'s');
+              ok = true; break;
+            }catch(e){
+              if(/already|já|duplicate/i.test(e.message)){ log(`• Catálogo já estava compartilhado com "${alvo.name}".`,'i'); ok = true; break; }
+              log(`• "${nomeDe(tk)}" não pôde compartilhar com "${alvo.name}": ${e.message}`,'i');
+            }
           }
+          if(ok) dividiu = true;
         }
         if(dividiu){
           // O Meta leva alguns segundos para propagar o compartilhamento.
-          for(let k=0;k<6;k++){
+          for(let k=0;k<15;k++){
             if(await enxerga(tkBom, '/'+catId)){
               log(`✓ "${nomeDe(tkBom)}" já enxerga o catálogo. Sigo com ele.`,'s');
               return;
