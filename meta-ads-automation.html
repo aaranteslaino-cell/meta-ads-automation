@@ -889,13 +889,15 @@ async function run(){
         const info = await api('/'+S.selectedAccount,'GET',{fields:'business'}, tkBom);
         negocio = info.business || null;
       }catch(e){}
-      // São DOIS negócios que precisam enxergar o catálogo:
-      //  1. o dono da conta de anúncio (ex.: Nccaps, de uma conta alugada);
-      //  2. o negócio onde mora o usuário de sistema do token (ex.: MAds), que
-      //     é quem de fato faz as chamadas. Compartilhar só com o primeiro não
-      //     resolve, e foi o que aconteceu em 05/11.
+      // O catálogo é compartilhado SOMENTE com o negócio do token, que é onde
+      // mora o usuário de sistema que faz as chamadas.
+      //
+      // Decisão do Arthur, 05/11/2026: NÃO compartilhar com a BM dona da conta
+      // de anúncio. Conta alugada pertence a terceiros (ex.: Nccaps), e
+      // compartilhar o catálogo com eles daria acesso ao catálogo dele para
+      // quem aluga a conta. Se o Meta exigir, aparece no log e a gente trata.
       const alvos = [];
-      if(negocio) alvos.push(negocio);
+      if(negocio) log(`A conta pertence a "${negocio.name}" (${negocio.id}), mas NÃO vou compartilhar o catálogo com essa BM.`,'i');
       try{
         const meus = await api('/me/businesses','GET',{fields:'id,name',limit:25}, tkBom);
         (meus.data||[]).forEach(b=>{ if(!alvos.some(x=>x.id===b.id)) alvos.push(b); });
