@@ -2823,6 +2823,24 @@ async function criarCampanhaDeCatalogo(d){
   const sets = (S.productSets[d.catalogId] || []).filter(x=>!/^all products$/i.test(x.name||''));
   if(!sets.length) throw new Error('esse catálogo ainda não tem conjuntos de produtos');
 
+  // Campanha de catálogo roda inteira com o token DONO do catálogo. Se a conta
+  // da receita for de outra BM que não atribuiu esse usuário de sistema, nada
+  // vai funcionar. Melhor falhar aqui, dizendo quais contas servem, do que
+  // montar tudo e apanhar do Meta no fim.
+  try{
+    await api(`/${conta}`,'GET',{fields:'id'}, (S.catalogToken||{})[d.catalogId]||null);
+  }catch(e){
+    let servem = [];
+    try{
+      const r = await api('/me/adaccounts','GET',{fields:'name,account_status',limit:100}, (S.catalogToken||{})[d.catalogId]||null);
+      servem = (r.data||[]).filter(a=>a.account_status===1).map(a=>`${a.name} (${a.id})`);
+    }catch(e2){}
+    throw new Error('a conta da receita (' + conta + ') não é alcançada pelo token dono deste catálogo. ' +
+      'Campanha de catálogo roda toda com esse token. ' +
+      (servem.length ? 'Contas que servem: ' + servem.join(', ') + '. Monte a receita em uma delas.'
+                     : 'Nenhuma conta ativa foi encontrada para esse token.'));
+  }
+
   S.camp = JSON.parse(JSON.stringify(rec.camp));
   S.camp.name = (rec.camp.name || 'Catálogo') + ' ' + new Date().toLocaleDateString('pt-BR');
   // O atraso que vale aqui é o do VÍDEO DO CATÁLOGO, que a extensão controla.
