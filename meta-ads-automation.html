@@ -2778,7 +2778,16 @@ async function preTesteCatalogo(){
     if(/1772103|Instagram/i.test(e.message)) dica = ig
       ? ' O Instagram '+ig+' não pode ser usado com esta página por este token.'
       : ' A página '+ad.pageId+' não tem Instagram ligado. Use a página que tem Instagram (ex.: a do Coelho que roda na CA04) ou preencha o ID do Instagram.';
-    if(/3858749|permiss/i.test(e.message)) dica += ' O token do catálogo não tem permissão de anunciar com a página '+ad.pageId+': atribua a página ao usuário do sistema dele (BM Roi Ventures LTDA).';
+    // A dica antiga dizia "BM Roi Ventures" na marra e mandava para o lugar
+    // errado quando a campanha roda com outro token (05/11/2026). Agora ela diz
+    // QUAL token está em uso, que é quem precisa do papel na página.
+    if(/3858749|permiss/i.test(e.message)){
+      const emUso = S._tokenForcado || getActiveToken();
+      const nome = ((S.tokens||[]).find(t=>t.token===emUso)||{}).label || 'o token em uso';
+      dica += ` O usuário de sistema de "${nome}" não tem papel na Página ${ad.pageId}.` +
+        ` Na BM dona da página: compartilhe a página com a BM de "${nome}" e dê a ele a função de Anunciante ou superior.` +
+        ` É o mesmo caminho que resolve o catálogo.`;
+    }
     return e.message + dica;
   }
 }
