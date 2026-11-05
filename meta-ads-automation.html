@@ -825,6 +825,102 @@ async function run(){
 
   S.running = true;
   S.stopReq = false;
+
+  /**
+   * A qual negócio um token pertence.
+   *
+   * `/me/businesses` volta VAZIO para usuário de sistema (medido 05/11/2026),
+   * e `owner_business` não existe no nó do app. O que funciona: `/{bm}/system_users`
+   * só responde na BM dona do usuário; nas outras dá (#10). Então eu pego o id
+   * do usuário no debug_token e procuro em qual BM ele aparece.
+   */
+  async function negocioDoToken(tk){
+    S._bmDoToken = S._bmDoToken || {};
+    if(S._bmDoToken[tk] !== undefined) return S._bmDoToken[tk];
+    let achado = null;
+    try{
+      const dbg = await api('/debug_token','GET',{input_token:tk}, tk);
+      const meuId = dbg && dbg.data && dbg.data.user_id;
+      if(meuId){
+        const cands = new Map();
+        try{
+          const r = await api('/me/adaccounts','GET',{fields:'business',limit:100}, tk);
+          (r.data||[]).forEach(a=>{ if(a.business) cands.set(a.business.id, a.business); });
+        }catch(e){}
+        for(const [id,b] of cands){
+          try{
+            const su = await api(`/${id}/system_users`,'GET',{fields:'id',limit:100}, tk);
+            if((su.data||[]).some(u=>String(u.id)===String(meuId))){ achado = {id, name:b.name, usuario:meuId}; break; }
+          }catch(e){ /* (#10) = não é a BM dele */ }
+        }
+      }
+    }catch(e){}
+    S._bmDoToken[tk] = achado;
+    return achado;
+  }
+
+  /**
+   * Arruma as permissões que faltam, em vez de só reclamar delas.
+   * Para cada ativo: compartilha com a BM do token em uso (com qualquer token
+   * que tenha autoridade) e depois atribui o usuário de sistema USANDO O
+   * PRÓPRIO TOKEN dele, porque id de um app não vale em outro.
+   * O que não dá para resolver é ativo em BM onde nenhum token é admin.
+   */
+  async function resolverPermissoes(){
+    const tk = S._tokenForcado || getActiveToken();
+    if(!tk) return;
+    const todos = [...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i);
+    const nomeDe = x => ((S.tokens||[]).find(t=>t.token===x)||{}).label || 'token sem nome';
+    const bm = await negocioDoToken(tk);
+    if(!bm){ log('⚠️ Não descobri a qual BM o token em uso pertence; sigo sem ajustar permissões.','w'); return; }
+    log(`Token em uso: "${nomeDe(tk)}" · usuário ${bm.usuario} · BM "${bm.name}"`,'i');
+
+    const enxerga = async caminho => { try{ await api(caminho,'GET',{fields:'id'}, tk); return true; }catch(e){ return false; } };
+
+    // Compartilha um ativo com a BM do token e atribui o usuário de sistema.
+    async function liberar(rotulo, id, tarefas){
+      if(await enxerga('/'+id)) return true;
+      let dividiu = false;
+      for(const outro of [tk, ...todos]){
+        try{
+          await api(`/${id}/agencies`,'POST',{ business: bm.id, permitted_tasks: tarefas }, outro);
+          log(`✓ "${nomeDe(outro)}" compartilhou ${rotulo} ${id} com "${bm.name}".`,'s');
+          dividiu = true; break;
+        }catch(e){
+          if(/already|já|duplicate/i.test(e.message)){ dividiu = true; break; }
+        }
+      }
+      try{
+        await api(`/${id}/assigned_users`,'POST',{ user: bm.usuario, tasks: tarefas }, tk);
+        log(`✓ Dei ${tarefas.join('/')} em ${rotulo} ${id} para o usuário ${bm.usuario}.`,'s');
+      }catch(e){ /* já pode estar atribuído, ou não é preciso */ }
+      for(let k=0;k<5;k++){ if(await enxerga('/'+id)) return true; await sleep(2000); }
+      if(!dividiu) log(`⚠️ Nenhum token pôde liberar ${rotulo} ${id}. Ele está numa BM onde você não é admin.`,'w');
+      return false;
+    }
+
+    const pages = [...new Set(S.ads.map(a=>a.pageId).filter(Boolean))];
+    for(const p of pages) await liberar('a página', p, ['ADVERTISE','MANAGE']);
+
+    // Pixel: o que falta não é "enxergar", é estar compartilhado COM A CONTA.
+    const pixels = [...new Set(S.adsets.map(a=>a.pixelId).filter(Boolean))];
+    const conta = String(S.selectedAccount||'').replace(/^act_/,'');
+    for(const px of pixels){
+      try{
+        const r = await api(`/${px}/shared_accounts`,'GET',{business:bm.id,fields:'account_id',limit:100}, tk);
+        if((r.data||[]).some(a=>String(a.account_id)===conta)) continue;
+      }catch(e){}
+      let ok = false;
+      for(const outro of [tk, ...todos]){
+        try{
+          await api(`/${px}/shared_accounts`,'POST',{ business: bm.id, account_id: conta }, outro);
+          log(`✓ "${nomeDe(outro)}" compartilhou o pixel ${px} com a conta ${S.selectedAccount}.`,'s');
+          ok = true; break;
+        }catch(e){ if(/already|já|duplicate/i.test(e.message)){ ok = true; break; } }
+      }
+      if(!ok) log(`⚠️ Não consegui compartilhar o pixel ${px} com a conta. Faça na mão em Fontes de dados.`,'w');
+    }
+  }
   /**
    * Qual token cria a campanha de catálogo.
    *
@@ -3007,9 +3103,10 @@ async function criarCampanhaDeCatalogo(d){
   await run();
   if(!S._adsCriados.length) throw new Error('a criação terminou sem nenhum anúncio');
   // O token vai junto só para a extensão poder PERGUNTAR o status de cada
-  // anúncio enquanto espera a aprovação. É o mesmo token que já está guardado
-  // aqui nesta tela.
-  return { anuncios: S._adsCriados.slice(), token: (S.catalogToken||{})[d.catalogId] || S.token || '' };
+  // anúncio enquanto espera a aprovação. Tem que ser o token que ENXERGA A
+  // CONTA (o mesmo que criou os anúncios), não o do catálogo: mandar o do
+  // catálogo fez a conferência falhar calada em 05/11/2026.
+  return { anuncios: S._adsCriados.slice(), token: S._tokenForcado || getActiveToken() || S.token || '' };
 }
 
 window.addEventListener('message', async e => {
