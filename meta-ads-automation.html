@@ -825,6 +825,78 @@ async function run(){
 
   S.running = true;
   S.stopReq = false;
+  /**
+   * Qual token cria a campanha de catálogo.
+   *
+   * Até 05/11/2026 eu forçava SEMPRE o token dono do catálogo, e isso quebrava
+   * com conta alugada de outra BM (a KESTRA é atribuída ao usuário de sistema
+   * da MAds, e o token da Roi Ventures nem enxerga a conta). A ordem certa é:
+   *   1. token da conta, se ele também enxergar o catálogo (melhor caso);
+   *   2. token do catálogo, se ele enxergar a conta (o caso antigo);
+   *   3. dar acesso ao catálogo para o usuário de sistema da conta e usar o
+   *      token da conta. Quem concede é um token que mande no negócio dono do
+   *      catálogo.
+   * Cada passo é escrito no log, com o NOME do token, porque sem isso não há
+   * como saber por onde ele foi.
+   */
+  async function escolherTokenDaCampanha(){
+    const cat = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
+    if(!cat) return;
+    const catId = cat.catalogId.trim();
+    const nomeDe = tk => ((S.tokens||[]).find(t=>t.token===tk)||{}).label || 'token sem nome';
+    const tkConta = getAccountToken(S.selectedAccount) || S.token;
+    const tkCat = (S.catalogToken||{})[catId] || null;
+    const enxerga = async (tk, caminho) => {
+      if(!tk) return false;
+      try{ await api(caminho,'GET',{fields:'id'}, tk); return true; }catch(e){ return false; }
+    };
+    log(`Catálogo ${catId} · conta ${S.selectedAccount}`,'i');
+    log(`Token da conta: ${tkConta?nomeDe(tkConta):'nenhum'} · token do catálogo: ${tkCat?nomeDe(tkCat):'nenhum'}`,'i');
+
+    // Qual dos tokens salvos realmente enxerga a conta. O "token da conta" é só
+    // um palpite vindo da lista; quem manda é o Meta respondendo.
+    let tkBom = null;
+    for(const tk of [tkConta, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i)){
+      if(await enxerga(tk, '/'+S.selectedAccount)){ tkBom = tk; break; }
+      log(`• "${nomeDe(tk)}" não enxerga a conta ${S.selectedAccount}`,'i');
+    }
+    const contaOk = !!tkBom;
+    if(tkBom && tkBom !== tkConta) log(`Quem enxerga a conta é "${nomeDe(tkBom)}".`,'i');
+    const catalogoOk = contaOk && await enxerga(tkBom, '/'+catId);
+    log(`Token escolhido enxerga a conta: ${contaOk?'sim':'NÃO'} · enxerga o catálogo: ${catalogoOk?'sim':'NÃO'}`, contaOk?'i':'w');
+
+    if(contaOk && catalogoOk){
+      if(tkBom !== tkConta) S._tokenForcado = tkBom;
+      log(`Uso "${nomeDe(tkBom)}" na campanha inteira.`,'s');
+      return;
+    }
+
+    if(tkCat && await enxerga(tkCat, '/'+S.selectedAccount)){
+      S._tokenForcado = tkCat;
+      log(`Uso "${nomeDe(tkCat)}" (token do catálogo): ele enxerga a conta.`,'s');
+      return;
+    }
+
+    if(contaOk && tkBom){
+      S._tokenForcado = (tkBom !== tkConta) ? tkBom : null;
+      try{
+        const eu = await api('/me','GET',{fields:'id'}, tkBom);
+        for(const tk of [tkCat, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i)){
+          try{
+            await api(`/${catId}/assigned_users`,'POST',{ user: eu.id, tasks:['MANAGE','ADVERTISE'] }, tk);
+            log(`✓ "${nomeDe(tk)}" deu acesso ao catálogo para o usuário de sistema da conta (${eu.id}).`,'s');
+            return;
+          }catch(e){ log(`• "${nomeDe(tk)}" não pôde conceder acesso: ${e.message}`,'i'); }
+        }
+        log(`⚠️ Nenhum token conseguiu dar acesso ao catálogo ${catId}.`,'w');
+      }catch(e){ log(`⚠️ Não consegui identificar o usuário do token da conta: ${e.message}`,'w'); }
+    }
+
+    if(!contaOk){
+      log(`⚠️ NENHUM token enxerga a conta ${S.selectedAccount}. A conta precisa ser atribuída ao usuário de sistema do app na BM dona dela, e o app precisa estar autorizado nessa conta.`,'e');
+    }
+    if(tkCat) S._tokenForcado = tkCat;
+  }
   // Catálogo: o token da conta pode ser o do ROI Data, que não tem permissão de
   // catálogo. Se um token enxerga o catálogo escolhido, a campanha inteira é
   // criada com ele (o AUTOMAÇÃO CAMPANHAS tem ads_management em todas as contas;
@@ -838,41 +910,12 @@ async function run(){
   //      token da conta (quem atribui é um token que manda no negócio dono
   //      do catálogo).
   S._tokenForcado = null;
-  { const cat = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
-    if(cat){
-      const catId = cat.catalogId.trim();
-      const tkConta = getAccountToken(S.selectedAccount) || S.token;
-      const tkCat = (S.catalogToken||{})[catId] || null;
-      const enxerga = async (tk, caminho) => {
-        if(!tk) return false;
-        try{ await api(caminho,'GET',{fields:'id'}, tk); return true; }catch(e){ return false; }
-      };
-      if(await enxerga(tkConta, '/'+catId)){
-        log('Token da conta já enxerga o catálogo. Uso ele na campanha inteira.','i');
-      } else if(tkCat && await enxerga(tkCat, '/'+S.selectedAccount)){
-        S._tokenForcado = tkCat;
-        log('Uso o token do catálogo: ele enxerga a conta de anúncio.','i');
-      } else if(tkConta){
-        try{
-          const eu = await api('/me','GET',{fields:'id'}, tkConta);
-          let deu = false;
-          for(const tk of [tkCat, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i)){
-            try{
-              await api(`/${catId}/assigned_users`,'POST',{ user: eu.id, tasks:['MANAGE','ADVERTISE'] }, tk);
-              deu = true; break;
-            }catch(e){ /* esse token não manda no negócio do catálogo */ }
-          }
-          if(deu) log(`✓ Dei acesso ao catálogo ${catId} para o usuário de sistema da conta (${eu.id}).`,'s');
-          else {
-            log(`⚠️ Nenhum token salvo pôde dar acesso ao catálogo ${catId} para o usuário da conta.`,'w');
-            if(tkCat) S._tokenForcado = tkCat;
-          }
-        }catch(e){ if(tkCat) S._tokenForcado = tkCat; }
-      } else if(tkCat) S._tokenForcado = tkCat;
-    } }
   S.criados = {campanhas:0, conjuntos:0, anuncios:0};
   S.log = [];
   S.tab = 'log';
+  // A escolha do token vem DEPOIS de limpar o log, senão as linhas de
+  // diagnóstico são apagadas (foi o que aconteceu em 05/11 e me cegou).
+  await escolherTokenDaCampanha();
   render();
 
   const acct = S.selectedAccount;
