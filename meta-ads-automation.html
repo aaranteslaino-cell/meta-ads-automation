@@ -829,9 +829,47 @@ async function run(){
   // catálogo. Se um token enxerga o catálogo escolhido, a campanha inteira é
   // criada com ele (o AUTOMAÇÃO CAMPANHAS tem ads_management em todas as contas;
   // validado em 18/09/2026).
+  // 05/11/2026: forçar SEMPRE o token do catálogo estava errado. Conta alugada
+  // de outra BM (KESTRA) é atribuída ao usuário de sistema DAQUELA BM, e o
+  // token do catálogo não a enxerga. A ordem certa é:
+  //   1. token da conta, se ele também enxergar o catálogo (melhor caso);
+  //   2. token do catálogo, se ele enxergar a conta;
+  //   3. dar acesso ao catálogo para o usuário de sistema da conta e usar o
+  //      token da conta (quem atribui é um token que manda no negócio dono
+  //      do catálogo).
   S._tokenForcado = null;
   { const cat = S.ads.find(a=>a.type==='catalog' && a.catalogId?.trim());
-    if(cat && (S.catalogToken||{})[cat.catalogId]) S._tokenForcado = S.catalogToken[cat.catalogId]; }
+    if(cat){
+      const catId = cat.catalogId.trim();
+      const tkConta = getAccountToken(S.selectedAccount) || S.token;
+      const tkCat = (S.catalogToken||{})[catId] || null;
+      const enxerga = async (tk, caminho) => {
+        if(!tk) return false;
+        try{ await api(caminho,'GET',{fields:'id'}, tk); return true; }catch(e){ return false; }
+      };
+      if(await enxerga(tkConta, '/'+catId)){
+        log('Token da conta já enxerga o catálogo. Uso ele na campanha inteira.','i');
+      } else if(tkCat && await enxerga(tkCat, '/'+S.selectedAccount)){
+        S._tokenForcado = tkCat;
+        log('Uso o token do catálogo: ele enxerga a conta de anúncio.','i');
+      } else if(tkConta){
+        try{
+          const eu = await api('/me','GET',{fields:'id'}, tkConta);
+          let deu = false;
+          for(const tk of [tkCat, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i)){
+            try{
+              await api(`/${catId}/assigned_users`,'POST',{ user: eu.id, tasks:['MANAGE','ADVERTISE'] }, tk);
+              deu = true; break;
+            }catch(e){ /* esse token não manda no negócio do catálogo */ }
+          }
+          if(deu) log(`✓ Dei acesso ao catálogo ${catId} para o usuário de sistema da conta (${eu.id}).`,'s');
+          else {
+            log(`⚠️ Nenhum token salvo pôde dar acesso ao catálogo ${catId} para o usuário da conta.`,'w');
+            if(tkCat) S._tokenForcado = tkCat;
+          }
+        }catch(e){ if(tkCat) S._tokenForcado = tkCat; }
+      } else if(tkCat) S._tokenForcado = tkCat;
+    } }
   S.criados = {campanhas:0, conjuntos:0, anuncios:0};
   S.log = [];
   S.tab = 'log';
@@ -2827,18 +2865,17 @@ async function criarCampanhaDeCatalogo(d){
   // da receita for de outra BM que não atribuiu esse usuário de sistema, nada
   // vai funcionar. Melhor falhar aqui, dizendo quais contas servem, do que
   // montar tudo e apanhar do Meta no fim.
-  try{
-    await api(`/${conta}`,'GET',{fields:'id'}, (S.catalogToken||{})[d.catalogId]||null);
-  }catch(e){
-    let servem = [];
-    try{
-      const r = await api('/me/adaccounts','GET',{fields:'name,account_status',limit:100}, (S.catalogToken||{})[d.catalogId]||null);
-      servem = (r.data||[]).filter(a=>a.account_status===1).map(a=>`${a.name} (${a.id})`);
-    }catch(e2){}
-    throw new Error('a conta da receita (' + conta + ') não é alcançada pelo token dono deste catálogo. ' +
-      'Campanha de catálogo roda toda com esse token. ' +
-      (servem.length ? 'Contas que servem: ' + servem.join(', ') + '. Monte a receita em uma delas.'
-                     : 'Nenhuma conta ativa foi encontrada para esse token.'));
+  // A conta precisa ser alcançada por ALGUM token salvo. Qual token vai ser
+  // usado na campanha, e o acesso ao catálogo, quem resolve é o run().
+  {
+    const tks = [getAccountToken(conta), ...(S.tokens||[]).map(t=>t.token), S.token]
+      .filter((t,i,a)=>t && a.indexOf(t)===i);
+    let alcanca = false;
+    for(const tk of tks){
+      try{ await api(`/${conta}`,'GET',{fields:'id'}, tk); alcanca = true; break; }catch(e){}
+    }
+    if(!alcanca) throw new Error('nenhum token salvo alcança a conta ' + conta +
+      '. Atribua essa conta ao usuário de sistema do app, ou monte a receita em outra conta.');
   }
 
   S.camp = JSON.parse(JSON.stringify(rec.camp));
