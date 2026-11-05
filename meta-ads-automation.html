@@ -2764,21 +2764,57 @@ async function criarCampanhaDeCatalogo(d){
       const alvo = x.filter && x.filter.name && x.filter.name.eq;
       jaTem.add(semEmoji(alvo || x.name).toLowerCase());
     });
-    let criados = 0, falhou = [];
+    /**
+     * Catálogo criado na mão no Commerce Manager nasce ligado ao usuário
+     * pessoal. O usuário de sistema do app ENXERGA (a BM é dele) mas não pode
+     * escrever, e todo POST volta "(#200) Permissions error". Como o token é
+     * admin da BM, ele se atribui ao catálogo e passa a poder.
+     */
+    async function darAcessoAoCatalogo(tk){
+      const eu = await api('/me','GET',{fields:'id'}, tk);
+      await api(`/${d.catalogId}/assigned_users`,'POST',{ user: eu.id, tasks:['MANAGE','ADVERTISE'] }, tk);
+      log(`✓ Dei acesso de gerenciar o catálogo ao usuário de sistema (${eu.id})`,'s');
+    }
+
+    let criados = 0, falhou = [], tentouAcesso = false;
     for(const nome of d.produtos){
       const limpo = semEmoji(nome);
       if(!limpo || jaTem.has(limpo.toLowerCase())) continue;
+      const criar = tk => api(`/${d.catalogId}/product_sets`,'POST',{ name: limpo, filter: { name: { eq: nome } } }, tk);
       try{
-        await api(`/${d.catalogId}/product_sets`,'POST',{ name: limpo, filter: { name: { eq: nome } } }, tkCat);
+        await criar(tkCat);
         log(`✓ Conjunto criado: ${limpo}`,'s');
         criados++;
       }catch(e){
-        if(/1798073/.test(e.message)){ log(`• Conjunto "${limpo}" já existia`,'i'); }
-        else { log(`✗ Conjunto "${limpo}": ${e.message}`,'e'); falhou.push(limpo+' ('+e.message+')'); }
+        if(/1798073/.test(e.message)){ log(`• Conjunto "${limpo}" já existia`,'i'); continue; }
+        // Sem permissão de escrita: me atribuo ao catálogo e tento de novo.
+        if(/\(#?200\)|Permissions error/i.test(e.message)){
+          let salvou = false;
+          if(!tentouAcesso){
+            tentouAcesso = true;
+            try{ await darAcessoAoCatalogo(tkCat); }
+            catch(e2){ log(`✗ Não consegui me dar acesso ao catálogo: ${e2.message}`,'e'); }
+          }
+          try{ await criar(tkCat); log(`✓ Conjunto criado: ${limpo}`,'s'); criados++; salvou = true; }
+          catch(e3){
+            // Último recurso: algum outro token salvo pode ter a permissão.
+            for(const tk of candidatos){
+              if(tk === tkCat) continue;
+              try{ await criar(tk); log(`✓ Conjunto criado com outro token: ${limpo}`,'s'); tkCat = tk; criados++; salvou = true; break; }
+              catch(e4){ /* próximo */ }
+            }
+            if(!salvou) falhou.push(limpo+' ('+e3.message+')');
+          }
+          if(!salvou) log(`✗ Conjunto "${limpo}": sem permissão de escrita no catálogo`,'e');
+          continue;
+        }
+        log(`✗ Conjunto "${limpo}": ${e.message}`,'e');
+        falhou.push(limpo+' ('+e.message+')');
       }
     }
-    if(!criados && !existentes.length && falhou.length)
-      throw new Error('não consegui criar nenhum conjunto: '+falhou[0]);
+    if(falhou.length && !criados)
+      throw new Error('sem permissão para criar conjuntos no catálogo ' + d.catalogId +
+        '. No Commerce Manager, abra o catálogo em Configurações → Atribuição de ativos e dê acesso de gerenciar ao usuário de sistema do app. Erro do Meta: ' + falhou[0]);
   }
 
   S.productSets = S.productSets || {};
