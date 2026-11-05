@@ -877,19 +877,54 @@ async function run(){
       return;
     }
 
+    // Catálogo de uma BM, conta de outra. O caminho do Meta NÃO é atribuir o
+    // usuário de sistema (o id de um app não vale no outro: "Param user is not
+    // a valid app-scoped ID"). É COMPARTILHAR o catálogo com o negócio dono da
+    // conta, e aí o usuário de sistema daquele negócio passa a enxergar.
     if(contaOk && tkBom){
       S._tokenForcado = (tkBom !== tkConta) ? tkBom : null;
+      const todos = [tkCat, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i);
+      let negocio = null;
       try{
-        const eu = await api('/me','GET',{fields:'id'}, tkBom);
-        for(const tk of [tkCat, ...(S.tokens||[]).map(t=>t.token), S.token].filter((t,i,a)=>t && a.indexOf(t)===i)){
+        const info = await api('/'+S.selectedAccount,'GET',{fields:'business'}, tkBom);
+        negocio = info.business || null;
+      }catch(e){}
+      if(!negocio){ log('⚠️ Não descobri a qual negócio a conta pertence.','w'); }
+      else{
+        log(`A conta pertence ao negócio "${negocio.name}" (${negocio.id}). Compartilhando o catálogo com ele…`,'i');
+        let dividiu = false;
+        for(const tk of todos){
           try{
-            await api(`/${catId}/assigned_users`,'POST',{ user: eu.id, tasks:['MANAGE','ADVERTISE'] }, tk);
-            log(`✓ "${nomeDe(tk)}" deu acesso ao catálogo para o usuário de sistema da conta (${eu.id}).`,'s');
-            return;
-          }catch(e){ log(`• "${nomeDe(tk)}" não pôde conceder acesso: ${e.message}`,'i'); }
+            await api(`/${catId}/agencies`,'POST',{ business: negocio.id, permitted_tasks:['MANAGE','ADVERTISE'] }, tk);
+            log(`✓ "${nomeDe(tk)}" compartilhou o catálogo com "${negocio.name}".`,'s');
+            dividiu = true; break;
+          }catch(e){
+            if(/already|já/i.test(e.message)){ log(`• Catálogo já estava compartilhado com "${negocio.name}".`,'i'); dividiu = true; break; }
+            log(`• "${nomeDe(tk)}" não pôde compartilhar: ${e.message}`,'i');
+          }
         }
-        log(`⚠️ Nenhum token conseguiu dar acesso ao catálogo ${catId}.`,'w');
-      }catch(e){ log(`⚠️ Não consegui identificar o usuário do token da conta: ${e.message}`,'w'); }
+        if(dividiu){
+          // O Meta leva alguns segundos para propagar o compartilhamento.
+          for(let k=0;k<6;k++){
+            if(await enxerga(tkBom, '/'+catId)){
+              log(`✓ "${nomeDe(tkBom)}" já enxerga o catálogo. Sigo com ele.`,'s');
+              return;
+            }
+            await sleep(2000);
+          }
+          // Ainda não: tento atribuir o usuário de sistema COM O PRÓPRIO token
+          // dele, onde o id app-scoped é válido.
+          try{
+            const eu = await api('/me','GET',{fields:'id'}, tkBom);
+            await api(`/${catId}/assigned_users`,'POST',{ user: eu.id, tasks:['MANAGE','ADVERTISE'] }, tkBom);
+            log(`✓ Atribuí o usuário de sistema da conta (${eu.id}) ao catálogo.`,'s');
+            if(await enxerga(tkBom, '/'+catId)) return;
+          }catch(e){ log(`• Não consegui atribuir o usuário ao catálogo: ${e.message}`,'i'); }
+          log('⚠️ O compartilhamento foi feito mas ainda não propagou. Tente de novo em um minuto.','w');
+        } else {
+          log(`⚠️ Nenhum token conseguiu compartilhar o catálogo ${catId} com "${negocio.name}".`,'w');
+        }
+      }
     }
 
     if(!contaOk){
