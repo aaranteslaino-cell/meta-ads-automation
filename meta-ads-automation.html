@@ -2959,8 +2959,14 @@ function salvarReceita(){
 
 function avisarExtensao(){
   try{
+    // Os tokens vão junto para a extensão poder criar os conjuntos de produtos
+    // sozinha logo depois de montar o catálogo (pedido dele em 06/11). São os
+    // mesmos tokens que já estão guardados nesta tela.
     window.postMessage({ __mp:1, para:'ponte', tipo:'receitas',
-      dados:{ lista: lerReceitas().map(r=>({ id:r.id, nome:r.nome })) } }, location.origin);
+      dados:{
+        lista: lerReceitas().map(r=>({ id:r.id, nome:r.nome })),
+        tokens: (S.tokens||[]).map(t=>({ label:t.label, token:t.token })).filter(t=>t.token)
+      } }, location.origin);
   }catch(e){}
 }
 
