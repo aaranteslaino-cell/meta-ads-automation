@@ -708,10 +708,32 @@ async function uploadVideo(file, accountId){
   return videoId;
 }
 
+// ── País ─────────────────────────────────────────────────────────────────────
+// O Meta só aceita o código ISO de duas letras. Digitar "eua" derrubava o
+// conjunto com "(#100) Invalid country code" DEPOIS da campanha já criada,
+// deixando campanha órfã (10/11/2026). Agora o nome em português vale.
+const PAISES = {
+  'EUA':'US','USA':'US','ESTADOS UNIDOS':'US','ESTADOS UNIDOS DA AMERICA':'US',
+  'BRASIL':'BR','BRAZIL':'BR',
+  'PORTUGAL':'PT','ESPANHA':'ES','SPAIN':'ES',
+  'MEXICO':'MX','ARGENTINA':'AR','CHILE':'CL','COLOMBIA':'CO','PERU':'PE','URUGUAI':'UY','PARAGUAI':'PY',
+  'CANADA':'CA','REINO UNIDO':'GB','INGLATERRA':'GB','UK':'GB',
+  'ALEMANHA':'DE','FRANCA':'FR','ITALIA':'IT','HOLANDA':'NL','PAISES BAIXOS':'NL','IRLANDA':'IE','SUICA':'CH',
+  'AUSTRALIA':'AU','NOVA ZELANDIA':'NZ','JAPAO':'JP','INDIA':'IN','AFRICA DO SUL':'ZA'
+};
+function paisCodigo(v){
+  const bruto = String(v==null?'':v).trim();
+  if(!bruto) return 'BR';
+  const chave = bruto.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');
+  if(PAISES[chave]) return PAISES[chave];
+  return chave;
+}
+function paisValido(v){ return /^[A-Z]{2}$/.test(paisCodigo(v)); }
+
 // ── Posicionamentos ───────────────────────────────────────────────────────────
 function buildTargeting(adset){
   const targeting = {
-    geo_locations:{ countries: [(adset.country||'BR').toUpperCase()] },
+    geo_locations:{ countries: [paisCodigo(adset.country)] },
     age_min: parseInt(adset.ageMin)||18,
     age_max: parseInt(adset.ageMax)||65,
     // Meta exige declarar Público Advantage+ explicitamente (erro 1870227)
@@ -1097,6 +1119,15 @@ async function run(){
     }
   }
 
+  // País conferido ANTES de qualquer criação: errar aqui no meio deixava a
+  // campanha criada e o conjunto não, e aí sobrava campanha órfã na conta.
+  const paisRuim = S.adsets.find(a => !paisValido(a.country));
+  if(paisRuim){
+    log('✗ País inválido no conjunto "'+(paisRuim.name||'sem nome')+'": "'+(paisRuim.country||'')+'".','e');
+    log('  Use o código de duas letras (BR, US, PT) ou o nome em português (Brasil, EUA, Portugal). Nada foi criado.','e');
+    S.running=false; S._tokenForcado=null; render(); return;
+  }
+
   if(S.ads.some(a=>a.type==='catalog')){
     log('Testando o anúncio de catálogo no Meta antes de criar qualquer coisa…','i');
     const erroPre = await preTesteCatalogo();
@@ -1109,9 +1140,30 @@ async function run(){
 
   try {
    const campDups = Math.max(1, parseInt(c.duplicateCount)||1);
-   for(let campIdx=0; campIdx<campDups; campIdx++){
-    if(pararAqui(`antes da campanha ${campIdx+1} de ${campDups}`)) break;
-    if(campDups>1) log(`━━━━━ Campanha ${campIdx+1} de ${campDups} ━━━━━`,'i');
+
+   // LIMITE DO META: 50 anúncios por conjunto, contando ativos e pausados,
+   // tudo que não esteja arquivado nem excluído. O anúncio 51 é recusado com
+   // (#100/2490588) e a campanha fica pela metade (10/11/2026, 99 anúncios num
+   // conjunto só). O resto vai para uma CAMPANHA NOVA, não para outro conjunto
+   // dentro da mesma: num CBO dois conjuntos disputariam o mesmo orçamento.
+   const MAX_ADS_POR_CONJUNTO = 50;
+   let lotes = [S.ads];
+   if(DEST.modo==='nova' && !c.oneAdsetPerAd && S.ads.length > MAX_ADS_POR_CONJUNTO){
+     lotes = [];
+     for(let i=0;i<S.ads.length;i+=MAX_ADS_POR_CONJUNTO) lotes.push(S.ads.slice(i,i+MAX_ADS_POR_CONJUNTO));
+     log(`${S.ads.length} anúncios passam do limite de ${MAX_ADS_POR_CONJUNTO} por conjunto do Meta.`,'w');
+     log(`Vou criar ${lotes.length} campanhas, com ${lotes.map(l=>l.length).join(' + ')} anúncios. Cada uma com o seu orçamento.`,'w');
+     if((parseInt(c.atrasoVideo)||0) > 0)
+       log('Com o atraso de vídeo ligado, cada campanha espera o seu próprio tempo, uma depois da outra.','w');
+   } else if(S.ads.length > MAX_ADS_POR_CONJUNTO && !c.oneAdsetPerAd){
+     log(`Atenção: ${S.ads.length} anúncios num conjunto só. O Meta aceita ${MAX_ADS_POR_CONJUNTO} e vai recusar o resto.`,'w');
+   }
+
+   const totalCamp = campDups * lotes.length;
+   for(let campIdx=0; campIdx<totalCamp; campIdx++){
+    const adsDoLote = lotes[Math.floor(campIdx / campDups)] || S.ads;
+    if(pararAqui(`antes da campanha ${campIdx+1} de ${totalCamp}`)) break;
+    if(totalCamp>1) log(`━━━━━ Campanha ${campIdx+1} de ${totalCamp}  ·  ${adsDoLote.length} anúncio(s) ━━━━━`,'i');
 
     // ── 1. Campanha
     // Com destino em estrutura existente, não cria: reaproveita o id escolhido.
@@ -1121,7 +1173,7 @@ async function run(){
       log(`Usando campanha existente: ${DEST.campaignId}`,'i');
     } else {
     log('Criando campanha…','i');
-    const campName = campDups>1 ? `${c.name} (${campIdx+1})` : c.name;
+    const campName = totalCamp>1 ? `${c.name} (${campIdx+1})` : c.name;
     const campBody = {
       name: campName,
       objective: c.objective,
@@ -1158,7 +1210,7 @@ async function run(){
     // um tempo. Reordeno para vídeo ficar por último e espero uma vez, antes do
     // primeiro anúncio de vídeo da rodada.
     const atrasoVideo = Math.max(0, Math.min(480, parseInt(c.atrasoVideo) || 0));
-    let adGroups = c.oneAdsetPerAd ? S.ads.map(a=>[a]) : [S.ads];
+    let adGroups = c.oneAdsetPerAd ? adsDoLote.map(a=>[a]) : [adsDoLote];
     if(atrasoVideo){
       const ehVideo = x => x.type === 'video';
       adGroups = adGroups.map(g => [...g].sort((x,y) => (ehVideo(x)?1:0) - (ehVideo(y)?1:0)));
@@ -1177,8 +1229,8 @@ async function run(){
     // de todos os conjuntos; depois a espera; a segunda só acrescenta os vídeos
     // nos conjuntos que já existem. Antes a espera caía no primeiro vídeo e as
     // imagens dos conjuntos seguintes ficavam para depois dela.
-    const temVideo  = S.ads.some(a=>a.type==='video');
-    const temOutros = S.ads.some(a=>a.type!=='video');
+    const temVideo  = adsDoLote.some(a=>a.type==='video');
+    const temOutros = adsDoLote.some(a=>a.type!=='video');
     const duasPassadas = atrasoVideo > 0 && temVideo && temOutros;
     const passadas = duasPassadas ? [1,2] : [0];
     const conjuntosFeitos = {};
@@ -2403,7 +2455,7 @@ function buildAdsetBox(a){
     <div class="row3">
       <div class="fg">
         <label>País</label>
-        <input value="${esc(a.country||'BR')}" oninput="setAdset(${a.id},'country',this.value)" placeholder="BR">
+        <input value="${esc(a.country||'BR')}" oninput="setAdset(${a.id},'country',this.value)" placeholder="BR, US, PT…" title="Código de duas letras (BR, US, PT) ou o nome em português (Brasil, EUA, Portugal)">
       </div>
       <div class="fg">
         <label>Idade Mín</label>
