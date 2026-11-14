@@ -2057,10 +2057,6 @@ function renderControls(A){
       </div>`;
     })()}
     ${renderFonteReceita()}
-    ${periodoAparado()?`<div class="mini" style="margin-top:8px;color:#b08900;text-transform:none">
-      ✂ Período aparado: a A.R NUTRA começa a contar em <b>13/11/2026</b>, então o que rodou nessas contas antes disso
-      fica de fora. A janela em uso é <b>${esc(sheetWindow().since)}</b> a <b>${esc(sheetWindow().until)}</b>,
-      ${periodDays(S.period)} dia(s).</div>`:''}
     <div class="row" style="margin-bottom:12px">
       <label style="margin:0 6px 0 0">Período:</label>
       ${PERIODS.map(([k,l])=>`<button class="chip ${S.period===k?'active':''}" onclick="setPeriod('${k}')">${l}</button>`).join('')}
@@ -3577,11 +3573,21 @@ function renderFonteReceita(){
 const VTURB_PONTE = 'https://trmzfivyrfnvgumlsiun.supabase.co/functions/v1/vturb';
 const VSL_MIN_PLAYS = 100;   // abaixo disso por braço, não dá para decidir nada
 
+// O TOKEN DO VTURB NÃO ESTÁ AQUI, e isso é de propósito: esta página é pública
+// no GitHub Pages, então o token da conta inteira ficaria à vista de qualquer
+// um. Ele mora na ponte, do lado do servidor.
+//
+// Esta chave é o que a página manda no lugar dele. Ela também é pública, mas
+// vale bem menos: só abre os caminhos de LEITURA liberados na ponte, só nesta
+// conta, e se vazar troca-se uma linha na ponte em vez de rodar o token no
+// VTurb. Quem colar um token no campo (que continua existindo) sobrescreve.
+const VTURB_CHAVE = 'XD-FJqjnZh6lu_Pk-z7-z7w-';
+
 async function vturb(path, payload){
   const tok=(S.vtToken||'').trim();
-  if(!tok) throw new Error('Cole o token do VTurb no card de teste de VSL.');
   const r=await fetch(VTURB_PONTE,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({path:path, payload:payload, token:tok})});
+    body:JSON.stringify(tok ? {path:path, payload:payload, token:tok}
+                             : {path:path, payload:payload, chave:VTURB_CHAVE})});
   let corpo={}; try{ corpo=await r.json(); }catch(e){}
   if(!r.ok){
     const msg = r.status===401 ? 'o VTurb recusou o token'
@@ -3700,20 +3706,15 @@ function renderVSL(A){
   const head=`<h2>🎬 Teste de VSL <span class="mini" style="text-transform:none">métricas do player, direto do VTurb</span>
     <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="recarregarVSL()">↻ Atualizar</button></h2>`;
 
-  if(!(S.vtToken||'').trim()){
-    return `<div class="card">${head}
-      <div class="info-box" style="margin-bottom:10px">Cole aqui o token da API do VTurb (gera em Configurações · Analytics API).
-        Ele fica só neste navegador e não entra no arquivo publicado.</div>
-      <div class="row" style="gap:8px;align-items:flex-end">
-        <div style="flex:1 1 320px"><label for="vt-token">Token do VTurb</label>
-          <input id="vt-token" type="password" autocomplete="off" placeholder="cole aqui"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();setVtToken(this.value)}"></div>
-        <button class="btn btn-purple" onclick="setVtToken(document.getElementById('vt-token').value)">Conectar VTurb</button>
-      </div></div>`;
-  }
   if(S._vslLoading) return `<div class="card">${head}<div class="empty"><span class="loading"></span> Lendo o teste no VTurb…</div></div>`;
   if(S._vslErro) return `<div class="card">${head}<div class="warn-box">Não consegui ler o VTurb: <b>${esc(S._vslErro)}</b>
-    <div class="mini" style="margin-top:6px;text-transform:none">Se foi o token, cole outro: <button class="btn btn-gray btn-sm" onclick="setVtToken('')">trocar token</button></div></div></div>`;
+    <div class="row" style="gap:8px;align-items:flex-end;margin-top:8px">
+      <button class="btn btn-gray btn-sm" onclick="recarregarVSL()">Tentar de novo</button>
+      <div style="flex:1 1 260px"><label for="vt-token">Ou use outro token do VTurb</label>
+        <input id="vt-token" type="password" autocomplete="off" placeholder="opcional"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();setVtToken(this.value)}"></div>
+      <button class="btn btn-purple btn-sm" onclick="setVtToken(document.getElementById('vt-token').value)">Usar este</button>
+    </div></div></div>`;
   if(S._vsl==null){ setTimeout(carregarVSL,0); return `<div class="card">${head}<div class="empty"><span class="loading"></span> Carregando…</div></div>`; }
   if(S._vsl.vazio) return `<div class="card">${head}<div class="empty">Nenhum teste A/B encontrado no VTurb nos últimos 90 dias.</div></div>`;
 
