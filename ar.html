@@ -3774,14 +3774,21 @@ function renderVSL(A){
     return {...l,
       views:vtNum(s.total_viewed), plays:vtNum(s.total_started),
       playRate:vtNum(s.play_rate), engaj:vtNum(s.engagement_rate),
-      pitchRate:vtNum(s.over_pitch_rate), cliques:vtNum(s.total_clicked),
+      pitchRate:vtNum(s.over_pitch_rate), passaramDoPitch:vtNum(s.total_over_pitch),
+      cliques:vtNum(s.total_clicked),
       erro:s._erro||null};
   });
   const totalPlays=dados.reduce((a,b)=>a+b.plays,0);
   const minPlays=dados.length?Math.min(...dados.map(d=>d.plays)):0;
   const melhor=dados.slice().sort((a,b)=>b.playRate-a.playRate)[0];
   const cedo=minPlays<VSL_MIN_PLAYS;
-  const semClique=dados.length>1 && dados.every(d=>d.cliques===0);
+  // O botão da VSL só aparece NO PITCH. Se ninguém chegou lá, zero clique é
+  // consequência, não defeito: a primeira versão deste alerta acusava o
+  // rastreamento de estar quebrado num teste em que nenhum espectador tinha
+  // passado do minuto 50. Agora ele só fala quando houve audiência no pitch e
+  // mesmo assim ninguém clicou, que aí sim é sinal de problema.
+  const audienciaNoPitch=dados.reduce((a,d)=>a+(d.passaramDoPitch||0),0);
+  const semClique=dados.length>1 && audienciaNoPitch>0 && dados.every(d=>d.cliques===0);
   const semPitch=dados.filter(d=>!d.pitch);
 
   const horas=((new Date(S._vsl.fim+'Z')-new Date(S._vsl.inicio+'Z'))/36e5);
@@ -3813,7 +3820,7 @@ function renderVSL(A){
     </tbody></table></div>`;
 
   const alertas=[];
-  if(semClique) alertas.push('Nenhuma das VSLs registrou <b>um único clique</b>. Quando isso acontece em todas ao mesmo tempo, costuma ser o botão não estar ligado ao VTurb, não a audiência. Sem clique não há taxa de clique nem receita por view, que é o que decide VSL.');
+  if(semClique) alertas.push('<b>'+fmtNum(audienciaNoPitch)+' espectador(es) chegaram no pitch e nenhum clique foi registrado</b>, em nenhuma das VSLs. Com audiência no pitch, isso costuma ser o botão não estar ligado ao VTurb, não a oferta.');
   if(semPitch.length) alertas.push(`<b>${semPitch.length} VSL(s) estão sem o pitch configurado</b> no VTurb. Nelas a coluna "chega no pitch" não tem como existir, e se fosse calculada daria 100% falso, porque o pitch ficaria no segundo zero.`);
 
   return `<div class="card">${head}
