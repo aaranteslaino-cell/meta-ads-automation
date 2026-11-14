@@ -16,6 +16,7 @@ DESTINO="$HOME/CLAUDE/meta-ads-automation"
 # Só estes sobem. Arquivo que não estiver na lista fica de fora de propósito:
 # evita publicar rascunho ou dado interno sem querer.
 ARQUIVOS=(
+  ar.html
   meta-ads-otimizacao-arnutra.html
   meta-ads-otimizacao.html
   meta-ads-automation.html
