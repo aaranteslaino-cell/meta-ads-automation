@@ -1715,16 +1715,88 @@ function removerToken(id){
   saveState(); render();
 }
 
+/**
+ * Colar um token direto nesta tela.
+ *
+ * Antes o token só chegava aqui de carona do monitor ou da automação. Quem
+ * abrisse esta página num navegador onde nenhuma das duas tinha sido usada
+ * lia "nenhum token encontrado" e não tinha o que fazer na tela.
+ *
+ * O token colado aqui é gravado também no monitor e na automação, pelo mesmo
+ * motivo que o ✕ apaga dos três: as três telas leem a mesma gaveta, e deixar
+ * uma delas com token que as outras não têm só gera confusão depois.
+ */
+function adicionarToken(){
+  const campo=$('tk-novo'), campoNome=$('tk-nome');
+  let v=String((campo&&campo.value)||'').trim();
+  // Tolera colar a URL inteira do Explorer ("...&access_token=EAA...") e
+  // tolera o token com quebra de linha no meio, que é como ele costuma vir
+  // quando a pessoa copia de um e-mail ou de uma mensagem.
+  const m=/access_token=([^&\s]+)/.exec(v); if(m) v=m[1];
+  v=v.replace(/\s+/g,'');
+
+  if(!v){ alert('Cole o token no campo antes de adicionar.'); if(campo) campo.focus(); return; }
+  if(v.length<40){
+    alert('Isso não parece um token: tem só '+v.length+' caractere(s).\n\n'+
+          'O token do Meta é uma linha bem longa, quase sempre começando com EAA.');
+    return;
+  }
+  if(!/^EAA/i.test(v) && !confirm('Esse texto não começa com EAA, que é como começa quase todo token do Meta.\n\nAdicionar mesmo assim?')) return;
+  if((S.tokens||[]).some(t=>t.token===v)){
+    alert('Esse token já está na lista.');
+    if(campo) campo.value='';
+    return;
+  }
+
+  const label=String((campoNome&&campoNome.value)||'').trim() || ('token '+(((S.tokens||[]).length)+1));
+  const novo={id:Date.now()+Math.random(), label:label, token:v};
+  S.tokens=(S.tokens||[]).concat([novo]);
+
+  // Espelha no monitor e na automação, igual ao que removerToken faz ao apagar.
+  ['mam_state','maa_state'].forEach(k=>{
+    try{
+      const src=JSON.parse(localStorage.getItem(k))||{};
+      src.tokens=Array.isArray(src.tokens)?src.tokens:[];
+      if(!src.tokens.some(t=>t.token===v)) src.tokens.push({id:novo.id,label:label,token:v});
+      localStorage.setItem(k,JSON.stringify(src));
+    }catch(e){}
+  });
+
+  S._diag=null; S._diagResumo='';
+  saveState();
+  if(campo) campo.value='';
+  if(campoNome) campoNome.value='';
+  render();
+  connect();   // depois de colar, o que se quer é ver as contas
+}
+
 function renderConnect(){
   return `<div class="card">
     <h2>Conectar</h2>
-    <div class="info-box" style="margin-bottom:12px">Os tokens são compartilhados com o monitor e a automação. ${S.tokens.length?`Encontrei <b>${S.tokens.length}</b> token(s).`:'Nenhum token encontrado ainda — conecte no monitor primeiro.'}</div>
+    <div class="info-box" style="margin-bottom:12px">Os tokens são compartilhados com o monitor e a automação. ${S.tokens.length?`Encontrei <b>${S.tokens.length}</b> token(s).`:'Nenhum token encontrado ainda. Cole um token abaixo, ou conecte no monitor.'}</div>
     ${S.tokens.map(t=>`<div class="token-item" style="display:flex;align-items:center;gap:8px">
       <span class="lbl">${esc(t.label||'token')}</span>
       <span class="id" style="flex:1">${esc(String(t.token).slice(0,18))}…</span>
       <button class="btn btn-sm" style="background:none;border:none;color:#c5221f;cursor:pointer;font-size:16px;padding:0 6px"
         title="Remover este token" onclick="removerToken('${esc(t.id)}')">✕</button>
     </div>`).join('')}
+    <div class="row" style="margin-top:12px;gap:8px;align-items:flex-end">
+      <div style="flex:1 1 300px;min-width:220px">
+        <label for="tk-novo">Colar token aqui</label>
+        <input id="tk-novo" type="password" placeholder="EAA…" autocomplete="off" spellcheck="false"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarToken()}">
+      </div>
+      <div style="flex:0 1 170px;min-width:140px">
+        <label for="tk-nome">Apelido (opcional)</label>
+        <input id="tk-nome" placeholder="ex.: ROI VENTURES" autocomplete="off"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarToken()}">
+      </div>
+      <button class="btn btn-purple" onclick="adicionarToken()">+ Adicionar e conectar</button>
+    </div>
+    <div class="mini" style="margin-top:6px;text-transform:none;color:#888">
+      O token fica guardado só neste navegador e passa a valer também no monitor e na automação.
+      Para tirar, use o ✕ ao lado dele. O valor não é guardado em nenhum servidor: se apagar, tem que gerar outro no Business Manager.
+    </div>
     <div class="row" style="margin-top:10px">
       <button id="btn-connect" class="btn btn-purple" onclick="connect()" ${S.tokens.length?'':'disabled'}>Conectar (${S.tokens.length} token(s))</button>
       <button class="btn btn-gray" onclick="diagTokens()" ${S.tokens.length?'':'disabled'} title="Testa cada token: validade, app, business, escopos e o erro exato de acesso às contas.">🩺 Diagnosticar tokens</button>

@@ -255,6 +255,35 @@ if(S.usdBrl == null || S.usdBrl === '') S.usdBrl = 5.40;
 // do IniciAmazon (funil em português, público brasileiro) e não valem para nutra
 // nos Estados Unidos. Ficam como ponto de partida editável, com aviso na tela.
 S.alvos = Object.assign({cpm:40, cpc:1.5, ctr:2.7, cpl:5, cic:22, tkm:100, cvt:60, ppc:1.5}, S.alvos||{});
+
+// ── Moeda dos alvos ─────────────────────────────────────────────────────────
+// A operação roda nos Estados Unidos e o Arthur pensa em dólar, então a tela
+// nasce em dólar. Os números de fábrica estavam em real (vieram do funil
+// brasileiro), por isso são convertidos UMA vez na migração: do contrário um
+// alvo de R$ 40 viraria US$ 40 da noite para o dia, que é outro valor.
+const ALVOS_EM_DINHEIRO = ['cpm','cpc','cpl','cic','tkm'];
+const taxaUsd = () => (parseFloat(S.usdBrl) > 0 ? parseFloat(S.usdBrl) : 5.40);
+const alvoEmUSD = () => (S.alvoMoeda || 'USD') === 'USD';
+const simboloAlvo = () => alvoEmUSD() ? 'US$' : 'R$';
+const fmtAlvoMoeda = v => simboloAlvo() + ' ' +
+  (parseFloat(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2});
+/** Converte um valor que está em REAL para a moeda escolhida nos alvos. */
+const deBrlParaAlvo = v => alvoEmUSD() ? (parseFloat(v)||0)/taxaUsd() : (parseFloat(v)||0);
+
+if(typeof S.alvoMoeda !== 'string'){
+  const r = taxaUsd();
+  ALVOS_EM_DINHEIRO.forEach(k=>{ if(S.alvos[k]!=null) S.alvos[k] = +(S.alvos[k]/r).toFixed(2); });
+  if(parseFloat(S.cpaAlvo) > 0) S.cpaAlvo = +(parseFloat(S.cpaAlvo)/r).toFixed(2);
+  S.alvoMoeda = 'USD';
+}
+function setAlvoMoeda(m){
+  if(m === S.alvoMoeda) return;
+  const r = taxaUsd();
+  const f = (m === 'USD') ? (v => v/r) : (v => v*r);
+  ALVOS_EM_DINHEIRO.forEach(k=>{ if(S.alvos[k]!=null) S.alvos[k] = +(f(S.alvos[k])).toFixed(2); });
+  if(parseFloat(S.cpaAlvo) > 0) S.cpaAlvo = +(f(parseFloat(S.cpaAlvo))).toFixed(2);
+  S.alvoMoeda = m; saveState(); render();
+}
 S._rev = null;
 S._comp = null;        // cache do comparativo 1D/2D/3D/5D
 S._compLoading = false;
@@ -537,13 +566,29 @@ async function execBulk(action,pct){
   }
 }
 // Métricas de eficiência acima (ou CTR abaixo) do custo alvo
+/**
+ * Quais alvos de eficiência esta campanha furou.
+ *
+ * CUIDADO COM A MOEDA. O cpm, o cpc e os custos por evento chegam do Meta na
+ * moeda DA CONTA, que aqui é dólar. Os alvos estão na moeda escolhida na tela.
+ * Antes disso aqui existir, a comparação era dólar contra real sem avisar:
+ * conta americana com CPM de US$ 45 batia contra um alvo de 40 que queria
+ * dizer R$ 40, e a campanha era marcada "fora do alvo" por um motivo que não
+ * existia. Agora os dois lados vão para a mesma moeda antes de comparar.
+ */
 function alvoBreaches(r){
   const a=S.alvos, out=[];
-  if((r.cpm||0)>a.cpm) out.push('CPM '+fmtMoney0(r.cpm));
-  if((r.cpc||0)>a.cpc) out.push('CPC '+fmtMoney(r.cpc));
+  const contaUSD = (r._currency||'BRL') === 'USD';
+  const conv = v => {
+    const n = parseFloat(v)||0;
+    if(contaUSD === alvoEmUSD()) return n;
+    return alvoEmUSD() ? n/taxaUsd() : n*taxaUsd();
+  };
+  if(conv(r.cpm)>a.cpm) out.push('CPM '+fmtAlvoMoeda(conv(r.cpm)));
+  if(conv(r.cpc)>a.cpc) out.push('CPC '+fmtAlvoMoeda(conv(r.cpc)));
   if((r.impressions||0)>0 && (r.ctr||0)<a.ctr) out.push('CTR '+fmtPct(r.ctr));
-  if((r.cost_per_landing_page_view||0)>a.cpl) out.push('c/PV '+fmtMoney(r.cost_per_landing_page_view));
-  if((r.cost_per_initiate_checkout||0)>a.cic) out.push('c/checkout '+fmtMoney(r.cost_per_initiate_checkout));
+  if(conv(r.cost_per_landing_page_view)>a.cpl) out.push('c/PV '+fmtAlvoMoeda(conv(r.cost_per_landing_page_view)));
+  if(conv(r.cost_per_initiate_checkout)>a.cic) out.push('c/checkout '+fmtAlvoMoeda(conv(r.cost_per_initiate_checkout)));
   return out;
 }
 
@@ -4038,10 +4083,10 @@ function alvoRow(l,hint,dir,alvo,atual,t,onchange){
   const bad = dir==='low' ? (atual>a) : (atual<a);
   const delta = a>0 ? (atual/a-1)*100 : 0;
   const sign=delta>=0?'+':'';
-  const fv = t==='pct'?fmtPct(atual) : t==='roas'?fmtRoas(atual) : t==='num'?(Math.round(atual*100)/100).toLocaleString('pt-BR') : fmtMoney(atual);
+  const fv = t==='pct'?fmtPct(atual) : t==='roas'?fmtRoas(atual) : t==='num'?(Math.round(atual*100)/100).toLocaleString('pt-BR') : fmtAlvoMoeda(atual);
   return `<tr>
     <td>${l} <span class="mini">(${dir==='low'?'≤ melhor':'≥ melhor'}${hint?' · '+hint:''})</span></td>
-    <td class="num"><input style="width:88px;text-align:right;padding:4px 8px" value="${esc(alvo)}" onchange="${onchange}"></td>
+    <td class="num">${t==='money'?`<span class="mini" style="margin-right:5px;opacity:.7">${simboloAlvo()}</span>`:''}<input style="width:88px;text-align:right;padding:4px 8px" value="${esc(alvo)}" onchange="${onchange}"></td>
     <td class="num" style="font-weight:800">${fv}</td>
     <td class="num" style="color:${bad?'#c5221f':'#137333'};font-weight:700">${sign}${delta.toFixed(0)}%</td>
     <td>${bad?'<span class="badge b-ruim">fora do alvo</span>':'<span class="badge b-bom">dentro</span>'}</td>
@@ -4049,12 +4094,22 @@ function alvoRow(l,hint,dir,alvo,atual,t,onchange){
 }
 function renderAlvos(A){
   const T=A.T;
-  const cpaShown = (parseFloat(S.cpaAlvo)>0)?parseFloat(S.cpaAlvo):Math.round(A.blendedCPA);
+  const cpaShown = (parseFloat(S.cpaAlvo)>0)?parseFloat(S.cpaAlvo):Math.round(deBrlParaAlvo(A.blendedCPA));
   const roasShown = parseFloat(A.roasAlvo)||1;
-  const eff={cpm:T.imp?T.spend/T.imp*1000:0, cpc:T.clicks?T.spend/T.clicks:0, ctr:T.imp?T.clicks/T.imp*100:0, cpl:T.lpv?T.spend/T.lpv:0, cic:T.ic?T.spend/T.ic:0};
-  const cpaAtual=A.blendedCPA, tkm=T.front?T.receita/T.front:0, roas=T.spend?T.receita/T.spend:0, cvt=T.total?T.spend/T.total:0, ppc=T.front?T.total/T.front:0;
+  // T.* é somado em real. Os alvos podem estar em dólar, então os atuais
+  // passam pela mesma régua antes de virarem comparação.
+  const _eff={cpm:T.imp?T.spend/T.imp*1000:0, cpc:T.clicks?T.spend/T.clicks:0, cpl:T.lpv?T.spend/T.lpv:0, cic:T.ic?T.spend/T.ic:0};
+  const eff={cpm:deBrlParaAlvo(_eff.cpm), cpc:deBrlParaAlvo(_eff.cpc), ctr:T.imp?T.clicks/T.imp*100:0, cpl:deBrlParaAlvo(_eff.cpl), cic:deBrlParaAlvo(_eff.cic)};
+  const cpaAtual=deBrlParaAlvo(A.blendedCPA), tkm=deBrlParaAlvo(T.front?T.receita/T.front:0), roas=T.spend?T.receita/T.spend:0;
   const head='<tr><th>Métrica</th><th class="num">Alvo</th><th class="num">Atual ('+A.days+'d)</th><th class="num">Δ vs alvo</th><th>Situação</th></tr>';
-  return `<div class="card"><h2>🎯 Custo alvo por métrica <span class="mini">alvos editáveis, ficam salvos</span></h2>
+  return `<div class="card"><h2>🎯 Custo alvo por métrica <span class="mini">alvos editáveis, ficam salvos</span>
+      <span style="float:right;display:inline-flex;gap:4px;align-items:center">
+        <span class="mini" style="margin-right:2px">Moeda:</span>
+        <button class="chip ${alvoEmUSD()?'active':''}" style="font-size:12px;padding:4px 10px" onclick="setAlvoMoeda('USD')">US$</button>
+        <button class="chip ${alvoEmUSD()?'':'active'}" style="font-size:12px;padding:4px 10px" onclick="setAlvoMoeda('BRL')">R$</button>
+      </span></h2>
+    <div class="mini" style="text-transform:none;margin:-4px 0 10px;color:#888">
+      Trocar a moeda converte os alvos pela taxa do topo (${fmtNum(taxaUsd())} por dólar), então o valor continua querendo dizer a mesma coisa.</div>
     <h3 style="margin:2px 0 8px">Eficiência <span class="mini" style="text-transform:none">base Meta · ⚠ os alvos de fábrica vieram de outra operação e de outro mercado, ajuste para a realidade da A.R NUTRA</span></h3>
     <div class="tbl-wrap" style="max-height:none;margin-bottom:14px"><table><thead>${head}</thead><tbody>
       ${alvoRow('CPM','','low', S.alvos.cpm, eff.cpm,'money',"setAlvo('cpm',this.value)")}
