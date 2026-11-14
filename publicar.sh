@@ -26,7 +26,10 @@ ARQUIVOS=(
 )
 
 cd "$DESTINO"
-git pull --quiet --rebase origin main || true
+# --autostash: o proprio script pode ter sido editado antes de rodar, e sem
+# isso o pull morre com "you have unstaged changes" e segue adiante sem
+# sincronizar, que e pior do que falhar.
+git pull --quiet --rebase --autostash origin main || true
 
 for f in "${ARQUIVOS[@]}"; do
   if [ -f "$ORIGEM/$f" ]; then
@@ -34,15 +37,17 @@ for f in "${ARQUIVOS[@]}"; do
   fi
 done
 
-if git diff --quiet && git diff --cached --quiet; then
+# add antes de olhar o que mudou: `git diff` sozinho nao enxerga arquivo novo,
+# e a primeira publicacao do ar.html passou sem aparecer na lista.
+git add -A
+
+if git diff --cached --quiet; then
   echo "Nada mudou. Nenhum commit criado."
   exit 0
 fi
 
 echo "Mudou:"
-git diff --stat | sed 's/^/  /'
-
-git add -A
+git diff --cached --stat | sed 's/^/  /'
 git commit --quiet -m "${1:-Atualiza ferramentas}"
 git push --quiet origin main
 echo "Publicado. O GitHub Pages leva 1 a 2 minutos para refletir."
