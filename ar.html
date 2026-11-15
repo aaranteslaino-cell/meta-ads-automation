@@ -318,18 +318,14 @@ function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_arnutra_s
 function saveState(){ try{ localStorage.setItem('mao_arnutra_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, _campCache:null, _contasBarradas:{}, _arqCache:null, _arqContas:null, _vendas:null, _vsl:null, _vslLoading:false, _vslErro:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
-function loadSharedTokens(){
-  ['mam_state','maa_state'].forEach(key=>{
-    try{
-      const src = JSON.parse(localStorage.getItem(key));
-      (src?.tokens||[]).forEach(t=>{
-        if(t.token && !S.tokens.find(x=>x.token===t.token)) S.tokens.push({...t, id:t.id||Date.now()+Math.random()});
-      });
-    }catch(e){}
-  });
-  saveState();
-}
-loadSharedTokens();
+// A tela original puxava os tokens do monitor e da automação do IniciAmazon
+// (mam_state e maa_state). Aqui NÃO: a A.R NUTRA é operação independente, e
+// herdar token de outra operação trazia 5 tokens e 27 contas de anúncio que
+// não têm nada a ver com esta tela. Além de poluir, era o que fazia estourar
+// o limite de chamadas do Meta.
+//
+// Os tokens desta tela moram só em mao_arnutra_state. Colar aqui não afeta
+// nenhuma outra ferramenta, e colar lá não traz nada para cá.
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -720,7 +716,7 @@ async function _listarContas(tk){
 
 // ── Conectar ────────────────────────────────────────────────────────────────
 async function connect(){
-  if(!S.tokens.length){ alert('Nenhum token encontrado. Conecte no monitor/automação primeiro (os tokens são compartilhados).'); return; }
+  if(!S.tokens.length){ alert('Cole o token da BM que roda a A.R NUTRA no campo acima.'); return; }
   const btn = $('btn-connect'); if(btn){ btn.disabled=true; btn.textContent='Conectando…'; }
   S.accounts = []; const errs=[];
   for(const tk of S.tokens){
@@ -948,9 +944,24 @@ async function fetchAllCampaigns(){
   const promises = S.accounts.map(async acc=>{
     try{
       const insights = await fetchInsights(acc.id,'campaign',acc._tokenId,acc._tzOffset);
-      let entities=[]; try{ entities=await fetchEntityList(acc.id,acc._tokenId); }catch(e){}
+      // O gasto vem do /insights e o STATUS vem de outro pedido, o /campaigns.
+      // Quando o segundo falha (limite de chamadas do Meta é o caso comum), a
+      // campanha fica com status '?' e some da tela, porque o painel só mostra
+      // o que está ACTIVE. O sintoma é cruel: o chip do produto mostra gasto e
+      // o painel diz "nenhuma campanha ativa", sem nada explicando.
+      // Agora a falha é registrada e as linhas ficam marcadas.
+      let entities=[], statusOk=true;
+      try{
+        entities=await fetchEntityList(acc.id,acc._tokenId);
+        // lista vazia com gasto no período também é falha, não conta sem campanha
+        if(!entities.length && insights.length) statusOk=false;
+      }catch(e){
+        statusOk=false;
+        console.warn('[status] não consegui ler o status das campanhas de', acc.name, e.message);
+      }
+      if(!statusOk){ S._semStatus=S._semStatus||{}; S._semStatus[acc.name||acc.id]=true; }
       const merged = mergeInsightsAndEntities(insights, entities, acc.currency);
-      merged.forEach(m=>{ m._accountId=acc.id; m._accountName=acc.name; m._currency=acc.currency; m._tokenId=acc._tokenId; });
+      merged.forEach(m=>{ m._accountId=acc.id; m._accountName=acc.name; m._currency=acc.currency; m._tokenId=acc._tokenId; m._statusIncerto=!statusOk; });
       return merged;
     }catch(e){ console.warn('[Campaigns] erro conta',acc.name,e.message); return []; }
   });
@@ -1733,7 +1744,7 @@ async function refreshFunnelTotal(){
 async function refreshData(){
   if(S.refreshing) return;
   // O aviso de conta barrada vale para esta busca, não para a anterior.
-  limparBarradas(); S._campCache=null;
+  limparBarradas(); S._campCache=null; S._semStatus={};
   S.refreshing=true; render();
   try{
     S._rev=await fetchRevenue();
@@ -1778,7 +1789,10 @@ function analyze(){
   const inFunil = r => (r._spendBRL||0)>0 && matchFunnel(r.name);
   const rowsAll = (S.data||[]).filter(inFunil);
   // decisão (bom/ruim, escalar/cortar, botões): só o que está ATIVO agora
-  let rows = rowsAll.filter(r=>(r.effective_status||'')==='ACTIVE');
+  // Status incerto entra também: a campanha gastou dinheiro, esconder ela é
+  // pior do que mostrar com ressalva. A faixa no topo avisa que o status
+  // não pôde ser confirmado.
+  let rows = rowsAll.filter(r=>(r.effective_status||'')==='ACTIVE' || r._statusIncerto);
   const pausadasCount = rowsAll.length - rows.length;
   // TOTAIS do período: tudo que gastou (ativas + pausadas/desativadas) → análise correta do dia
   const T={spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,lpv:0};
@@ -1916,18 +1930,12 @@ function removerToken(id){
   if(!t) return;
   const nome=t.label||'sem nome';
   if(!confirm(`Remover o token "${nome}" (${String(t.token).slice(0,18)}…)?\n\n`+
-              `Ele será apagado deste navegador, incluindo do monitor e da automação.\n`+
+              `Ele será apagado só desta tela, neste navegador.\n`+
               `O valor não fica guardado em lugar nenhum: para ter de volta, você precisa gerar outro no Business Manager.`)) return;
 
+  // Só sai desta tela. A original apagava também do monitor e da automação,
+  // o que aqui seria apagar token de outra operação sem o dono saber.
   S.tokens=(S.tokens||[]).filter(x=>String(x.id)!==String(id));
-  ['mam_state','maa_state'].forEach(k=>{
-    try{
-      const src=JSON.parse(localStorage.getItem(k));
-      if(!src||!Array.isArray(src.tokens)) return;
-      src.tokens=src.tokens.filter(x=>x.token!==t.token);
-      localStorage.setItem(k,JSON.stringify(src));
-    }catch(e){}
-  });
   S._diag=null; S._diagResumo=''; S.connected=false; S.accounts=[]; S.data=[];
   saveState(); render();
 }
@@ -1969,15 +1977,7 @@ function adicionarToken(){
   const novo={id:Date.now()+Math.random(), label:label, token:v};
   S.tokens=(S.tokens||[]).concat([novo]);
 
-  // Espelha no monitor e na automação, igual ao que removerToken faz ao apagar.
-  ['mam_state','maa_state'].forEach(k=>{
-    try{
-      const src=JSON.parse(localStorage.getItem(k))||{};
-      src.tokens=Array.isArray(src.tokens)?src.tokens:[];
-      if(!src.tokens.some(t=>t.token===v)) src.tokens.push({id:novo.id,label:label,token:v});
-      localStorage.setItem(k,JSON.stringify(src));
-    }catch(e){}
-  });
+  // Não espelha em mam_state nem maa_state: operação independente.
 
   S._diag=null; S._diagResumo='';
   saveState();
@@ -1990,7 +1990,9 @@ function adicionarToken(){
 function renderConnect(){
   return `<div class="card">
     <h2>Conectar</h2>
-    <div class="info-box" style="margin-bottom:12px">Os tokens são compartilhados com o monitor e a automação. ${S.tokens.length?`Encontrei <b>${S.tokens.length}</b> token(s).`:'Nenhum token encontrado ainda. Cole um token abaixo, ou conecte no monitor.'}</div>
+    <div class="info-box" style="margin-bottom:12px">${S.tokens.length
+      ? `<b>${S.tokens.length}</b> token(s) nesta tela. Eles valem só aqui: a A.R NUTRA não divide token com as outras ferramentas.`
+      : 'Cole abaixo o token da BM que roda a A.R NUTRA. Ele vale só nesta tela e fica guardado neste navegador.'}</div>
     ${S.tokens.map(t=>`<div class="token-item" style="display:flex;align-items:center;gap:8px">
       <span class="lbl">${esc(t.label||'token')}</span>
       <span class="id" style="flex:1">${esc(String(t.token).slice(0,18))}…</span>
@@ -2057,6 +2059,11 @@ function renderControls(A){
     </div>
     ${(S._arqContas&&S._arqContas.length)?`<div class="mini" style="margin-top:8px;color:#5046e5">
       📦 <b>${S._arqContas.length} conta(s) que saíram do token</b> entram nos números pelo arquivo histórico (até ontem): ${esc(S._arqContas.slice(0,5).join(', '))}${S._arqContas.length>5?' e mais '+(S._arqContas.length-5):''}.</div>`:''}
+    ${(()=>{const c=Object.keys(S._semStatus||{}); return c.length?`<div class="mini" style="margin-top:8px;color:#b08900">
+      ⚠ <b>Não consegui confirmar o status (ativa ou pausada) das campanhas de ${c.length} conta(s)</b>:
+      ${esc(c.slice(0,4).join(', '))}${c.length>4?' e mais '+(c.length-4):''}.
+      Elas aparecem assim mesmo, porque gastaram no período, mas podem estar pausadas.
+      Quase sempre é limite de chamadas do Meta: espere um pouco e clique em <b>Atualizar</b>.</div>`:''})()}
     ${(()=>{const b=Object.keys(S._contasBarradas||{}); return b.length?`<div class="mini" style="margin-top:8px;color:#c5221f">
       🚦 <b>${b.length} conta(s) não responderam por limite de chamadas do Meta</b> e ficaram de fora dos números desta tela:
       ${esc(b.slice(0,6).join(', '))}${b.length>6?' e mais '+(b.length-6):''}.
@@ -3845,7 +3852,9 @@ function renderDashboard(A){
     const f=currentFunnel();
     const msg = f.key==='COELHO'
       ? `🐰 O funil <b>Coelho</b> ainda não tem campanhas ativas. Assim que você subir campanhas com <b>"COELHO"</b> no nome, elas aparecem aqui automaticamente.`
-      : `Nenhuma campanha ativa com gasto no funil <b>${esc(f.label)}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`;
+      : (A.pausadasCount
+        ? `Nenhuma campanha <b>ativa</b> com gasto em <b>${esc(rotuloProduto())}</b> no período. Mas <b>${A.pausadasCount}</b> campanha(s) gastaram e estão pausadas ou desativadas: o gasto delas aparece no chip do produto lá em cima, e por isso os dois números parecem brigar.`
+        : `Nenhuma campanha com gasto em <b>${esc(rotuloProduto())}</b>${norm(S.nameContains).trim()?` (refinando por "${esc(S.nameContains)}")`:''} no período selecionado.`);
     return `<div class="card"><div class="empty" style="font-style:normal">${msg}</div></div>`;
   }
   // Saíram: renderRelatorio (planilha do IniciAmazon), renderFunis e renderPesquisa
