@@ -4084,15 +4084,19 @@ function renderKPIs(A){
   const lucroKpiCls = semReceita ? '' : (lucro>=0 ? 'good' : 'danger');
   const lucroColor = semReceita ? '#888' : (lucro>=0 ? '#137333' : '#c5221f');
   return `<div class="card">
-    <h2>Panorama · ${esc(rotuloProduto())} · ${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''} · ${A.days}d</h2>
+    <h2>Panorama · ${esc(rotuloProduto())} · ${A.soPausadas
+      ? `${A.rows.length} pausada(s) c/ gasto`
+      : `${A.rows.length} ativas${A.pausadasCount?` + ${A.pausadasCount} pausadas c/ gasto`:''}`} · ${A.days}d</h2>
     <div class="kpis">
       <div class="kpi"><div class="k-l">Gasto</div><div class="k-v">${fmtMoney0(T.spend)}</div><div class="k-s">${fmtMoney0(T.spend/A.days)}/dia</div></div>
       <div class="kpi"><div class="k-l">Receita${fonteAtiva()==='hw'?' · comissão H&amp;W':' · pixel do Meta'}</div><div class="k-v">${S._revFunilLoading?'<span class="loading"></span>':(semReceita?'—':fmtMoney0(funnelReceita))}</div><div class="k-s">ROAS <b style="color:${roasColor(roas)}">${fmtRoas(roas)}</b></div></div>
       <div class="kpi ${lucroKpiCls}"><div class="k-l">💰 Lucro</div><div class="k-v" style="color:${lucroColor}">${semReceita?'—':fmtMoney0(lucro)}</div><div class="k-s">${semReceita?'sem receita do funil':`margem ${margem!=null?margem.toFixed(0)+'%':'—'} · ${fmtMoney0(lucro/A.days)}/dia`}</div></div>
       <div class="kpi"><div class="k-l">Vendas front</div><div class="k-v">${fmtNum(T.front)}</div><div class="k-s">${fmtNum(T.total)} totais</div></div>
       <div class="kpi"><div class="k-l">CPA médio (front)</div><div class="k-v">${fmtMoney0(A.blendedCPA)}</div><div class="k-s">ticket ${fmtMoney0(T.front>0?T.receita/T.front:0)}</div></div>
-      <div class="kpi good"><div class="k-l">✅ Escalar</div><div class="k-v">${A.good.length}</div><div class="k-s">campanhas boas</div></div>
-      <div class="kpi danger"><div class="k-l">🔴 Verba em risco</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia</div></div>
+      <div class="kpi good"><div class="k-l">${A.soPausadas?'✅ Bateram o alvo':'✅ Escalar'}</div><div class="k-v">${A.good.length}</div><div class="k-s">${A.soPausadas?'campanha(s), já desligadas':'campanhas boas'}</div></div>
+      <div class="kpi danger"><div class="k-l">${A.soPausadas?'🔴 Gasto sem retorno':'🔴 Verba em risco'}</div><div class="k-v">${fmtMoney0(A.gastoRuim)}</div><div class="k-s">${A.soPausadas
+        ? `${A.bad.length} campanha(s), dinheiro já gasto`
+        : `${A.bad.length} ruins · ${fmtMoney0(A.gastoRuim/A.days)}/dia`}</div></div>
     </div>
     ${janelaAntes?`<div class="mini" style="margin-top:10px;color:#b08900">
       <b>A receita deste funil só existe a partir de ${_ddmm(desde)}.</b> Foi quando as vendas do Código FBA
