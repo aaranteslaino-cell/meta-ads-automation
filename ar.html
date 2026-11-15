@@ -1794,6 +1794,13 @@ function analyze(){
   // não pôde ser confirmado.
   let rows = rowsAll.filter(r=>(r.effective_status||'')==='ACTIVE' || r._statusIncerto);
   const pausadasCount = rowsAll.length - rows.length;
+  // Dia inteiro pausado não pode virar tela em branco. O dinheiro foi gasto e
+  // a leitura de CPM, CPC, CTR e custo por checkout continua valendo: é
+  // justamente ela que diz se valeu a pena ter rodado. As linhas entram
+  // marcadas, e os botões de escalar e cortar ficam sem sentido aqui, o que a
+  // faixa no topo avisa.
+  const soPausadas = rows.length===0 && rowsAll.length>0;
+  if(soPausadas) rows = rowsAll.slice();
   // TOTAIS do período: tudo que gastou (ativas + pausadas/desativadas) → análise correta do dia
   const T={spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,lpv:0};
   rowsAll.forEach(r=>{ T.spend+=r._spendBRL||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
@@ -1862,7 +1869,7 @@ function analyze(){
   cmp(byOferta,'oferta/criativo');
   if(frag.length){ const g=frag[0]; actions.push(`<b>Desfragmentar:</b> há grupos com muitas campanhas quase idênticas competindo entre si (ex: "${esc(g.key)}" com ${g.n} campanhas, ${fmtMoney0(g.spend)}). CBO rende mais com menos campanhas e mais orçamento por campanha.`); }
 
-  return {rows, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, funnelTotal, foraAlvo, pausadasCount, pausadasGasto};
+  return {rows, soPausadas, T, blendedCPA, cpaAlvo, roasAlvo, minSpend, days, good, bad, watch, gastoRuim, byConta, byLance, byOferta, byAccount, frag, actions, off, funnelTotal, foraAlvo, pausadasCount, pausadasGasto};
 }
 
 // ── Render ──────────────────────────────────────────────────────────────────
@@ -3847,6 +3854,14 @@ function renderVSL(A){
 }
 
 function renderDashboard(A){
+  // Leitura histórica: tudo que está na tela já foi desligado.
+  const avisoPausadas = A.soPausadas ? `<div class="card" style="background:#fff8e1;border-left:4px solid #ffc107">
+    <b>Todas as ${A.rows.length} campanha(s) deste período estão pausadas ou desativadas.</b>
+    <div class="mini" style="text-transform:none;margin-top:4px;line-height:1.6">
+      Elas aparecem abaixo porque gastaram ${fmtMoney0(A.T.spend)}, e a leitura de CPM, CPC, CTR e custo por checkout
+      continua valendo: é ela que diz se valeu a pena ter rodado.
+      Os botões de escalar, reduzir e desativar não servem aqui, já que não há nada no ar.</div>
+  </div>` : '';
   if(currentFunnel().backend) return renderBackendView(A); // backend não tem mídia: visão própria
   if(!A.rows.length){
     const f=currentFunnel();
@@ -3863,7 +3878,7 @@ function renderDashboard(A){
   // mostrar sem histórico de otimização, e as ações recomendadas liam o nome da
   // campanha no padrão do IniciAmazon, então sugeriam bobagem nesta operação.
   // As funções continuam no arquivo, é só devolver na linha abaixo para voltar.
-  return renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderVSL(A)+renderComparativoCard(A)+renderContas(A)+renderDimensions(A)+perpDetailCard()+renderTable(A);
+  return avisoPausadas+renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderVSL(A)+renderComparativoCard(A)+renderContas(A)+renderDimensions(A)+perpDetailCard()+renderTable(A);
 }
 
 // ── Relatório na planilha (Apps Script Web App) ─────────────────────────────
