@@ -848,7 +848,8 @@ function loadTopAds(){ if(_isNathCriativos()) fetchRefData(); else fetchTopAds()
 async function fetchRefData(){
   if(S._refLoading) return; S._refLoading=true; render();
   try{
-    const r=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/nath-ref.json?v='+Date.now());
+    const r=await fetch(`${S.sbUrl}/storage/v1/object/authenticated/dashboard-dados/nath-ref.json?v=${Date.now()}`,{headers:{apikey:S.sbKey,Authorization:'Bearer '+S.sbKey}});
+    if(!r.ok) throw new Error('nath-ref HTTP '+r.status);
     S._refData=await r.json();
     try{
       const hdr={'Content-Type':'application/json','apikey':S.sbKey,'Authorization':'Bearer '+S.sbKey};
@@ -863,7 +864,7 @@ async function fetchRefData(){
     }catch(_){}
   }catch(e){ console.warn('[Ref] erro:', e); S._refData=null; }
   // análise de criativos (áudio+visual) — não bloqueia o ref
-  try{ if(!S._critAnalise){ const ca=await fetch('https://aaranteslaino-cell.github.io/meta-ads-automation/criativos-analise.json?v='+Date.now()); if(ca.ok) S._critAnalise=await ca.json(); } }catch(_){}
+  try{ if(!S._critAnalise){ const ca=await fetch(`${S.sbUrl}/storage/v1/object/authenticated/dashboard-dados/criativos-analise.json?v=${Date.now()}`,{headers:{apikey:S.sbKey,Authorization:'Bearer '+S.sbKey}}); if(ca.ok) S._critAnalise=await ca.json(); } }catch(_){}
   S._refLoading=false; render();
 }
 
