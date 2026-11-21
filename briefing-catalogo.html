@@ -1862,6 +1862,17 @@ details.ou-digite{margin-top:8px}
 
   aplicar(carregarEstado());
   atualizarListaModelos();
+
+  // Guarda tudo também ao sair ou atualizar a página, além de a cada mudança.
+  window.addEventListener('beforeunload', function(){ salvar(); });
+  window.addEventListener('pagehide', function(){ salvar(); });
+  document.addEventListener('visibilitychange', function(){ if (document.hidden) salvar(); });
+
+  // Ao reabrir, reconecta sozinho ao Meta se já houver token, para as listas
+  // voltarem com as escolhas salvas sem precisar clicar em Conectar.
+  try {
+    if (importarTokens().length) conectarMeta().then(function(){ atualizarUI(); }).catch(function(){});
+  } catch (e) {}
 })();
 </script>
 </body>
