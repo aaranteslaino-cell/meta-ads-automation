@@ -17,6 +17,7 @@ DESTINO="$HOME/CLAUDE/meta-ads-automation"
 # evita publicar rascunho ou dado interno sem querer.
 ARQUIVOS=(
   ar.html
+  erevanton-quiz.html
   meta-ads-otimizacao-arnutra.html
   meta-ads-otimizacao.html
   meta-ads-automation.html

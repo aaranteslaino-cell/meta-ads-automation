@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Quiz EreVanton</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f5f8;--card:#fff;--ink:#14161c;--ink2:#5b6170;--line:#e3e6ec;--blue:#2f57c7;--blue2:#dfe7fb;--green:#127a4a;--red:#b42318;--amber:#a15c07}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#171a21;--ink:#e9ecf2;--ink2:#9aa1b0;--line:#2a2f3a;--blue:#7c9cf0;--blue2:#243256;--green:#4cc48a;--red:#f07a6f;--amber:#e3a548}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 Inter,system-ui,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
+h1{font-size:22px;margin:0}
+h2{font-size:15px;margin:0 0 12px}
+.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
+.sub{color:var(--ink2);font-size:13px}
+.ctr{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:7px 12px;border-radius:999px;cursor:pointer;font:500 13px Inter}
+.chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+input[type=date],select{border:1px solid var(--line);background:var(--card);color:var(--ink);padding:6px 8px;border-radius:8px;font:13px Inter;max-width:100%}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px;min-width:0}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.kpi small{display:block;color:var(--ink2);font-size:12px}
+.kpi b{display:block;font-size:26px;line-height:1.2;margin-top:4px}
+.kpi i{font-style:normal;color:var(--ink2);font-size:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+.fun{display:grid;grid-template-columns:minmax(120px,210px) 1fr 64px 70px;gap:6px 10px;align-items:center;font-size:13px}
+.fun .h{color:var(--ink2);font-size:12px}
+.bar{height:18px;background:var(--blue2);border-radius:4px;overflow:hidden}
+.bar span{display:block;height:100%;background:var(--blue);border-radius:4px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.drop{text-align:right;font-variant-numeric:tabular-nums;color:var(--ink2)}
+.drop.bad{color:var(--red);font-weight:600}
+.lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lbl em{font-style:normal;color:var(--ink2);font-size:11px;display:block}
+.q{margin-bottom:18px}
+.q h3{font-size:13px;margin:0 0 8px}
+.q h3 small{color:var(--ink2);font-weight:400}
+.opt{display:grid;grid-template-columns:1fr 46px 46px;gap:4px 10px;align-items:center;font-size:13px;margin-bottom:6px}
+.opt .t{grid-column:1/-1;display:flex;justify-content:space-between;gap:8px}
+.opt .bar{grid-column:1/-1;height:8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--ink2);font-weight:500;font-size:12px}
+.scroll{overflow-x:auto}
+.empty{color:var(--ink2);padding:24px 0;text-align:center}
+.err{background:#fde8e6;color:#8a1c12;border-radius:8px;padding:10px 12px;margin-bottom:16px;display:none}
+.nota{color:var(--ink2);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Quiz EreVanton</h1>
+      <div class="sub" id="ult">Carregando…</div>
+    </div>
+    <div class="ctr">
+      <button class="chip" data-p="hoje">Hoje</button>
+      <button class="chip" data-p="ontem">Ontem</button>
+      <button class="chip on" data-p="7">7 dias</button>
+      <button class="chip" data-p="30">30 dias</button>
+      <input type="date" id="de"> <input type="date" id="ate">
+      <select id="camp"><option value="">Todas as campanhas</option></select>
+      <button class="chip" id="atualizar">Atualizar</button>
+    </div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="card">
+    <h2>Por onde as pessoas passam (e onde saem)</h2>
+    <div id="funil"></div>
+    <div class="nota">Cada linha conta pessoas diferentes que viram aquela tela. "Saída" é quanto se perdeu em relação à tela anterior; em vermelho quando passa de 15%.</div>
+  </div>
+
+  <div class="grid2">
+    <div class="card"><h2>Respostas</h2><div id="resp"></div></div>
+    <div>
+      <div class="card"><h2>Por campanha (utm_campaign)</h2><div class="scroll" id="camps"></div></div>
+      <div class="card"><h2>Kit clicado no checkout</h2><div id="kits"></div></div>
+      <div class="card"><h2>Por dia</h2><div class="scroll" id="dias"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Chave PÚBLICA de propósito: a função do banco só devolve totais somados.
+// Ninguém consegue ler as respostas uma a uma com ela.
+const SB_URL = "https://trmzfivyrfnvgumlsiun.supabase.co";
+const SB_KEY = "sb_publishable_fpYKoNT5dEN45BS8gq0X8w_fhZr45_l";
+
+const TELAS = {
+  goal:"Objetivo principal", ring:"Anel de porcentagem", how:"Como a fórmula funciona",
+  problem:"Problema para ter ou manter ereção", morning:"Ereção ao acordar",
+  relationship:"Preocupação com o relacionamento", impact:"Impacto para a parceira",
+  confidence:"Confiança na ereção", firm:"Firme o bastante para a relação",
+  keep:"Mantém depois de começar", deserve:"Frase de efeito", compare:"Comparação 3 em 1",
+  trusted:"Depoimentos", sexfreq:"Frequência de sexo", affected:"O que afeta o desempenho",
+  last:"Estado e confirmação 18+", loading:"Montando o plano", state:"Estado"
+};
+const PERGUNTAS = ["goal","problem","morning","relationship","confidence","firm","keep","sexfreq","affected","state"];
+const MULTI = { goal:1, affected:1 };
+
+const $ = id => document.getElementById(id);
+const fmt = n => (n || 0).toLocaleString("pt-BR");
+const pc = (a, b) => b ? (a / b * 100).toLocaleString("pt-BR", { maximumFractionDigits: 1 }) + "%" : "–";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const hojeBR = () => new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
+const iso = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+
+function periodo(p) {
+  const h = hojeBR(), a = new Date(h);
+  if (p === "ontem") { a.setDate(a.getDate() - 1); return [iso(a), iso(a)]; }
+  if (p === "hoje") return [iso(h), iso(h)];
+  a.setDate(a.getDate() - (+p - 1)); return [iso(a), iso(h)];
+}
+function setPer(p) {
+  document.querySelectorAll("[data-p]").forEach(b => b.classList.toggle("on", b.dataset.p === p));
+  const [d, t] = periodo(p); $("de").value = d; $("ate").value = t; carregar();
+}
+document.querySelectorAll("[data-p]").forEach(b => b.onclick = () => setPer(b.dataset.p));
+["de", "ate"].forEach(id => $(id).onchange = () => { document.querySelectorAll("[data-p]").forEach(b => b.classList.remove("on")); carregar(); });
+$("camp").onchange = carregar;
+$("atualizar").onclick = carregar;
+
+let ultimaLista = [];
+async function carregar() {
+  $("err").style.display = "none";
+  try {
+    const r = await fetch(SB_URL + "/rest/v1/rpc/quiz_painel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SB_KEY, Authorization: "Bearer " + SB_KEY },
+      body: JSON.stringify({ p_since: $("de").value, p_until: $("ate").value, p_funil: "erevanton", p_campanha: $("camp").value || null })
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    desenhar(await r.json());
+  } catch (e) {
+    $("err").textContent = "Não consegui ler os dados (" + e.message + "). Tente Atualizar.";
+    $("err").style.display = "block";
+  }
+}
+
+function desenhar(d) {
+  const et = d.etapas || [];
+  const get = k => (et.find(x => x.k === k) || {}).n || 0;
+  const telas = et.filter(x => x.k.startsWith("tela:")).map(x => { const [, p, t] = x.k.split(":"); return { p: +p, t, n: x.n }; }).sort((a, b) => a.p - b.p);
+  const inicio = (telas.find(x => x.p === 0) || {}).n || 0;
+  const home = get("home"), lead = get("lead"), plan = get("plan"), ck = get("checkout");
+
+  $("ult").textContent = d.ultimo ? "Último evento: " + new Date(d.ultimo).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "Nenhum evento no período";
+
+  $("kpis").innerHTML = [
+    ["Visitaram a home", home, ""],
+    ["Começaram o quiz", inicio, home ? pc(inicio, home) + " da home" : ""],
+    ["Terminaram o quiz", lead, pc(lead, inicio) + " de quem começou"],
+    ["Viram a recomendação", plan, pc(plan, lead) + " de quem terminou"],
+    ["Clicaram no checkout", ck, pc(ck, plan) + " da recomendação"],
+    ["Quiz até checkout", pc(ck, inicio), "conversão total do quiz"]
+  ].map(([t, v, s]) => `<div class="kpi"><small>${t}</small><b>${typeof v === "number" ? fmt(v) : v}</b><i>${s}</i></div>`).join("");
+
+  // funil
+  const linhas = [];
+  if (home) linhas.push({ nome: "Home", sub: "index", n: home });
+  telas.forEach(x => linhas.push({ nome: TELAS[x.t] || x.t, sub: "Tela " + (x.p + 1), n: x.n }));
+  if (lead) linhas.push({ nome: "Terminou o quiz", sub: "lead", n: lead });
+  if (plan) linhas.push({ nome: "Recomendação", sub: "plan", n: plan });
+  if (ck) linhas.push({ nome: "Clique no checkout", sub: "checkout", n: ck });
+  const max = Math.max(1, ...linhas.map(x => x.n));
+  $("funil").innerHTML = linhas.length ? `<div class="fun"><div class="h">Tela</div><div class="h"></div><div class="h num">Pessoas</div><div class="h drop">Saída</div>` +
+    linhas.map((x, k) => {
+      const ant = k ? linhas[k - 1].n : 0, sai = ant ? (ant - x.n) / ant : 0;
+      return `<div class="lbl" title="${esc(x.nome)}">${esc(x.nome)}<em>${esc(x.sub)}</em></div>
+        <div class="bar"><span style="width:${x.n / max * 100}%"></span></div>
+        <div class="num">${fmt(x.n)}</div>
+        <div class="drop ${sai > .15 ? "bad" : ""}">${k && ant ? (sai > 0 ? "−" : "") + pc(Math.abs(ant - x.n), ant) : ""}</div>`;
+    }).join("") + `</div>` : `<div class="empty">Ainda não há visitas neste período.</div>`;
+
+  // respostas
+  const R = {};
+  (d.respostas || []).forEach(x => (R[x.tela] = R[x.tela] || []).push(x));
+  $("resp").innerHTML = PERGUNTAS.filter(q => R[q]).map(q => {
+    const ops = R[q].sort((a, b) => b.n - a.n);
+    const base = MULTI[q] ? (telas.find(x => x.t === q) || {}).n || Math.max(...ops.map(o => o.n)) : ops.reduce((s, o) => s + o.n, 0);
+    const top = Math.max(...ops.map(o => o.n));
+    return `<div class="q"><h3>${esc(TELAS[q] || q)} <small>· ${fmt(base)} ${MULTI[q] ? "pessoas, várias opções" : "respostas"}</small></h3>` +
+      ops.map(o => `<div class="opt"><div class="t"><span>${esc(o.v)}</span><span class="num">${fmt(o.n)} · ${pc(o.n, base)}</span></div><div class="bar"><span style="width:${o.n / top * 100}%"></span></div></div>`).join("") + `</div>`;
+  }).join("") || `<div class="empty">Sem respostas no período.</div>`;
+
+  // campanhas (o filtro mantém a lista completa da última leitura sem filtro)
+  const cs = d.campanhas || [];
+  if (!$("camp").value) {
+    ultimaLista = cs.map(c => c.c);
+    const atual = $("camp").value;
+    $("camp").innerHTML = `<option value="">Todas as campanhas</option>` + ultimaLista.map(c => `<option ${c === atual ? "selected" : ""}>${esc(c)}</option>`).join("");
+  }
+  $("camps").innerHTML = cs.length ? `<table><tr><th>Campanha</th><th>Entraram</th><th>Terminaram</th><th>Checkout</th><th>Entrada → checkout</th></tr>` +
+    cs.map(c => `<tr><td>${esc(c.c)}</td><td>${fmt(c.entradas)}</td><td>${fmt(c.leads)}</td><td>${fmt(c.checkouts)}</td><td>${pc(c.checkouts, c.entradas)}</td></tr>`).join("") + `</table>` : `<div class="empty">Sem dados.</div>`;
+
+  const ks = (d.kits || []).sort((a, b) => (+b.kit) - (+a.kit)), kt = ks.reduce((s, k) => s + k.n, 0);
+  $("kits").innerHTML = ks.length ? ks.map(k => `<div class="opt"><div class="t"><span>${k.kit} ${k.kit === "1" ? "pote" : "potes"}</span><span class="num">${fmt(k.n)} · ${pc(k.n, kt)}</span></div><div class="bar"><span style="width:${k.n / kt * 100}%"></span></div></div>`).join("") : `<div class="empty">Ninguém clicou no checkout ainda.</div>`;
+
+  const ds = d.dias || [];
+  $("dias").innerHTML = ds.length ? `<table><tr><th>Dia</th><th>Começaram</th><th>Terminaram</th><th>Checkout</th></tr>` +
+    ds.slice().reverse().map(x => `<tr><td>${x.d.split("-").reverse().join("/")}</td><td>${fmt(x.quiz)}</td><td>${fmt(x.leads)}</td><td>${fmt(x.checkouts)}</td></tr>`).join("") + `</table>` : `<div class="empty">Sem dados.</div>`;
+}
+
+setPer("7");
+setInterval(carregar, 120000);
+</script>
+</body>
+</html>
