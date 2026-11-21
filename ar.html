@@ -903,12 +903,16 @@ async function fetchEntityList(parentId, tokenId){
 }
 function mergeInsightsAndEntities(insights, entities, moeda){
   const byId={};
-  entities.forEach(e=>{ byId[e.id]={...e, spend:0,impressions:0,clicks:0,ctr:0,cpc:0,cpm:0,landing_page_views:0,cost_per_landing_page_view:0,initiate_checkout:0,cost_per_initiate_checkout:0,_px:{front:0,total:0,receita:0}}; });
+  entities.forEach(e=>{ byId[e.id]={...e, spend:0,impressions:0,reach:0,video_view:0,clicks:0,ctr:0,cpc:0,cpm:0,landing_page_views:0,cost_per_landing_page_view:0,initiate_checkout:0,cost_per_initiate_checkout:0,_px:{front:0,total:0,receita:0}}; });
   insights.forEach(ins=>{
     const id=ins.campaign_id; if(!id) return;
     if(!byId[id]) byId[id]={id, name:ins.campaign_name||id, status:'?', effective_status:'?'};
     Object.assign(byId[id], {
       spend:parseFloat(ins.spend)||0, impressions:parseInt(ins.impressions)||0, clicks:parseInt(ins.clicks)||0,
+      reach:parseInt(ins.reach)||0,
+      // 'video_view' é a visualização de 3 segundos. 'omni_video_view' é a
+      // mesma coisa somando site e app, e é o que vem em conta mais nova.
+      video_view:_actVal(ins.actions,['video_view','omni_video_view']),
       ctr:parseFloat(ins.ctr)||0, cpc:parseFloat(ins.cpc)||0, cpm:parseFloat(ins.cpm)||0,
       landing_page_views:getActionValue(ins.actions,'landing_page_view'),
       cost_per_landing_page_view:getActionValue(ins.cost_per_action_type,'landing_page_view'),
@@ -1804,8 +1808,8 @@ function analyze(){
   const soPausadas = rows.length===0 && rowsAll.length>0;
   if(soPausadas) rows = rowsAll.slice();
   // TOTAIS do período: tudo que gastou (ativas + pausadas/desativadas) → análise correta do dia
-  const T={spend:0,receita:0,front:0,total:0,imp:0,clicks:0,ic:0,lpv:0};
-  rowsAll.forEach(r=>{ T.spend+=r._spendBRL||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
+  const T={spend:0,receita:0,front:0,total:0,imp:0,reach:0,vv:0,clicks:0,ic:0,lpv:0};
+  rowsAll.forEach(r=>{ T.spend+=r._spendBRL||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.reach+=r.reach||0; T.vv+=r.video_view||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
   const pausadasGasto = rowsAll.filter(r=>(r.effective_status||'')!=='ACTIVE').reduce((s,r)=>s+(r._spendBRL||0),0);
   const blendedCPA = T.front>0 ? T.spend/T.front : 0;
   const off=(S._rev&&S._rev.offsite)||{front:0,total:0,receita:0};
@@ -3919,13 +3923,19 @@ function renderFunilCompleto(A){
 
   const semVturb = !f || !f.responderam;
   const passos=[
-    {n:'Impressões',        v:T.imp,    fonte:'Meta',  tem:true},
-    {n:'Cliques no anúncio',v:T.clicks, fonte:'Meta',  tem:true},
-    {n:'Chegou na página',  v:T.lpv,    fonte:'Meta',  tem:true},
-    {n:'Deu play na VSL',   v:f?f.plays:0,  fonte:'VTurb', tem:!semVturb},
-    {n:'Chegou no pitch',   v:f?f.pitch:0,  fonte:'VTurb', tem:!semVturb && !!f.temPitch},
-    {n:'Iniciou checkout',  v:T.ic,     fonte:'Meta',  tem:true},
-    {n:'Comprou',           v:T.front,  fonte:(fonteAtiva()==='hw'?'H&amp;W':'pixel'), tem:true}
+    {n:'Impressões',         v:T.imp,    fonte:'Meta',  tem:true},
+    // Alcance NÃO é somável entre campanhas: a mesma pessoa alcançada por duas
+    // campanhas conta duas vezes aqui. Com uma campanha só está certo; com
+    // várias, o número é teto, não verdade. A nota embaixo da tabela diz isso.
+    {n:'Alcance',            v:T.reach,  fonte:'Meta',  tem:T.reach>0, nota:'soma'},
+    {n:'Viu o vídeo (3s)',   v:T.vv,     fonte:'Meta',  tem:T.vv>0},
+    {n:'Cliques no anúncio', v:T.clicks, fonte:'Meta',  tem:true},
+    {n:'Chegou na página',   v:T.lpv,    fonte:'Meta',  tem:true, taxa:'show rate'},
+    {n:'Deu play na VSL',    v:f?f.plays:0,   fonte:'VTurb', tem:!semVturb, taxa:'play rate'},
+    {n:'Chegou no pitch',    v:f?f.pitch:0,   fonte:'VTurb', tem:!semVturb && !!f.temPitch, taxa:'taxa de pitch'},
+    {n:'Clicou no botão',    v:f?f.cliques:0, fonte:'VTurb', tem:!semVturb},
+    {n:'Iniciou checkout',   v:T.ic,     fonte:'Meta',  tem:true},
+    {n:'Comprou',            v:T.front,  fonte:(fonteAtiva()==='hw'?'H&amp;W':'pixel'), tem:true}
   ];
 
   // Escala logarítmica: de impressão para venda são várias ordens de grandeza,
@@ -3952,8 +3962,9 @@ function renderFunilCompleto(A){
     const cor = !p.tem ? '#c9c9d2' : ehPior ? '#c5221f' : (i===passos.length-1 ? '#137333' : '#7b2ff7');
     if(p.tem) ant=p;
     return `<div style="display:flex;align-items:center;gap:10px;margin:7px 0">
-      <div style="flex:0 0 150px;font-size:13px;text-align:right">
-        ${esc(p.n)} <span class="mini" style="opacity:.55">${p.fonte}</span></div>
+      <div style="flex:0 0 150px;font-size:13px;text-align:right;line-height:1.25">
+        ${esc(p.n)} <span class="mini" style="opacity:.55">${p.fonte}</span>
+        ${p.taxa?`<div class="mini" style="opacity:.5;text-transform:none">${p.taxa}</div>`:''}</div>
       <div style="flex:1;min-width:0;background:#f2f2f6;border-radius:6px;height:26px;position:relative">
         <div style="width:${p.tem?larg(p.v).toFixed(1):0}%;height:100%;background:${cor};border-radius:6px;
           ${ehPior?'box-shadow:0 0 0 2px #c5221f55':''}"></div>
@@ -3988,8 +3999,9 @@ function renderFunilCompleto(A){
     <div class="mini" style="text-transform:none;margin-bottom:10px;color:#888">
       Largura em escala logarítmica, senão tudo depois do clique vira um fio.
       A coluna do meio é quantos <b>passaram do degrau anterior</b>; a da direita é o <b>custo por pessoa</b> naquele degrau.
-      Cada número traz a fonte ao lado: Meta e VTurb medem coisas diferentes no mesmo momento, então a passagem entre
-      <b>chegou na página</b> e <b>deu play</b> pode dar acima de 100% sem nada estar quebrado.</div>
+      Cada número traz a fonte ao lado. <b>Meta e VTurb medem coisas diferentes no mesmo momento</b>, então toda vez que
+      a leitura troca de fonte a passagem pode dar acima de 100% sem nada estar quebrado: é o caso de
+      <b>chegou na página → deu play</b> e de <b>clicou no botão → iniciou checkout</b>.</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.3px">
       <div style="flex:0 0 150px"></div><div style="flex:1"></div>
       <div style="flex:0 0 92px;text-align:right">do anterior</div>
@@ -3997,6 +4009,9 @@ function renderFunilCompleto(A){
     </div>
     ${linhas}
     ${avisoVturb}
+    ${(T.reach>0 && A.rows.length>1)?`<div class="mini" style="margin-top:6px;color:#b08900;text-transform:none">
+      O <b>alcance</b> está somado entre ${A.rows.length} campanhas, e alcance não se soma: quem foi alcançado por duas
+      delas conta duas vezes. Leia como teto, não como número de pessoas distintas.</div>`:''}
     ${diagnostico}
   </div>`;
 }
