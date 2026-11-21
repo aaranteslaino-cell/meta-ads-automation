@@ -312,22 +312,22 @@ details.ou-digite{margin-top:8px}
         <div id="blocoCampanha" class="hidden" style="margin-top:12px">
           <div>
             <label>Estrutura de subida</label>
-            <select id="estrutura">
-              <option value="por_campanha">Um produto por campanha</option>
-              <option value="por_conjunto">Um produto por conjunto</option>
-              <option value="por_anuncio" selected>Um produto por anúncio</option>
-            </select>
-            <div class="mini" style="margin-top:6px">Cada produto vira um conjunto de produtos do catálogo, usado na campanha, no conjunto ou no anúncio — conforme a opção. O Meta aceita no máximo 50 anúncios por conjunto. O fluxo “tudo de uma vez” da extensão sobe, por padrão, um anúncio por produto.</div>
-          </div>
-          <div class="row" style="margin-top:12px">
-            <div id="blocoAdsPorSet" class="hidden">
-              <label>Anúncios por conjunto (produtos por conjunto)</label>
-              <input id="anunciosPorConjunto" type="number" min="1" max="50" value="50">
+            <input type="hidden" id="estrutura" value="manual">
+            <div class="row">
+              <div>
+                <label>Campanhas</label>
+                <input id="qtdCampanhas" type="number" min="1" value="1">
+              </div>
+              <div>
+                <label>Conjuntos por campanha</label>
+                <input id="conjuntosPorCampanha" type="number" min="1" value="1">
+              </div>
+              <div>
+                <label>Anúncios por conjunto</label>
+                <input id="anunciosPorConjunto" type="number" min="1" max="50" value="50">
+              </div>
             </div>
-            <div id="blocoSetsPorCamp" class="hidden">
-              <label>Conjuntos por campanha</label>
-              <input id="conjuntosPorCampanha" type="number" min="1" max="100" value="1">
-            </div>
+            <div class="mini" style="margin-top:6px">Cada anúncio usa um produto (conjunto de produtos) do catálogo. O Meta aceita no máximo 50 anúncios por conjunto.</div>
           </div>
           <div class="preview" id="previewEstrutura">0 produtos → 0 campanha(s), 0 conjunto(s), 0 anúncio(s)</div>
           <div id="avisoEstrutura"></div>
@@ -495,7 +495,7 @@ details.ou-digite{margin-top:8px}
     OUTCOME_APP_PROMOTION: 'Promoção de App'
   };
 
-  const CAMPOS = ['operacao','bmToken','negocioDono','negocioDonoId','contaAnuncio','contaAnuncioId','acao','catNome','tipoCatalogo','catExistente','catExistenteId','catExistenteCount','pixel','pixelId','url','preco','moeda','brand','description','availability','condition','variantesPadrao','whiteCaminho','pastaCaminho','delayVideo','criarSets','dividirSets','subirCampanha','estrutura','anunciosPorConjunto','conjuntosPorCampanha','receita','receitaId','pagina','paginaId','instagram','instagramId','campNome','objetivo','orcamento','tipoOrcamento','publico','observacoes','dark'];
+  const CAMPOS = ['operacao','bmToken','negocioDono','negocioDonoId','contaAnuncio','contaAnuncioId','acao','catNome','tipoCatalogo','catExistente','catExistenteId','catExistenteCount','pixel','pixelId','url','preco','moeda','brand','description','availability','condition','variantesPadrao','whiteCaminho','pastaCaminho','delayVideo','criarSets','dividirSets','subirCampanha','estrutura','qtdCampanhas','anunciosPorConjunto','conjuntosPorCampanha','receita','receitaId','pagina','paginaId','instagram','instagramId','campNome','objetivo','orcamento','tipoOrcamento','publico','observacoes','dark'];
 
   let pastaState = pastaVazia();
   let whiteState = { nome: '', aoVivo: false };
@@ -548,7 +548,8 @@ details.ou-digite{margin-top:8px}
       criarSets: true,
       dividirSets: 'Um conjunto por grupo de criativo, filtrando pelo nome',
       subirCampanha: false,
-      estrutura: 'por_anuncio',
+      estrutura: 'manual',
+      qtdCampanhas: 1,
       anunciosPorConjunto: 50,
       conjuntosPorCampanha: 1,
       receita: '',
@@ -696,8 +697,9 @@ details.ou-digite{margin-top:8px}
     d.pastaAoVivo = !!pastaState.aoVivo;
     d.whiteNome = whiteState.nome || '';
     d.delayVideo = Math.max(0, parseInt(d.delayVideo, 10) || 0);
-    d.anunciosPorConjunto = Math.max(1, Math.min(50, parseInt(d.anunciosPorConjunto, 10) || 50));
+    d.anunciosPorConjunto = Math.max(1, parseInt(d.anunciosPorConjunto, 10) || 1);
     d.conjuntosPorCampanha = Math.max(1, parseInt(d.conjuntosPorCampanha, 10) || 1);
+    d.qtdCampanhas = Math.max(1, parseInt(d.qtdCampanhas, 10) || 1);
     return d;
   }
 
@@ -790,23 +792,16 @@ details.ou-digite{margin-top:8px}
 
   function calcularEstrutura(s){
     const X = (s.grupos || []).length;
-    const ads = Math.max(1, Math.min(50, parseInt(s.anunciosPorConjunto, 10) || 50));
+    const ads = Math.max(1, parseInt(s.anunciosPorConjunto, 10) || 1);
     const sets = Math.max(1, parseInt(s.conjuntosPorCampanha, 10) || 1);
-    let N = 0, M = 0, K = 0;
-    if (!X) return { X: 0, N: 0, M: 0, K: 0, ads: ads, sets: sets };
-    if (s.estrutura === 'por_campanha'){ N = X; M = X; K = X; }
-    else if (s.estrutura === 'por_conjunto'){ M = X; N = Math.ceil(X / sets); K = X; }
-    else { K = X; M = Math.ceil(X / ads); N = Math.ceil(M / sets); }
+    const camps = Math.max(1, parseInt(s.qtdCampanhas, 10) || 1);
+    const N = camps, M = camps * sets, K = camps * sets * ads;
     return { X: X, N: N, M: M, K: K, ads: ads, sets: sets };
   }
 
   function textoPreview(s){
     const t = calcularEstrutura(s);
-    if (!t.X) return '0 produtos (escolha a pasta) → 0 campanha(s), 0 conjunto(s), 0 anúncio(s)';
-    let extra = '';
-    if (s.estrutura === 'por_anuncio') extra = ' · ' + t.ads + ' anúncio(s) por conjunto, ' + t.sets + ' conjunto(s) por campanha';
-    else if (s.estrutura === 'por_conjunto') extra = ' · ' + t.sets + ' conjunto(s) por campanha';
-    return t.X + ' produto(s) → ' + t.N + ' campanha(s), ' + t.M + ' conjunto(s), ' + t.K + ' anúncio(s)' + extra;
+    return t.N + ' campanha(s) × ' + t.sets + ' conjunto(s) × ' + t.ads + ' anúncio(s) = ' + t.M + ' conjunto(s) e ' + t.K + ' anúncio(s) no total · ' + t.X + ' produto(s) na pasta';
   }
 
   function montarBriefing(s){
@@ -892,9 +887,10 @@ details.ou-digite{margin-top:8px}
     linhas.push('5. CAMPANHA');
     if (s.subirCampanha){
       const prev = calcularEstrutura(s);
-      linhas.push('- Estrutura de subida: ' + rotuloEstrutura(s.estrutura));
-      if (s.estrutura === 'por_anuncio') linhas.push('- Anúncios por conjunto: ' + prev.ads);
-      if (s.estrutura === 'por_anuncio' || s.estrutura === 'por_conjunto') linhas.push('- Conjuntos por campanha: ' + prev.sets);
+      linhas.push('- Campanhas: ' + prev.N);
+      linhas.push('- Conjuntos por campanha: ' + prev.sets);
+      linhas.push('- Anúncios por conjunto: ' + prev.ads);
+      if (prev.X && prev.K !== prev.X) linhas.push('- ⚠ Total de anúncios (' + prev.K + ') diferente do número de produtos (' + prev.X + ')');
       linhas.push('- Prévia: ' + textoPreview(s));
       linhas.push('- Receita de campanha: ' + informado(nomeEId(s.receita, s.receitaId)));
       linhas.push('- Página do Facebook: ' + informado(nomeEId(s.pagina, s.paginaId)));
@@ -954,13 +950,12 @@ details.ou-digite{margin-top:8px}
     if ($('dicaReceita') && origemLocal()){
       $('dicaReceita').textContent = 'Aberto como arquivo local, as receitas da automação não aparecem sozinhas. Publique o painel no GitHub Pages ou digite o nome da receita.';
     }
-    if ($('blocoAdsPorSet')) $('blocoAdsPorSet').classList.toggle('hidden', !(s.subirCampanha && s.estrutura === 'por_anuncio'));
-    if ($('blocoSetsPorCamp')) $('blocoSetsPorCamp').classList.toggle('hidden', !(s.subirCampanha && (s.estrutura === 'por_anuncio' || s.estrutura === 'por_conjunto')));
     if ($('previewEstrutura')) $('previewEstrutura').textContent = textoPreview(s);
     if ($('avisoEstrutura')){
       const ev = calcularEstrutura(s);
       let avE = '';
-      if (s.subirCampanha && s.estrutura === 'por_anuncio' && ev.ads > 50) avE = '<div class="aviso alerta">O Meta aceita no máximo 50 anúncios por conjunto.</div>';
+      if (s.subirCampanha && ev.ads > 50) avE += '<div class="aviso alerta">O Meta aceita no máximo 50 anúncios por conjunto.</div>';
+      if (s.subirCampanha && ev.X && ev.K !== ev.X) avE += '<div class="aviso alerta">O total de anúncios (' + ev.K + ') não bate com os ' + ev.X + ' produtos da pasta.</div>';
       $('avisoEstrutura').innerHTML = avE;
     }
 
