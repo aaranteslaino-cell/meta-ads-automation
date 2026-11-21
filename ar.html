@@ -747,7 +747,10 @@ function disconnect(){ S.connected=false; S.accounts=[]; S.data=[]; saveState();
 // ── Insights ────────────────────────────────────────────────────────────────
 // action_values é o que a original não pedia: é dele que sai o valor das
 // compras do pixel, a receita desta tela.
-const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,cost_per_action_type';
+// Os marcos de vídeo (25/50/75%) existiam só no pedido por anúncio. Para o
+// funil completo eles precisam vir também por campanha.
+const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,actions,action_values,cost_per_action_type,'+
+  'video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions';
 
 // ── Venda pelo pixel do Meta ────────────────────────────────────────────────
 // Os três nomes são o mesmo evento visto de ângulos diferentes: 'purchase' é o
@@ -755,6 +758,17 @@ const INSIGHT_FIELDS = 'spend,impressions,clicks,ctr,cpc,cpm,reach,frequency,act
 // em conta mais antiga. _actVal devolve o primeiro que existir, então não há
 // risco de contar a mesma compra duas vezes.
 const PX_COMPRA=['purchase','omni_purchase','offsite_conversion.fb_pixel_purchase'];
+/**
+ * Valor de um campo de vídeo do Meta.
+ * Eles não vêm como número: vêm como lista, quase sempre de um item só, no
+ * formato [{action_type:'video_view', value:'123'}]. Somo tudo para o caso de
+ * a conta devolver mais de uma linha.
+ */
+function _vidVal(a){
+  if(!Array.isArray(a)) return 0;
+  return a.reduce((t,x)=>t+(parseFloat(x&&x.value)||0),0);
+}
+
 function pixelVenda(ins, moeda){
   const fx=(moeda==='USD') ? (parseFloat(S.usdBrl)>0?parseFloat(S.usdBrl):5.40) : 1;
   const n=_actVal(ins&&ins.actions, PX_COMPRA);
@@ -903,7 +917,7 @@ async function fetchEntityList(parentId, tokenId){
 }
 function mergeInsightsAndEntities(insights, entities, moeda){
   const byId={};
-  entities.forEach(e=>{ byId[e.id]={...e, spend:0,impressions:0,reach:0,video_view:0,clicks:0,ctr:0,cpc:0,cpm:0,landing_page_views:0,cost_per_landing_page_view:0,initiate_checkout:0,cost_per_initiate_checkout:0,_px:{front:0,total:0,receita:0}}; });
+  entities.forEach(e=>{ byId[e.id]={...e, spend:0,impressions:0,reach:0,video_view:0,v25:0,v50:0,v75:0,v100:0,clicks:0,ctr:0,cpc:0,cpm:0,landing_page_views:0,cost_per_landing_page_view:0,initiate_checkout:0,cost_per_initiate_checkout:0,_px:{front:0,total:0,receita:0}}; });
   insights.forEach(ins=>{
     const id=ins.campaign_id; if(!id) return;
     if(!byId[id]) byId[id]={id, name:ins.campaign_name||id, status:'?', effective_status:'?'};
@@ -913,6 +927,10 @@ function mergeInsightsAndEntities(insights, entities, moeda){
       // 'video_view' é a visualização de 3 segundos. 'omni_video_view' é a
       // mesma coisa somando site e app, e é o que vem em conta mais nova.
       video_view:_actVal(ins.actions,['video_view','omni_video_view']),
+      v25:_vidVal(ins.video_p25_watched_actions),
+      v50:_vidVal(ins.video_p50_watched_actions),
+      v75:_vidVal(ins.video_p75_watched_actions),
+      v100:_vidVal(ins.video_p100_watched_actions),
       ctr:parseFloat(ins.ctr)||0, cpc:parseFloat(ins.cpc)||0, cpm:parseFloat(ins.cpm)||0,
       landing_page_views:getActionValue(ins.actions,'landing_page_view'),
       cost_per_landing_page_view:getActionValue(ins.cost_per_action_type,'landing_page_view'),
@@ -1808,8 +1826,10 @@ function analyze(){
   const soPausadas = rows.length===0 && rowsAll.length>0;
   if(soPausadas) rows = rowsAll.slice();
   // TOTAIS do período: tudo que gastou (ativas + pausadas/desativadas) → análise correta do dia
-  const T={spend:0,receita:0,front:0,total:0,imp:0,reach:0,vv:0,clicks:0,ic:0,lpv:0};
-  rowsAll.forEach(r=>{ T.spend+=r._spendBRL||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.reach+=r.reach||0; T.vv+=r.video_view||0; T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
+  const T={spend:0,receita:0,front:0,total:0,imp:0,reach:0,vv:0,v25:0,v50:0,v75:0,v100:0,clicks:0,ic:0,lpv:0};
+  rowsAll.forEach(r=>{ T.spend+=r._spendBRL||0; T.receita+=r._receita||0; T.front+=r._vendasFront||0; T.total+=r._vendasTotal||0; T.imp+=r.impressions||0; T.reach+=r.reach||0; T.vv+=r.video_view||0;
+    T.v25+=r.v25||0; T.v50+=r.v50||0; T.v75+=r.v75||0; T.v100+=r.v100||0;
+    T.clicks+=r.clicks||0; T.ic+=r.initiate_checkout||0; T.lpv+=r.landing_page_views||0; });
   const pausadasGasto = rowsAll.filter(r=>(r.effective_status||'')!=='ACTIVE').reduce((s,r)=>s+(r._spendBRL||0),0);
   const blendedCPA = T.front>0 ? T.spend/T.front : 0;
   const off=(S._rev&&S._rev.offsite)||{front:0,total:0,receita:0};
@@ -3927,8 +3947,11 @@ function renderFunilCompleto(A){
     // Alcance NÃO é somável entre campanhas: a mesma pessoa alcançada por duas
     // campanhas conta duas vezes aqui. Com uma campanha só está certo; com
     // várias, o número é teto, não verdade. A nota embaixo da tabela diz isso.
-    {n:'Alcance',            v:T.reach,  fonte:'Meta',  tem:T.reach>0, nota:'soma'},
-    {n:'Viu o vídeo (3s)',   v:T.vv,     fonte:'Meta',  tem:T.vv>0},
+    {n:'Alcance',            v:T.reach,  fonte:'Meta',  tem:true, nota:'soma'},
+    {n:'Viu o vídeo (3s)',   v:T.vv,     fonte:'Meta',  tem:true},
+    {n:'Vídeo 25%',          v:T.v25,    fonte:'Meta',  tem:true},
+    {n:'Vídeo 50%',          v:T.v50,    fonte:'Meta',  tem:true},
+    {n:'Vídeo 75%',          v:T.v75,    fonte:'Meta',  tem:true},
     {n:'Cliques no anúncio', v:T.clicks, fonte:'Meta',  tem:true},
     {n:'Chegou na página',   v:T.lpv,    fonte:'Meta',  tem:true, taxa:'show rate'},
     {n:'Deu play na VSL',    v:f?f.plays:0,   fonte:'VTurb', tem:!semVturb, taxa:'play rate'},
@@ -3937,6 +3960,23 @@ function renderFunilCompleto(A){
     {n:'Iniciou checkout',   v:T.ic,     fonte:'Meta',  tem:true},
     {n:'Comprou',            v:T.front,  fonte:(fonteAtiva()==='hw'?'H&amp;W':'pixel'), tem:true}
   ];
+
+  // ── Furo de medição ───────────────────────────────────────────────────────
+  // Um degrau não pode ter MENOS gente que um degrau mais abaixo: o play
+  // acontece dentro da página, o checkout depois do play. Quando isso aparece,
+  // o número de cima não é uma queda, é um evento que não está sendo
+  // registrado. Foi o que aconteceu em 21/11/2026: "chegou na página" veio
+  // zerado enquanto o VTurb via 58 plays, e o diagnóstico anunciou "293
+  // pessoas somem aqui", que era falso e mandava consertar a página errada.
+  //
+  // Zero com degrau posterior positivo vira "sem medição": sai da corrente de
+  // conversão, sai da conta da maior queda, e é denunciado embaixo.
+  passos.forEach((p,i)=>{
+    if(!p.tem) return;
+    const maiorDepois=Math.max(0,...passos.slice(i+1).filter(x=>x.tem).map(x=>x.v||0));
+    if((p.v||0)===0 && maiorDepois>0){ p.semMedicao=true; p.tem=false; }
+  });
+  const furos=passos.filter(p=>p.semMedicao);
 
   // Escala logarítmica: de impressão para venda são várias ordens de grandeza,
   // e em escala linear todo degrau depois do clique vira um fio invisível.
@@ -3970,7 +4010,7 @@ function renderFunilCompleto(A){
           ${ehPior?'box-shadow:0 0 0 2px #c5221f55':''}"></div>
         <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:9px;
           font-size:12px;font-weight:700;color:#fff;mix-blend-mode:difference">
-          ${p.tem?fmtNum(p.v):'sem dado'}</div>
+          ${p.tem?fmtNum(p.v):(p.semMedicao?'sem medição':'sem dado')}</div>
       </div>
       <div style="flex:0 0 92px;font-size:12px;text-align:right;font-weight:700;color:${ehPior?'#c5221f':'#555'}">
         ${conv!=null?(conv>=10?conv.toFixed(0):conv.toFixed(1))+'%':'—'}</div>
@@ -4008,6 +4048,13 @@ function renderFunilCompleto(A){
       <div style="flex:0 0 96px;text-align:right">custo</div>
     </div>
     ${linhas}
+    ${furos.length?`<div style="margin-top:10px;padding:10px 12px;background:#fff3cd;border-left:4px solid #ffc107;border-radius:6px">
+      <b>${furos.length===1?'Um degrau não está sendo medido':'Degraus não estão sendo medidos'}: ${furos.map(p=>esc(p.n)).join(', ')}.</b>
+      <div class="mini" style="text-transform:none;margin-top:4px;line-height:1.6">
+        Deu zero, mas um degrau mais abaixo tem gente, e isso é impossível: ninguém dá play sem estar na página,
+        nem compra sem passar pelo checkout. Então o zero é o evento que não chega ao Meta, não é queda de público.
+        Tirei esses degraus da conta de conversão e do diagnóstico abaixo, senão eles apontariam para o lugar errado.
+        Vale conferir se o pixel está disparando na página da VSL.</div></div>`:''}
     ${avisoVturb}
     ${(T.reach>0 && A.rows.length>1)?`<div class="mini" style="margin-top:6px;color:#b08900;text-transform:none">
       O <b>alcance</b> está somado entre ${A.rows.length} campanhas, e alcance não se soma: quem foi alcançado por duas
