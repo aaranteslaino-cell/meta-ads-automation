@@ -240,6 +240,7 @@ if(typeof S.vtToken !== 'string') S.vtToken = '';
 // 'hw' (só comissão confirmada) ou 'pixel'.
 if(typeof S.fonteReceita !== 'string') S.fonteReceita = 'auto';
 S._vendas = null;
+S._funil = null; S._funilLoading = false; S._funilErro = null;
 if(typeof S.vslGrupo !== 'string') S.vslGrupo = '';
 S._vsl = null; S._vslLoading = false; S._vslErro = null;
 // Só existe um funil aqui. A checagem contra FUNNELS evita a tela em branco
@@ -315,7 +316,7 @@ S._pesquisa = null;       // painel da pesquisa de onboarding cruzada com compra
 S._pesquisaLoading = false;
 
 function loadState(){ try{ return JSON.parse(localStorage.getItem('mao_arnutra_state')); }catch(e){ return null; } }
-function saveState(){ try{ localStorage.setItem('mao_arnutra_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, _campCache:null, _contasBarradas:{}, _arqCache:null, _arqContas:null, _vendas:null, _vsl:null, _vslLoading:false, _vslErro:null, refreshing:false})); }catch(e){} }
+function saveState(){ try{ localStorage.setItem('mao_arnutra_state', JSON.stringify({...S, data:[], accounts:[], _rev:null, _comp:null, _exec:{}, _otim:null, _intraday:null, _funis:null, _topAds:null, _topPub:null, _crossover:null, _crossoverRate:null, _crossoverTipos:null, _crossoverCAC:null, _pesquisa:null, _sheet:null, _sheetLoading:false, _refData:null, _critAnalise:null, _refLoading:false, _revFunilLoading:false, _diag:null, _diagLoading:false, _gsSending:false, _directApi:null, _directLoading:false, _sessaoApi:null, _sessaoLoading:false, _rcApi:null, _rcLoading:false, _tfLeads:null, _tfLoading:false, _geralRev:null, _geralRevLoading:false, _resumo:null, _resumoLoading:null, _campCache:null, _contasBarradas:{}, _arqCache:null, _arqContas:null, _vendas:null, _funil:null, _funilLoading:false, _funilErro:null, _vsl:null, _vslLoading:false, _vslErro:null, refreshing:false})); }catch(e){} }
 
 // Reaproveita tokens do monitor (mam_state) e da automação (maa_state)
 // A tela original puxava os tokens do monitor e da automação do IniciAmazon
@@ -414,7 +415,7 @@ function rotuloProduto(){
   return l.length===1 ? ('💊 '+l[0].nome) : '🌐 Todos os produtos';
 }
 function setProduto(p){
-  S.produto=p||'';
+  S.produto=p||''; S._funil=null;
   // o comparativo e a curva do dia são do recorte anterior; recarregam sozinhos
   S.selCampaign=''; S._comp=null; S._intraday=null;
   saveState(); render();
@@ -3854,6 +3855,152 @@ function renderVSL(A){
   </div>`;
 }
 
+// ── Funil completo, do anúncio à venda ──────────────────────────────────────
+//
+// Junta as três fontes numa leitura só, que é a pergunta que o Arthur faz
+// todo dia: em que degrau o dinheiro está parando.
+//
+//   impressão → clique → page view        vêm do Meta
+//   play da VSL → chegou no pitch         vêm do VTurb
+//   checkout iniciado                     vem do Meta
+//   venda                                 vem do pixel ou do checkout H&W
+//
+// CUIDADO QUE JUSTIFICA O AVISO NA TELA: os degraus não são medidos pelo mesmo
+// instrumento. O "page view" é o pixel do Meta disparando na página; o "play"
+// é o player do VTurb carregando. Medem coisas diferentes, no mesmo momento, e
+// cada um perde gente de um jeito. Por isso a passagem entre esses dois pode
+// dar acima de 100% sem que nada esteja quebrado, e por isso a tela marca de
+// onde vem cada número em vez de fingir que é tudo a mesma régua.
+
+function setFunilAberto(v){ S.funilAberto=!!v; saveState(); render(); }
+function recarregarFunil(){ S._funil=null; S._funilErro=null; carregarFunil(); }
+
+async function carregarFunil(){
+  if(S._funilLoading) return;
+  S._funilLoading=true; S._funilErro=null; render();
+  try{
+    // reaproveita a lista de players do teste de VSL; sem ela não há o que medir
+    if(!S._vsl) await carregarVSL();
+    const linhas=(S._vsl&&S._vsl.linhas)||[];
+    const w=sheetWindow();
+    // A janela da tela é horário de Brasília. O VTurb responde em UTC, e
+    // perguntar com o fuso errado corta horas de dado em silêncio.
+    const ini=vtUTC(new Date(w.since+'T00:00:00-03:00'));
+    const fim=vtUTC(new Date(addDaysStr(w.until,1)+'T00:00:00-03:00'));
+    let plays=0, pitch=0, cliques=0, responderam=0;
+    for(const l of linhas){
+      try{
+        const corpo={player_id:l.id, start_date:ini, end_date:fim,
+                     video_duration:l.dur||1, timezone:'UTC'};
+        if(l.pitch>0) corpo.pitch_time=l.pitch;
+        const st=await vturb('/sessions/stats', corpo);
+        plays+=vtNum(st.total_started);
+        pitch+=vtNum(st.total_over_pitch);
+        cliques+=vtNum(st.total_clicked);
+        responderam++;
+      }catch(e){ console.warn('[funil] player', l.id, e && e.message); }
+    }
+    // pitch só vale quando ao menos um player tem o pitch configurado; com
+    // pitch_time zero o VTurb devolve "todo mundo passou", que é falso
+    const temPitch=linhas.some(l=>l.pitch>0);
+    S._funil={plays, pitch, cliques, responderam, temPitch, players:linhas.length};
+  }catch(e){ S._funilErro=(e&&e.message)||String(e); }
+  S._funilLoading=false; render();
+}
+
+function renderFunilCompleto(A){
+  const T=A.T, f=S._funil;
+  const cab=`<h2>🪜 Funil completo <span class="mini" style="text-transform:none">do anúncio à venda · ${A.days} dia(s)</span>
+    <button class="btn btn-gray btn-sm" style="float:right;padding:4px 10px" onclick="recarregarFunil()">↻ Atualizar</button></h2>`;
+
+  if(S._funilLoading) return `<div class="card">${cab}<div class="empty"><span class="loading"></span> Montando o funil…</div></div>`;
+  if(S._funil==null && !S._funilErro){ setTimeout(carregarFunil,0);
+    return `<div class="card">${cab}<div class="empty"><span class="loading"></span> Carregando…</div></div>`; }
+
+  const semVturb = !f || !f.responderam;
+  const passos=[
+    {n:'Impressões',        v:T.imp,    fonte:'Meta',  tem:true},
+    {n:'Cliques no anúncio',v:T.clicks, fonte:'Meta',  tem:true},
+    {n:'Chegou na página',  v:T.lpv,    fonte:'Meta',  tem:true},
+    {n:'Deu play na VSL',   v:f?f.plays:0,  fonte:'VTurb', tem:!semVturb},
+    {n:'Chegou no pitch',   v:f?f.pitch:0,  fonte:'VTurb', tem:!semVturb && !!f.temPitch},
+    {n:'Iniciou checkout',  v:T.ic,     fonte:'Meta',  tem:true},
+    {n:'Comprou',           v:T.front,  fonte:(fonteAtiva()==='hw'?'H&amp;W':'pixel'), tem:true}
+  ];
+
+  // Escala logarítmica: de impressão para venda são várias ordens de grandeza,
+  // e em escala linear todo degrau depois do clique vira um fio invisível.
+  const maxV=Math.max(1,...passos.filter(p=>p.tem).map(p=>p.v));
+  const larg=v=>Math.max(1.5, (Math.log10((v||0)+1)/Math.log10(maxV+1))*100);
+
+  // maior queda entre degraus seguidos que tenham dado
+  let pior=null, antQ=null;
+  passos.forEach(p=>{
+    if(!p.tem) return;
+    if(antQ && antQ.v>0){
+      const perda=antQ.v-p.v, taxa=p.v/antQ.v;
+      if(perda>0 && (!pior || taxa<pior.taxa)) pior={de:antQ.n, para:p.n, taxa, perda};
+    }
+    antQ=p;
+  });
+
+  let ant=null;
+  const linhas=passos.map((p,i)=>{
+    const conv = (p.tem && ant && ant.v>0) ? (p.v/ant.v*100) : null;
+    const custo = (p.tem && p.v>0) ? T.spend/p.v : null;
+    const ehPior = pior && pior.para===p.n;
+    const cor = !p.tem ? '#c9c9d2' : ehPior ? '#c5221f' : (i===passos.length-1 ? '#137333' : '#7b2ff7');
+    if(p.tem) ant=p;
+    return `<div style="display:flex;align-items:center;gap:10px;margin:7px 0">
+      <div style="flex:0 0 150px;font-size:13px;text-align:right">
+        ${esc(p.n)} <span class="mini" style="opacity:.55">${p.fonte}</span></div>
+      <div style="flex:1;min-width:0;background:#f2f2f6;border-radius:6px;height:26px;position:relative">
+        <div style="width:${p.tem?larg(p.v).toFixed(1):0}%;height:100%;background:${cor};border-radius:6px;
+          ${ehPior?'box-shadow:0 0 0 2px #c5221f55':''}"></div>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;padding-left:9px;
+          font-size:12px;font-weight:700;color:#fff;mix-blend-mode:difference">
+          ${p.tem?fmtNum(p.v):'sem dado'}</div>
+      </div>
+      <div style="flex:0 0 92px;font-size:12px;text-align:right;font-weight:700;color:${ehPior?'#c5221f':'#555'}">
+        ${conv!=null?(conv>=10?conv.toFixed(0):conv.toFixed(1))+'%':'—'}</div>
+      <div style="flex:0 0 96px;font-size:12px;text-align:right;color:#888">
+        ${custo!=null?fmtMoney(custo):'—'}</div>
+    </div>`;
+  }).join('');
+
+  const avisoVturb = semVturb
+    ? `<div class="mini" style="margin-top:8px;color:#b08900;text-transform:none">
+        Os dois degraus da VSL estão vazios porque o VTurb não respondeu para este período.</div>`
+    : (!f.temPitch
+      ? `<div class="mini" style="margin-top:8px;color:#b08900;text-transform:none">
+          O degrau <b>chegou no pitch</b> ficou de fora: nenhum dos ${f.players} player(s) tem o pitch configurado no VTurb,
+          e sem isso ele responde que todo mundo passou, o que seria falso.</div>`
+      : '');
+
+  const diagnostico = pior
+    ? `<div style="margin-top:12px;padding:10px 12px;background:#fdecea;border-left:4px solid #c5221f;border-radius:6px">
+        <b>Maior queda: ${esc(pior.de)} → ${esc(pior.para)}.</b>
+        Passam só <b>${(pior.taxa*100)>=10?(pior.taxa*100).toFixed(0):(pior.taxa*100).toFixed(1)}%</b>,
+        ou seja <b>${fmtNum(pior.perda)}</b> pessoa(s) somem aí. É o degrau que mais devolve dinheiro se for consertado.</div>`
+    : '';
+
+  return `<div class="card">${cab}
+    <div class="mini" style="text-transform:none;margin-bottom:10px;color:#888">
+      Largura em escala logarítmica, senão tudo depois do clique vira um fio.
+      A coluna do meio é quantos <b>passaram do degrau anterior</b>; a da direita é o <b>custo por pessoa</b> naquele degrau.
+      Cada número traz a fonte ao lado: Meta e VTurb medem coisas diferentes no mesmo momento, então a passagem entre
+      <b>chegou na página</b> e <b>deu play</b> pode dar acima de 100% sem nada estar quebrado.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.3px">
+      <div style="flex:0 0 150px"></div><div style="flex:1"></div>
+      <div style="flex:0 0 92px;text-align:right">do anterior</div>
+      <div style="flex:0 0 96px;text-align:right">custo</div>
+    </div>
+    ${linhas}
+    ${avisoVturb}
+    ${diagnostico}
+  </div>`;
+}
+
 function renderDashboard(A){
   // Leitura histórica: tudo que está na tela já foi desligado.
   const avisoPausadas = A.soPausadas ? `<div class="card" style="background:#fff8e1;border-left:4px solid #ffc107">
@@ -3879,7 +4026,7 @@ function renderDashboard(A){
   // mostrar sem histórico de otimização, e as ações recomendadas liam o nome da
   // campanha no padrão do IniciAmazon, então sugeriam bobagem nesta operação.
   // As funções continuam no arquivo, é só devolver na linha abaixo para voltar.
-  return avisoPausadas+renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderVSL(A)+renderComparativoCard(A)+renderContas(A)+renderDimensions(A)+perpDetailCard()+renderTable(A);
+  return avisoPausadas+renderFunilCompleto(A)+renderKPIs(A)+renderAlvos(A)+renderGoodBad(A)+renderVSL(A)+renderComparativoCard(A)+renderContas(A)+renderDimensions(A)+perpDetailCard()+renderTable(A);
 }
 
 // ── Relatório na planilha (Apps Script Web App) ─────────────────────────────
@@ -5759,7 +5906,7 @@ function renderAcompanhamento(A){
 }
 
 // ── Ações de UI ─────────────────────────────────────────────────────────────
-function setPeriod(p){ S.period=p; S._directApi=null; S._sessaoApi=null; S._rcApi=null; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState();
+function setPeriod(p){ S.period=p; S._funil=null; S._directApi=null; S._sessaoApi=null; S._rcApi=null; S._intraday=null; S._funis=null; S._topAds=null; S._topPub=null; S._crossover=null; S._crossoverRate=null; S._crossoverTipos=null; S._crossoverCAC=null; S._pesquisa=null; saveState();
   // A Visão Geral usa S.data para o gasto do Perpétuo, então precisa rebuscar
   // sempre. Sem isto, quem viesse de Sessão ou Direct veria o Perpétuo com o
   // gasto do período anterior enquanto o resto da tela já mostrava o novo.
