@@ -24,6 +24,7 @@ ARQUIVOS=(
   meta-ads-catalogos.html
   meta-ads-monitor.html
   index.html
+  briefing-catalogo.html
 )
 
 cd "$DESTINO"

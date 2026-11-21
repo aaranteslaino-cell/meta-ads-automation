@@ -1,0 +1,1864 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Briefing de Catálogo Meta</title>
+<style>
+:root{--bg:#f5f6f8;--card:#fff;--txt:#1a1a1a;--mut:#666;--bor:#e3e5e9;--rox:#7b2ff7;--verd:#137333;--verm:#c5221f;--amar:#b08900}
+body.dark{--bg:#15171c;--card:#1d2027;--txt:#e8eaed;--mut:#9aa0a6;--bor:#2f333c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1280px;margin:0 auto;padding:18px}
+h1{font-size:22px;margin:0 0 2px;color:var(--rox)}
+h2{font-size:15px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.04em;color:var(--mut)}
+.sub{color:var(--mut);margin:0 0 16px}
+.card{background:var(--card);border:1px solid var(--bor);border-radius:12px;padding:16px;margin-bottom:14px}
+label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px;font-weight:600}
+input,select,textarea{width:100%;padding:8px 10px;border:1px solid var(--bor);border-radius:8px;background:var(--card);color:var(--txt);font:inherit}
+textarea{resize:vertical;min-height:80px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>div{flex:1;min-width:150px}
+.btn{padding:9px 16px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-rox{background:var(--rox);color:#fff}
+.btn-cinza{background:var(--bor);color:var(--txt)}
+.btn-verm{background:var(--verm);color:#fff}
+.btn-sm{padding:5px 10px;font-size:12px}
+.mini{font-size:12px;color:var(--mut)}
+.aviso{padding:10px 12px;border-radius:8px;font-size:13px;margin-top:10px}
+.aviso.erro{background:rgba(197,34,31,.12);color:var(--verm)}
+.aviso.ok{background:rgba(19,115,51,.12);color:var(--verd)}
+.aviso.alerta{background:rgba(176,137,0,.12);color:var(--amar)}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--bor);color:var(--txt)}
+hr{border:0;border-top:1px solid var(--bor);margin:14px 0}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;text-transform:uppercase;color:var(--mut);padding:6px 8px;border-bottom:1px solid var(--bor)}
+td{padding:6px 8px;border-bottom:1px solid var(--bor);vertical-align:middle}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 420px;gap:16px;align-items:start}
+@media (max-width:980px){.layout{grid-template-columns:1fr}}
+.sticky{position:sticky;top:14px}
+.brief{background:#0d1117;color:#c9d1d9;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;padding:12px;border-radius:8px;max-height:calc(100vh - 220px);overflow:auto;white-space:pre-wrap;word-break:break-word;min-height:240px}
+.check{display:flex;align-items:flex-start;gap:8px;font-size:13px;color:var(--txt);font-weight:400;margin:0}
+.check input{width:auto;margin-top:2px}
+.acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.hidden{display:none !important}
+.ok-flash{color:var(--verd);font-size:12px;font-weight:600}
+.pasta-nome{font-size:13px;color:var(--txt);font-weight:600}
+#tabelaWrap{margin-top:12px;max-height:360px;overflow:auto}
+.critico{border:2px solid var(--amar);background:rgba(176,137,0,.12);border-radius:12px;padding:14px;margin:0 0 12px}
+.critico h3{margin:0 0 8px;color:var(--amar);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.seq{margin:8px 0 0;padding-left:22px;line-height:1.7;color:var(--txt)}
+.white-box{border:2px solid var(--rox);background:rgba(123,47,247,.08);border-radius:12px;padding:14px;margin-bottom:12px}
+.preview{padding:10px 12px;border-radius:8px;background:rgba(19,115,51,.12);color:var(--verd);font-weight:700;font-size:13px;margin-top:10px}
+details.config-envio>summary,details.ou-digite>summary{cursor:pointer;font-weight:600;color:var(--mut);list-style:none}
+details.config-envio>summary{text-transform:uppercase;letter-spacing:.04em;font-size:13px}
+details.config-envio>summary::-webkit-details-marker,details.ou-digite>summary::-webkit-details-marker{display:none}
+details.config-envio>summary:before,details.ou-digite>summary:before{content:"▸ ";}
+details.config-envio[open]>summary:before,details.ou-digite[open]>summary:before{content:"▾ ";}
+details.ou-digite{margin-top:8px}
+.chave-wrap{display:flex;gap:8px;align-items:center}
+.chave-wrap input{flex:1}
+.token-linha{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid var(--bor);font-size:13px}
+#envioStatus{margin:8px 0 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:4px">
+    <div>
+      <h1>Briefing de Catálogo Meta</h1>
+      <p class="sub">Preencha os campos e envie o briefing para eu executar. Nada daqui sobe sozinho no Meta.</p>
+    </div>
+    <button type="button" class="btn btn-cinza btn-sm" id="btnTema" title="Alternar tema">🌙</button>
+  </div>
+
+  <div class="card">
+    <h2>Modelos salvos</h2>
+    <div class="row">
+      <div style="flex:2"><label>Nome do modelo</label>
+        <input id="modeloNome" placeholder="ex.: Linfozen catálogo frente 06"></div>
+      <div style="flex:0 0 auto"><button type="button" class="btn btn-rox" id="btnSalvarModelo">Salvar modelo</button></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div style="flex:2"><label>Carregar um modelo salvo</label>
+        <select id="modeloSel"><option value="">escolher…</option></select></div>
+      <div style="flex:0 0 auto" class="acoes">
+        <button type="button" class="btn btn-cinza" id="btnCarregarModelo">Carregar</button>
+        <button type="button" class="btn btn-cinza" id="btnExcluirModelo">Excluir</button>
+      </div>
+    </div>
+    <div class="mini" style="margin-top:8px">Os modelos e o que você digita ficam só neste navegador. Token colado e chave de envio ficam em chaves à parte, só neste arquivo — não entram no briefing nem no envio.</div>
+    <div id="modeloMsg"></div>
+  </div>
+
+  <div class="layout">
+    <div>
+      <div class="card" id="cardMeta">
+        <h2>Conectar ao Meta</h2>
+        <div class="mini" id="metaOrigemHint" style="margin-bottom:10px"></div>
+        <div id="metaTokens"></div>
+        <div class="row" style="margin-top:10px">
+          <div style="flex:2">
+            <label>Colar token (fica só neste navegador)</label>
+            <input id="tokenColar" type="password" autocomplete="new-password" spellcheck="false" placeholder="cole o token aqui">
+          </div>
+          <div style="flex:0 0 auto">
+            <button type="button" class="btn btn-cinza" id="btnAddToken">Adicionar</button>
+          </div>
+        </div>
+        <div class="acoes" style="margin-top:10px">
+          <button type="button" class="btn btn-rox" id="btnConectar">Conectar</button>
+          <span id="metaStatus" class="mini"></span>
+        </div>
+        <div id="metaMsg"></div>
+      </div>
+
+      <div class="card">
+        <h2>1 · Conta e destino</h2>
+        <input type="hidden" id="negocioDonoId">
+        <input type="hidden" id="contaAnuncioId">
+        <input type="hidden" id="catExistenteId">
+        <input type="hidden" id="catExistenteCount">
+        <input type="hidden" id="pixelId">
+        <input type="hidden" id="paginaId">
+        <input type="hidden" id="instagramId">
+        <input type="hidden" id="receitaId">
+        <div class="row">
+          <div style="flex:2"><label>Operação ou produto</label>
+            <input id="operacao" placeholder="ex.: Linfozen, CogniClear…"></div>
+          <div><label>BM ou token (só o nome)</label>
+            <input id="bmToken" placeholder="ex.: BM Nath, token principal"></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div>
+            <label>Negócio dono</label>
+            <div id="wrapNegocioSel" class="hidden">
+              <select id="negocioDonoSel"></select>
+            </div>
+            <details class="ou-digite" id="detNegocio"><summary class="mini">Ou digite</summary>
+              <input id="negocioDono" placeholder="nome do negócio no Commerce Manager" style="margin-top:6px">
+            </details>
+          </div>
+          <div>
+            <label>Conta de anúncio</label>
+            <div id="wrapContaSel" class="hidden">
+              <select id="contaAnuncioSel"></select>
+            </div>
+            <details class="ou-digite" id="detConta"><summary class="mini">Ou digite</summary>
+              <input id="contaAnuncio" placeholder="nome ou ID da conta" style="margin-top:6px">
+            </details>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div><label>Ação</label>
+            <select id="acao">
+              <option value="novo">Criar catálogo novo</option>
+              <option value="existente">Adicionar itens a um catálogo que já existe</option>
+            </select></div>
+        </div>
+        <div class="row" style="margin-top:12px" id="blocoNovo">
+          <div style="flex:2"><label>Nome do catálogo novo</label>
+            <input id="catNome" placeholder="CATALOGO NATH FRONT 06"></div>
+          <div style="flex:2"><label>Tipo de catálogo (não dá para mudar depois)</label>
+            <select id="tipoCatalogo"></select></div>
+        </div>
+        <div class="hidden" style="margin-top:12px" id="blocoExistente">
+          <label>Catálogo existente</label>
+          <div id="wrapCatSel" class="hidden">
+            <select id="catExistenteSel"></select>
+          </div>
+          <details class="ou-digite" id="detCat"><summary class="mini">Ou digite</summary>
+            <input id="catExistente" placeholder="nome do catálogo que já existe" style="margin-top:6px">
+          </details>
+        </div>
+        <div style="margin-top:12px">
+          <label>Conjunto de dados (o “Conecte seus dados”)</label>
+          <div id="wrapPixelSel" class="hidden">
+            <select id="pixelSel"></select>
+          </div>
+          <details class="ou-digite" id="detPixel"><summary class="mini">Ou digite</summary>
+            <input id="pixel" placeholder="nome do pixel — deixe vazio para não conectar" style="margin-top:6px">
+          </details>
+        </div>
+        <div class="mini" style="margin-top:8px">Os catálogos que já rodam nesta operação são todos do tipo <b>commerce</b> (“Produtos online”) e estão ligados a um pixel. Sem conjunto de dados, um catálogo novo sai diferente dos atuais.</div>
+        <div id="avisoTipo" class="aviso alerta hidden">⚠️ Tipo diferente de “Produtos online”. Os seus catálogos que rodam hoje são todos Produtos online, e é nesse tipo que o anúncio de catálogo Advantage+ de vendas e o botão 📹 foram testados. Outros tipos têm colunas diferentes na tela e podem não servir para esse anúncio.</div>
+      </div>
+
+      <div class="card">
+        <h2>2 · Campos iguais em todos os itens</h2>
+        <div class="white-box">
+          <label>Imagem white (obrigatória)</label>
+          <div class="mini" style="margin-bottom:8px">Uma única imagem branca/neutra que entra em <b>todos os produtos</b> na criação do catálogo. O vídeo de cada produto só sobe depois do delay, após a campanha.</div>
+          <div class="row">
+            <div style="flex:0 0 auto">
+              <input type="file" id="whiteInput" class="hidden" accept="image/*">
+              <button type="button" class="btn btn-rox" id="btnWhite">Escolher imagem white</button>
+            </div>
+            <div style="flex:1"><div class="pasta-nome" id="whiteNomeExibido">Nenhuma imagem escolhida</div></div>
+          </div>
+          <div style="margin-top:12px">
+            <label>Caminho da imagem white no Mac (opcional)</label>
+            <input id="whiteCaminho" placeholder="~/Downloads/IMG CATALOGO.png">
+          </div>
+          <div id="avisoWhite"></div>
+        </div>
+        <div class="row">
+          <div style="flex:2"><label>URL de destino (já com as UTMs, se houver)</label>
+            <input id="url" placeholder="https://exemplo.com/oferta?utm_source=meta&amp;utm_medium=ads&amp;utm_campaign=..."></div>
+          <div><label>Preço</label>
+            <input id="preco" placeholder="1,00"></div>
+          <div style="flex:0 0 110px"><label>Moeda</label>
+            <select id="moeda">
+              <option>BRL</option>
+              <option>USD</option>
+              <option>EUR</option>
+            </select></div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div style="flex:2"><label>Texto do anúncio (campo <code>brand</code> — é o título do produto)</label>
+            <input id="brand" placeholder="você precisa ver essa nova descoberta!"></div>
+        </div>
+        <div style="margin-top:12px">
+          <label>Descrição</label>
+          <textarea id="description" rows="3" placeholder="Últimas vagas!!"></textarea>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <div><label>Disponibilidade</label>
+            <select id="availability">
+              <option value="in stock">in stock — em estoque</option>
+              <option value="out of stock">out of stock — sem estoque</option>
+              <option value="preorder">preorder — pré-venda</option>
+              <option value="available for order">available for order — disponível para pedido</option>
+            </select></div>
+          <div><label>Condição</label>
+            <select id="condition">
+              <option value="new">new — novo</option>
+              <option value="refurbished">refurbished — recondicionado</option>
+              <option value="used">used — usado</option>
+            </select></div>
+          <div><label>Variantes por produto (padrão)</label>
+            <input id="variantesPadrao" type="number" min="1" max="50" value="4"></div>
+        </div>
+        <div class="mini" style="margin-top:8px">As variantes <b>não</b> nascem agora: só no passo 5, depois do vídeo em todos os produtos. Preço, disponibilidade e condição são exigência da API (nos catálogos atuais: R$ 1,00 · in stock · new).</div>
+      </div>
+
+      <div class="card">
+        <h2>3 · Grupos de criativo</h2>
+        <div class="mini" style="margin-bottom:10px">Escolha a pasta do lote (até 100 produtos; as pastas vão de 100 em 100: 1–100, 101–200…). O principal é o <b>vídeo</b>: cada vídeo vira um produto, com o nome do arquivo (sem extensão). Imagens com o mesmo nome, se houver, são listadas junto. A imagem inicial de todos os produtos é a <b>imagem white</b> da parte 2.</div>
+        <div class="row">
+          <div style="flex:2"><label>Caminho da pasta no Mac</label>
+            <input id="pastaCaminho" placeholder="~/Downloads/criativos">
+            <div class="mini" style="margin-top:6px">O navegador não revela o caminho absoluto. Preencha se quiser que eu encontre a pasta no seu Mac.</div>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px;align-items:center">
+          <div style="flex:0 0 auto">
+            <input type="file" id="pastaInput" class="hidden" webkitdirectory directory multiple>
+            <button type="button" class="btn btn-rox" id="btnEscolherPasta">Escolher pasta</button>
+          </div>
+          <div style="flex:1">
+            <div class="pasta-nome" id="pastaNomeExibido">Nenhuma pasta escolhida</div>
+          </div>
+          <div style="flex:0 0 auto"><span class="pill" id="resumoGrupos">0 grupo(s) · 0 imagem(ns) · 0 vídeo(s)</span></div>
+        </div>
+        <div id="avisoPasta"></div>
+        <div id="tabelaWrap" class="hidden">
+          <table>
+            <thead><tr><th>Grupo</th><th>Tipo</th><th>Arquivos</th></tr></thead>
+            <tbody id="tabelaGrupos"></tbody>
+          </table>
+        </div>
+        <div id="avisoNomes"></div>
+      </div>
+
+      <div class="card">
+        <h2>4 · Sequência automática e campanha</h2>
+        <div class="critico">
+          <h3>⚠ Sequência automática — o delay do vídeo é crítico</h3>
+          <ol class="seq">
+            <li>Criar o catálogo com a <b>imagem white</b> em todos os produtos</li>
+            <li>Criar os conjuntos de produtos</li>
+            <li>Subir a(s) campanha(s) conforme a estrutura, com o catálogo ativo</li>
+            <li>Após o <b>delay</b>, subir o <b>vídeo</b> em todos os produtos</li>
+            <li>Depois do vídeo em todos, criar as <b>variantes</b></li>
+          </ol>
+          <div class="row" style="margin-top:12px">
+            <div style="max-width:240px">
+              <label>Delay do vídeo (minutos)</label>
+              <input id="delayVideo" type="number" min="0" max="480" value="60">
+            </div>
+          </div>
+          <div class="mini" style="margin-top:8px">No fluxo “tudo de uma vez”, a extensão sobe o vídeo quando o anúncio é <b>aprovado</b> (consulta de 2 em 2 min), com prazo-limite de 4 horas. No fluxo só de catálogo, o delay é um relógio fixo (padrão <b>60 minutos</b> depois de carregar os produtos). O navegador precisa permanecer aberto (pode minimizar; não pode dormir nem desligar).</div>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="criarSets" checked>
+          <span><b>Criar conjuntos de produtos</b> (passo 2 da sequência)</span>
+        </label>
+        <div id="blocoDividir" style="margin-top:12px">
+          <label>Como dividir os conjuntos</label>
+          <select id="dividirSets">
+            <option value="Um conjunto por grupo de criativo, filtrando pelo nome">Um conjunto por grupo de criativo, filtrando pelo nome</option>
+            <option value="Um único conjunto com todos os grupos">Um único conjunto com todos os grupos</option>
+            <option value="Outra lógica (descrever nas observações)">Outra lógica (descrever nas observações)</option>
+          </select>
+        </div>
+        <hr>
+        <label class="check">
+          <input type="checkbox" id="subirCampanha">
+          <span><b>Subir campanha de catálogo em seguida</b> (passo 3), pela ferramenta de campanhas, com o catálogo ativo</span>
+        </label>
+        <div id="blocoCampanha" class="hidden" style="margin-top:12px">
+          <div>
+            <label>Estrutura de subida</label>
+            <select id="estrutura">
+              <option value="por_campanha">Um produto por campanha</option>
+              <option value="por_conjunto">Um produto por conjunto</option>
+              <option value="por_anuncio" selected>Um produto por anúncio</option>
+            </select>
+            <div class="mini" style="margin-top:6px">Cada produto vira um conjunto de produtos do catálogo, usado na campanha, no conjunto ou no anúncio — conforme a opção. O Meta aceita no máximo 50 anúncios por conjunto. O fluxo “tudo de uma vez” da extensão sobe, por padrão, um anúncio por produto.</div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div id="blocoAdsPorSet" class="hidden">
+              <label>Anúncios por conjunto (produtos por conjunto)</label>
+              <input id="anunciosPorConjunto" type="number" min="1" max="50" value="50">
+            </div>
+            <div id="blocoSetsPorCamp" class="hidden">
+              <label>Conjuntos por campanha</label>
+              <input id="conjuntosPorCampanha" type="number" min="1" max="100" value="1">
+            </div>
+          </div>
+          <div class="preview" id="previewEstrutura">0 produtos → 0 campanha(s), 0 conjunto(s), 0 anúncio(s)</div>
+          <div id="avisoEstrutura"></div>
+          <div style="margin-top:12px">
+            <label>Receita de campanha (da automação)</label>
+            <div id="wrapReceitaSel" class="hidden">
+              <select id="receitaSel"></select>
+            </div>
+            <details class="ou-digite" id="detReceita"><summary class="mini">Ou digite</summary>
+              <input id="receita" placeholder="nome da receita salva" style="margin-top:6px">
+            </details>
+            <div class="mini" style="margin-top:6px" id="dicaReceita">As receitas vêm de <code>maa_receitas</code>, na mesma origem da ferramenta de campanhas. Aberto como arquivo local, essa lista não aparece — publique o painel ou digite o nome.</div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div>
+              <label>Página do Facebook</label>
+              <div id="wrapPaginaSel" class="hidden">
+                <select id="paginaSel"></select>
+              </div>
+              <details class="ou-digite" id="detPagina"><summary class="mini">Ou digite</summary>
+                <input id="pagina" placeholder="nome ou ID da página" style="margin-top:6px">
+              </details>
+            </div>
+            <div>
+              <label>Instagram</label>
+              <div id="wrapIgSel" class="hidden">
+                <select id="instagramSel"></select>
+              </div>
+              <details class="ou-digite" id="detIg"><summary class="mini">Ou digite</summary>
+                <input id="instagram" placeholder="usuário ou ID" style="margin-top:6px">
+              </details>
+            </div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div style="flex:2"><label>Nome da campanha</label>
+              <input id="campNome" placeholder="Ex: Campanha Julho - Produto X"></div>
+            <div><label>Objetivo</label>
+              <select id="objetivo">
+                <option value="OUTCOME_SALES">Vendas</option>
+                <option value="OUTCOME_LEADS">Leads</option>
+                <option value="OUTCOME_TRAFFIC">Tráfego</option>
+                <option value="OUTCOME_ENGAGEMENT">Engajamento</option>
+                <option value="OUTCOME_AWARENESS">Reconhecimento de marca</option>
+                <option value="OUTCOME_APP_PROMOTION">Promoção de App</option>
+              </select></div>
+            <div><label>Orçamento (R$)</label>
+              <input id="orcamento" type="number" min="0" step="0.01" placeholder="0,00"></div>
+            <div><label>Tipo de orçamento</label>
+              <select id="tipoOrcamento">
+                <option value="CBO diário">CBO diário</option>
+                <option value="ABO diário">ABO diário</option>
+                <option value="CBO vitalício">CBO vitalício</option>
+                <option value="ABO vitalício">ABO vitalício</option>
+              </select></div>
+          </div>
+          <div style="margin-top:12px">
+            <label>Público</label>
+            <input id="publico" placeholder="ex.: lookalike 1% compradores, interesse X, público salvo Y">
+          </div>
+          <div class="mini" style="margin-top:8px">Anúncio de catálogo na ferramenta de campanhas costuma ir com o objetivo Vendas ou Leads, ou Engajamento com a meta “Conversas no Direct do Instagram”.</div>
+        </div>
+        <div style="margin-top:12px">
+          <label>Observações</label>
+          <textarea id="observacoes" rows="3" placeholder="Qualquer detalhe extra, o que muda em relação a um catálogo que já existe, etc."></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="sticky">
+      <div class="card">
+        <details class="config-envio" id="detEnvio">
+          <summary>Configurar envio</summary>
+          <div class="mini" style="margin:8px 0 10px">Cole a URL do webhook e a chave de envio da rotina <b>Briefing de catálogo recebido</b>, na aba Rotinas. A chave fica só neste navegador. Se o painel de rotinas mostrar um exemplo <code>curl</code>, cole o comando inteiro abaixo que o painel se configura sozinho.</div>
+          <div style="margin-bottom:10px">
+            <label>URL do webhook</label>
+            <input id="envioUrl" type="url" autocomplete="off" placeholder="https://…">
+          </div>
+          <div style="margin-bottom:10px">
+            <label>Chave de envio</label>
+            <div class="chave-wrap">
+              <input id="envioChave" type="password" autocomplete="new-password" spellcheck="false">
+              <button type="button" class="btn btn-cinza btn-sm" id="btnVerChave">Mostrar</button>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Nome do cabeçalho da chave</label>
+              <input id="envioHeader" value="Authorization" autocomplete="off">
+            </div>
+            <div>
+              <label class="check" style="margin-top:22px">
+                <input type="checkbox" id="envioBearer" checked>
+                <span>Prefixar com Bearer</span>
+              </label>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <label>Ou cole o exemplo curl do painel de rotinas</label>
+            <textarea id="envioCurl" rows="5" placeholder="curl -X POST 'https://…' -H 'Authorization: Bearer …' -H 'Content-Type: application/json' -d '{…}'"></textarea>
+          </div>
+          <div id="envioCurlMsg"></div>
+        </details>
+      </div>
+      <div class="card" style="margin-bottom:0">
+        <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:10px">
+          <h2 style="margin:0">Briefing gerado</h2>
+          <span class="pill">ao vivo</span>
+        </div>
+        <div class="acoes" style="margin-bottom:10px">
+          <button type="button" class="btn btn-rox" id="btnEnviar" disabled>Enviar para o ARTHUR ARANTES bot</button>
+          <button type="button" class="btn btn-cinza" id="btnCopiar">Copiar briefing</button>
+          <button type="button" class="btn btn-cinza" id="btnLimpar">Limpar tudo</button>
+          <span id="copiaMsg" class="ok-flash hidden">Copiado!</span>
+        </div>
+        <div id="envioStatus"></div>
+        <pre class="brief" id="briefing"></pre>
+        <div class="mini" style="margin-top:8px">Envie para o bot ou copie e cole no chat. Campos vazios aparecem como “(não informado)”.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CHAVE = 'briefing_catalogo_meta_v1';
+  const CHAVE_MODELOS = 'briefing_catalogo_meta_modelos_v1';
+  const RE_IMG = /\.(jpe?g|png|webp|gif)$/i;
+  const RE_VID = /\.(mp4|mov|m4v|webm)$/i;
+
+  const TIPOS_CATALOGO = [
+    ['Produtos físicos', [
+      ['commerce', 'Produtos online (o que você usa hoje)'],
+      ['offline_commerce', 'Produtos em loja física']
+    ]],
+    ['Produtos ou conteúdo digitais', [
+      ['apps_and_software', 'Apps e software'],
+      ['media_titles', 'Títulos de mídia (filmes, séries)'],
+      ['articles_and_publications', 'Artigos e publicações']
+    ]],
+    ['Serviços', [
+      ['services', 'Serviços'],
+      ['activities', 'Atividades']
+    ]],
+    ['Produtos ou serviços locais', [
+      ['local_service_businesses', 'Negócios de serviço local'],
+      ['location_based_items', 'Itens por localização']
+    ]],
+    ['Outro', [
+      ['generic', 'Genérico'],
+      ['destinations', 'Destinos'],
+      ['hotels', 'Hotéis'],
+      ['flights', 'Voos'],
+      ['home_listings', 'Imóveis'],
+      ['vehicles', 'Veículos'],
+      ['jobs', 'Vagas de emprego']
+    ]]
+  ];
+
+  const OBJETIVOS = {
+    OUTCOME_SALES: 'Vendas',
+    OUTCOME_LEADS: 'Leads',
+    OUTCOME_TRAFFIC: 'Tráfego',
+    OUTCOME_ENGAGEMENT: 'Engajamento',
+    OUTCOME_AWARENESS: 'Reconhecimento de marca',
+    OUTCOME_APP_PROMOTION: 'Promoção de App'
+  };
+
+  const CAMPOS = ['operacao','bmToken','negocioDono','negocioDonoId','contaAnuncio','contaAnuncioId','acao','catNome','tipoCatalogo','catExistente','catExistenteId','catExistenteCount','pixel','pixelId','url','preco','moeda','brand','description','availability','condition','variantesPadrao','whiteCaminho','pastaCaminho','delayVideo','criarSets','dividirSets','subirCampanha','estrutura','anunciosPorConjunto','conjuntosPorCampanha','receita','receitaId','pagina','paginaId','instagram','instagramId','campNome','objetivo','orcamento','tipoOrcamento','publico','observacoes','dark'];
+
+  let pastaState = pastaVazia();
+  let whiteState = { nome: '', aoVivo: false };
+
+  function pastaVazia(){
+    return { nome: '', arquivos: [], grupos: [], aoVivo: false };
+  }
+
+  function tipoLabel(valor){
+    for (const [, itens] of TIPOS_CATALOGO){
+      for (const [v, n] of itens){
+        if (v === valor) return n + ' (' + v + ')';
+      }
+    }
+    return valor || '';
+  }
+
+  function defaults(){
+    return {
+      operacao: '',
+      bmToken: '',
+      negocioDono: '',
+      negocioDonoId: '',
+      contaAnuncio: '',
+      contaAnuncioId: '',
+      acao: 'novo',
+      catNome: '',
+      tipoCatalogo: 'commerce',
+      catExistente: '',
+      catExistenteId: '',
+      catExistenteCount: '',
+      pixel: '',
+      pixelId: '',
+      url: '',
+      preco: '1,00',
+      moeda: 'BRL',
+      brand: '',
+      description: '',
+      availability: 'in stock',
+      condition: 'new',
+      variantesPadrao: 4,
+      whiteNome: '',
+      whiteCaminho: '',
+      pastaCaminho: '',
+      pastaNome: '',
+      pastaArquivos: [],
+      grupos: [],
+      pastaAoVivo: false,
+      delayVideo: 60,
+      criarSets: true,
+      dividirSets: 'Um conjunto por grupo de criativo, filtrando pelo nome',
+      subirCampanha: false,
+      estrutura: 'por_anuncio',
+      anunciosPorConjunto: 50,
+      conjuntosPorCampanha: 1,
+      receita: '',
+      receitaId: '',
+      pagina: '',
+      paginaId: '',
+      instagram: '',
+      instagramId: '',
+      campNome: '',
+      objetivo: 'OUTCOME_SALES',
+      orcamento: '',
+      tipoOrcamento: 'CBO diário',
+      publico: '',
+      observacoes: '',
+      dark: false
+    };
+  }
+
+  function $(id){ return document.getElementById(id); }
+
+  function preencherTipos(sel, valor){
+    sel.innerHTML = TIPOS_CATALOGO.map(function(grupo){
+      const itens = grupo[1].map(function(it){
+        return '<option value="' + it[0] + '">' + it[1] + '</option>';
+      }).join('');
+      return '<optgroup label="' + grupo[0] + '">' + itens + '</optgroup>';
+    }).join('');
+    sel.value = valor || 'commerce';
+  }
+
+  function ehOculto(relativo, nome){
+    const caminho = String(relativo || nome || '');
+    return caminho.split(/[/\\]/).some(function(seg){ return seg && seg.charAt(0) === '.'; });
+  }
+
+  function ehImagem(nome){ return RE_IMG.test(nome || ''); }
+  function ehVideo(nome){ return RE_VID.test(nome || ''); }
+
+  function nomeBase(nome){
+    const n = String(nome || '');
+    const i = n.lastIndexOf('.');
+    return i > 0 ? n.slice(0, i) : n;
+  }
+
+  function primeiroSegmento(relativo){
+    const p = String(relativo || '').replace(/\\/g, '/');
+    if (!p) return '';
+    return p.split('/').filter(Boolean)[0] || '';
+  }
+
+  function rotuloArquivo(arq){
+    const rel = String(arq.relativo || arq.nome || '').replace(/\\/g, '/');
+    const partes = rel.split('/').filter(Boolean);
+    if (partes.length > 1) return partes.slice(1).join('/');
+    return arq.nome || partes[0] || '';
+  }
+
+  function agruparArquivos(arquivos){
+    const mapa = {};
+    const ordem = [];
+    (arquivos || []).forEach(function(arq){
+      const nome = arq.nome || '';
+      if (ehOculto(arq.relativo, nome)) return;
+      if (!ehImagem(nome) && !ehVideo(nome)) return;
+      const key = nomeBase(nome).toLowerCase();
+      if (!mapa[key]){
+        mapa[key] = { nome: nomeBase(nome), imagens: [], videos: [] };
+        ordem.push(key);
+      }
+      const item = { nome: nome, relativo: arq.relativo || nome, rotulo: rotuloArquivo(arq) };
+      if (ehImagem(nome)) mapa[key].imagens.push(item);
+      else mapa[key].videos.push(item);
+    });
+    return ordem.map(function(key){
+      const g = mapa[key];
+      const midia = g.imagens.length && g.videos.length ? 'Imagem e vídeo' : (g.videos.length ? 'Vídeo' : 'Imagem');
+      return {
+        nome: g.nome,
+        midia: midia,
+        arquivos: g.imagens.concat(g.videos)
+      };
+    }).sort(function(a, b){ return a.nome.localeCompare(b.nome, 'pt-BR', { numeric: true, sensitivity: 'base' }); });
+  }
+
+  function processarPasta(fileList){
+    const arquivos = [];
+    let pastaNome = '';
+    Array.from(fileList || []).forEach(function(f){
+      const relativo = f.webkitRelativePath || f.name;
+      if (!pastaNome) pastaNome = primeiroSegmento(relativo);
+      if (ehOculto(relativo, f.name)) return;
+      if (!ehImagem(f.name) && !ehVideo(f.name)) return;
+      arquivos.push({ nome: f.name, relativo: relativo });
+    });
+    pastaState = {
+      nome: pastaNome,
+      arquivos: arquivos,
+      grupos: agruparArquivos(arquivos),
+      aoVivo: true
+    };
+    atualizarUI();
+  }
+
+  function hidratarPasta(s){
+    const arquivos = Array.isArray(s.pastaArquivos) ? s.pastaArquivos.map(function(a){
+      if (typeof a === 'string') return { nome: a, relativo: a };
+      return { nome: a.nome || '', relativo: a.relativo || a.nome || '' };
+    }) : [];
+    let grupos;
+    if (arquivos.length) grupos = agruparArquivos(arquivos);
+    else if (Array.isArray(s.grupos) && s.grupos.some(function(g){ return String((g && g.nome) || '').trim(); })){
+      grupos = s.grupos.map(function(g){
+        const arquivosG = [];
+        if (g.arquivos && g.arquivos.length){
+          g.arquivos.forEach(function(a){
+            if (typeof a === 'string') arquivosG.push({ nome: a, relativo: a, rotulo: a });
+            else arquivosG.push({ nome: a.nome || '', relativo: a.relativo || a.nome || '', rotulo: a.rotulo || a.nome || '' });
+          });
+        }
+        return { nome: g.nome || '', midia: g.midia || 'Imagem', arquivos: arquivosG };
+      });
+    } else {
+      grupos = [];
+    }
+    pastaState = {
+      nome: s.pastaNome || '',
+      arquivos: arquivos,
+      grupos: grupos,
+      aoVivo: false
+    };
+  }
+
+  function ler(){
+    const d = defaults();
+    CAMPOS.forEach(function(k){
+      const el = $(k);
+      if (!el) return;
+      if (el.type === 'checkbox') d[k] = el.checked;
+      else if (k === 'variantesPadrao') d[k] = Math.max(1, parseInt(el.value, 10) || 1);
+      else d[k] = el.value;
+    });
+    d.pastaNome = pastaState.nome || '';
+    d.pastaArquivos = pastaState.arquivos || [];
+    d.grupos = pastaState.grupos || [];
+    d.pastaAoVivo = !!pastaState.aoVivo;
+    d.whiteNome = whiteState.nome || '';
+    d.delayVideo = Math.max(0, parseInt(d.delayVideo, 10) || 0);
+    d.anunciosPorConjunto = Math.max(1, Math.min(50, parseInt(d.anunciosPorConjunto, 10) || 50));
+    d.conjuntosPorCampanha = Math.max(1, parseInt(d.conjuntosPorCampanha, 10) || 1);
+    return d;
+  }
+
+  function aplicar(s){
+    CAMPOS.forEach(function(k){
+      const el = $(k);
+      if (!el) return;
+      if (el.type === 'checkbox') el.checked = !!s[k];
+      else if (k === 'tipoCatalogo') { /* preenchido à parte */ }
+      else el.value = s[k] == null ? '' : s[k];
+    });
+    preencherTipos($('tipoCatalogo'), s.tipoCatalogo || 'commerce');
+    hidratarPasta(s);
+    if (s.pastaAoVivo) pastaState.aoVivo = true;
+    whiteState = { nome: s.whiteNome || '', aoVivo: false };
+    const wi = $('whiteInput');
+    if (wi && !s.whiteAoVivo) wi.value = '';
+    const input = $('pastaInput');
+    if (input && !s.pastaAoVivo) input.value = '';
+    atualizarUI();
+  }
+
+  function informado(v){
+    const t = String(v == null ? '' : v).trim();
+    return t ? t : '(não informado)';
+  }
+
+  function escAttr(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function escHtml(s){
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+
+  function nomesDuplicados(grupos){
+    const seen = {};
+    const dups = [];
+    (grupos || []).forEach(function(g){
+      const n = String(g.nome || '').trim().toLowerCase();
+      if (!n) return;
+      if (seen[n]) { if (dups.indexOf(g.nome || n) < 0) dups.push(g.nome || n); }
+      else seen[n] = true;
+    });
+    return dups;
+  }
+
+  function videosSemImagem(grupos){
+    return (grupos || []).filter(function(g){ return g.midia === 'Vídeo'; });
+  }
+
+  function contarMidia(grupos){
+    let imgs = 0, vids = 0;
+    (grupos || []).forEach(function(g){
+      (g.arquivos || []).forEach(function(a){
+        const nome = typeof a === 'string' ? a : (a.nome || '');
+        if (ehImagem(nome)) imgs++;
+        else if (ehVideo(nome)) vids++;
+      });
+      if (!(g.arquivos && g.arquivos.length)){
+        if (g.midia === 'Imagem e vídeo'){ imgs++; vids++; }
+        else if (g.midia === 'Vídeo') vids++;
+        else if (g.midia === 'Imagem') imgs++;
+      }
+    });
+    return { imgs: imgs, vids: vids };
+  }
+
+  function rotulosDoGrupo(g){
+    return (g.arquivos || []).map(function(a){
+      if (typeof a === 'string') return a;
+      return a.rotulo || a.nome || '';
+    }).filter(Boolean);
+  }
+
+  function rotuloEstrutura(v){
+    return ({
+      por_campanha: 'Um produto por campanha',
+      por_conjunto: 'Um produto por conjunto',
+      por_anuncio: 'Um produto por anúncio'
+    })[v] || v || '(não informado)';
+  }
+
+  function calcularEstrutura(s){
+    const X = (s.grupos || []).length;
+    const ads = Math.max(1, Math.min(50, parseInt(s.anunciosPorConjunto, 10) || 50));
+    const sets = Math.max(1, parseInt(s.conjuntosPorCampanha, 10) || 1);
+    let N = 0, M = 0, K = 0;
+    if (!X) return { X: 0, N: 0, M: 0, K: 0, ads: ads, sets: sets };
+    if (s.estrutura === 'por_campanha'){ N = X; M = X; K = X; }
+    else if (s.estrutura === 'por_conjunto'){ M = X; N = Math.ceil(X / sets); K = X; }
+    else { K = X; M = Math.ceil(X / ads); N = Math.ceil(M / sets); }
+    return { X: X, N: N, M: M, K: K, ads: ads, sets: sets };
+  }
+
+  function textoPreview(s){
+    const t = calcularEstrutura(s);
+    if (!t.X) return '0 produtos (escolha a pasta) → 0 campanha(s), 0 conjunto(s), 0 anúncio(s)';
+    let extra = '';
+    if (s.estrutura === 'por_anuncio') extra = ' · ' + t.ads + ' anúncio(s) por conjunto, ' + t.sets + ' conjunto(s) por campanha';
+    else if (s.estrutura === 'por_conjunto') extra = ' · ' + t.sets + ' conjunto(s) por campanha';
+    return t.X + ' produto(s) → ' + t.N + ' campanha(s), ' + t.M + ' conjunto(s), ' + t.K + ' anúncio(s)' + extra;
+  }
+
+  function montarBriefing(s){
+    const padrao = Math.max(1, parseInt(s.variantesPadrao, 10) || 1);
+    const grupos = s.grupos || [];
+    const linhas = [];
+    const delay = (s.delayVideo == null || s.delayVideo === '') ? 60 : s.delayVideo;
+    linhas.push('BRIEFING DE CATÁLOGO META');
+    linhas.push('⚠ DELAY DO VÍDEO: ' + delay + ' min');
+    linhas.push('⚠ SEQUÊNCIA: 1) catálogo com imagem white em todos os produtos → 2) conjuntos de produtos → 3) campanha(s) com catálogo ativo, conforme a estrutura → 4) após o delay / aprovação, vídeo em todos os produtos → 5) depois do vídeo em todos, criar as variantes');
+    linhas.push('');
+    linhas.push('1. CONTA E DESTINO');
+    linhas.push('- Operação ou produto: ' + informado(s.operacao));
+    linhas.push('- BM ou token (nome): ' + informado(s.bmToken));
+    linhas.push('- Negócio dono: ' + informado(nomeEId(s.negocioDono, s.negocioDonoId)));
+    linhas.push('- Conta de anúncio: ' + informado(nomeEId(s.contaAnuncio, s.contaAnuncioId)));
+    if (s.acao === 'existente'){
+      linhas.push('- Ação: Adicionar itens a um catálogo que já existe');
+      const catTxt = nomeEId(s.catExistente, s.catExistenteId);
+      const nItens = String(s.catExistenteCount || '').trim();
+      linhas.push('- Catálogo existente: ' + informado(catTxt) + (nItens ? ' · ' + nItens + ' itens' : ''));
+    } else {
+      linhas.push('- Ação: Criar catálogo novo');
+      linhas.push('- Nome do catálogo novo: ' + informado(s.catNome));
+      linhas.push('- Tipo de catálogo: ' + (s.tipoCatalogo ? tipoLabel(s.tipoCatalogo) : '(não informado)') + ' — não dá para mudar depois');
+    }
+    const pixTxt = nomeEId(s.pixel, s.pixelId);
+    linhas.push('- Conjunto de dados (pixel): ' + (pixTxt ? pixTxt : 'não conectar'));
+    linhas.push('');
+    linhas.push('2. CAMPOS IGUAIS EM TODOS OS ITENS');
+    linhas.push('- Imagem white: ' + informado(s.whiteNome));
+    linhas.push('- Caminho da imagem white: ' + informado(s.whiteCaminho));
+    linhas.push('- URL de destino: ' + informado(s.url));
+    linhas.push('- Preço: ' + informado(s.preco));
+    linhas.push('- Moeda: ' + informado(s.moeda));
+    linhas.push('- Texto do anúncio (brand / título): ' + informado(s.brand));
+    linhas.push('- Descrição: ' + informado(s.description));
+    linhas.push('- Disponibilidade: ' + informado(s.availability));
+    linhas.push('- Condição: ' + informado(s.condition));
+    linhas.push('- Variantes por produto (padrão): ' + padrao);
+    linhas.push('');
+    linhas.push('3. GRUPOS DE CRIATIVO');
+    linhas.push('Cada vídeo vira um produto (nome do arquivo). A imagem inicial de todos é a imagem white. Variantes só no passo 5, depois do vídeo, no padrão da parte 2 (' + padrao + ').');
+    if (!grupos.length){
+      linhas.push('- Pasta: ' + informado(s.pastaNome));
+      linhas.push('- Caminho da pasta no Mac: ' + informado(s.pastaCaminho));
+      linhas.push('- (não informado)');
+    } else {
+      const cont = contarMidia(grupos);
+      linhas.push('- Pasta: ' + informado(s.pastaNome));
+      linhas.push('- Caminho da pasta no Mac: ' + informado(s.pastaCaminho));
+      linhas.push('- ' + grupos.length + ' grupo(s) · ' + cont.imgs + ' imagem(ns) · ' + cont.vids + ' vídeo(s)');
+      grupos.forEach(function(g, i){
+        const arqs = rotulosDoGrupo(g);
+        linhas.push('');
+        linhas.push('Grupo ' + (i + 1) + ':');
+        linhas.push('  - Nome: ' + informado(g.nome));
+        linhas.push('  - Tipo: ' + informado(g.midia));
+        linhas.push('  - Arquivos: ' + (arqs.length ? arqs.join(', ') : '(não informado)'));
+        linhas.push('  - Variantes: ' + padrao + ' (padrão)');
+      });
+    }
+    const dups = nomesDuplicados(grupos);
+    if (dups.length){
+      linhas.push('');
+      linhas.push('ATENÇÃO: há nomes de grupo repetidos (' + dups.join(', ') + '). Cada grupo precisa de um nome diferente para separar os conjuntos.');
+    }
+    if (grupos.length > 100){
+      linhas.push('');
+      linhas.push('ATENÇÃO: este lote tem ' + grupos.length + ' produtos. O catálogo (e o editor do Commerce Manager) deve ficar em lotes de até 100 (pastas 1–100, 101–200…).');
+    }
+    if (grupos.length && !s.pastaAoVivo){
+      linhas.push('');
+      linhas.push('Lista reconstruída pelos nomes dos arquivos (escolha a pasta de novo para atualizar).');
+    }
+    linhas.push('');
+    linhas.push('4. SEQUÊNCIA E DEPOIS DOS PRODUTOS');
+    linhas.push('- Delay do vídeo: ' + delay + ' min');
+    linhas.push('- Criar conjuntos de produtos: ' + (s.criarSets ? 'sim' : 'não'));
+    if (s.criarSets) linhas.push('- Como dividir: ' + informado(s.dividirSets));
+    linhas.push('- Subir campanha de catálogo em seguida: ' + (s.subirCampanha ? 'sim' : 'não'));
+    linhas.push('');
+    linhas.push('5. CAMPANHA');
+    if (s.subirCampanha){
+      const prev = calcularEstrutura(s);
+      linhas.push('- Estrutura de subida: ' + rotuloEstrutura(s.estrutura));
+      if (s.estrutura === 'por_anuncio') linhas.push('- Anúncios por conjunto: ' + prev.ads);
+      if (s.estrutura === 'por_anuncio' || s.estrutura === 'por_conjunto') linhas.push('- Conjuntos por campanha: ' + prev.sets);
+      linhas.push('- Prévia: ' + textoPreview(s));
+      linhas.push('- Receita de campanha: ' + informado(nomeEId(s.receita, s.receitaId)));
+      linhas.push('- Página do Facebook: ' + informado(nomeEId(s.pagina, s.paginaId)));
+      linhas.push('- Instagram: ' + informado(nomeEId(s.instagram, s.instagramId)));
+      linhas.push('- Nome da campanha: ' + informado(s.campNome));
+      linhas.push('- Objetivo: ' + (OBJETIVOS[s.objetivo] ? OBJETIVOS[s.objetivo] + ' (' + s.objetivo + ')' : informado(s.objetivo)));
+      linhas.push('- Orçamento: ' + (String(s.orcamento || '').trim() ? 'R$ ' + String(s.orcamento).trim() : '(não informado)'));
+      linhas.push('- Tipo de orçamento: ' + informado(s.tipoOrcamento));
+      linhas.push('- Público: ' + informado(s.publico));
+    } else {
+      linhas.push('- (campanha não será subida neste briefing)');
+    }
+    linhas.push('- Observações: ' + informado(s.observacoes));
+    return linhas.join('\n');
+  }
+
+  function renderTabela(s){
+    const grupos = s.grupos || [];
+    const wrap = $('tabelaWrap');
+    const tb = $('tabelaGrupos');
+    if (!grupos.length){
+      wrap.classList.add('hidden');
+      tb.innerHTML = '';
+      return;
+    }
+    wrap.classList.remove('hidden');
+    tb.innerHTML = grupos.map(function(g){
+      const arqs = rotulosDoGrupo(g);
+      return '<tr><td>' + escHtml(g.nome || '(sem nome)') + '</td><td>' + escHtml(g.midia || '') + '</td><td>' + escHtml(arqs.join(', ') || '—') + '</td></tr>';
+    }).join('');
+  }
+
+  function atualizarUI(){
+    const s = ler();
+    document.body.className = s.dark ? 'dark' : '';
+    $('btnTema').textContent = s.dark ? '☀️' : '🌙';
+    const novo = s.acao !== 'existente';
+    $('blocoNovo').classList.toggle('hidden', !novo);
+    $('blocoExistente').classList.toggle('hidden', novo);
+    const avisoTipo = novo && s.tipoCatalogo && s.tipoCatalogo !== 'commerce';
+    $('avisoTipo').classList.toggle('hidden', !avisoTipo);
+    $('blocoDividir').classList.toggle('hidden', !s.criarSets);
+    $('blocoCampanha').classList.toggle('hidden', !s.subirCampanha);
+    renderMetaSelects(s);
+    function abrirSeDigitado(detId, nome, id){
+      const d = $(detId);
+      if (!d) return;
+      if (String(nome || '').trim() && !String(id || '').trim()) d.open = true;
+    }
+    abrirSeDigitado('detNegocio', s.negocioDono, s.negocioDonoId);
+    abrirSeDigitado('detConta', s.contaAnuncio, s.contaAnuncioId);
+    abrirSeDigitado('detCat', s.catExistente, s.catExistenteId);
+    abrirSeDigitado('detPixel', s.pixel, s.pixelId);
+    abrirSeDigitado('detPagina', s.pagina, s.paginaId);
+    abrirSeDigitado('detIg', s.instagram, s.instagramId);
+    abrirSeDigitado('detReceita', s.receita, s.receitaId);
+    if ($('dicaReceita') && origemLocal()){
+      $('dicaReceita').textContent = 'Aberto como arquivo local, as receitas da automação não aparecem sozinhas. Publique o painel no GitHub Pages ou digite o nome da receita.';
+    }
+    if ($('blocoAdsPorSet')) $('blocoAdsPorSet').classList.toggle('hidden', !(s.subirCampanha && s.estrutura === 'por_anuncio'));
+    if ($('blocoSetsPorCamp')) $('blocoSetsPorCamp').classList.toggle('hidden', !(s.subirCampanha && (s.estrutura === 'por_anuncio' || s.estrutura === 'por_conjunto')));
+    if ($('previewEstrutura')) $('previewEstrutura').textContent = textoPreview(s);
+    if ($('avisoEstrutura')){
+      const ev = calcularEstrutura(s);
+      let avE = '';
+      if (s.subirCampanha && s.estrutura === 'por_anuncio' && ev.ads > 50) avE = '<div class="aviso alerta">O Meta aceita no máximo 50 anúncios por conjunto.</div>';
+      $('avisoEstrutura').innerHTML = avE;
+    }
+
+    if (s.whiteNome) $('whiteNomeExibido').textContent = 'Imagem white: ' + s.whiteNome;
+    else $('whiteNomeExibido').textContent = 'Nenhuma imagem escolhida';
+    if ($('avisoWhite')){
+      $('avisoWhite').innerHTML = s.whiteNome ? '' : '<div class="aviso alerta">A imagem white é obrigatória: é ela que entra em todos os produtos na criação do catálogo.</div>';
+    }
+
+    if (s.pastaNome) $('pastaNomeExibido').textContent = 'Pasta: ' + s.pastaNome;
+    else if (s.grupos && s.grupos.length) $('pastaNomeExibido').textContent = 'Pasta: (não informado)';
+    else $('pastaNomeExibido').textContent = 'Nenhuma pasta escolhida';
+
+    const avisos = [];
+    if (s.grupos.length && !s.pastaAoVivo){
+      avisos.push('<div class="aviso alerta">A lista de arquivos foi restaurada pelos nomes salvos neste navegador. Os arquivos em si não ficam guardados — escolha a pasta de novo para atualizar.</div>');
+    }
+    const dups = nomesDuplicados(s.grupos);
+    if (dups.length){
+      avisos.push('<div class="aviso alerta">Há nomes de grupo repetidos (' + escHtml(dups.join(', ')) + '). Cada grupo precisa de um nome diferente, porque é ele que separa um criativo do outro na hora de montar o conjunto de produtos.</div>');
+    }
+    if (s.grupos.length > 100){
+      avisos.push('<div class="aviso alerta">Este lote tem <b>' + s.grupos.length + ' produtos</b>. O catálogo deve ficar em pastas de até 100 (1–100, 101–200…).</div>');
+    }
+    $('avisoPasta').innerHTML = avisos.join('');
+    $('avisoNomes').innerHTML = '';
+
+    const cont = contarMidia(s.grupos);
+    $('resumoGrupos').textContent = (s.grupos.length || 0) + ' grupo(s) · ' + cont.imgs + ' imagem(ns) · ' + cont.vids + ' vídeo(s)';
+    renderTabela(s);
+
+    $('briefing').textContent = montarBriefing(s);
+    salvar(s);
+  }
+
+  function salvar(s){
+    try {
+      const copia = Object.assign({}, s || ler());
+      delete copia.pastaAoVivo;
+      localStorage.setItem(CHAVE, JSON.stringify(copia));
+    } catch (e) {}
+  }
+
+  function carregarEstado(){
+    let s = defaults();
+    try {
+      const raw = localStorage.getItem(CHAVE);
+      if (raw){
+        const parsed = JSON.parse(raw);
+        s = Object.assign(defaults(), parsed || {});
+        s.pastaAoVivo = false;
+      }
+    } catch (e) {}
+    return s;
+  }
+
+  function modelos(){
+    try { return JSON.parse(localStorage.getItem(CHAVE_MODELOS) || '{}') || {}; }
+    catch (e) { return {}; }
+  }
+
+  function salvarModelos(m){
+    try { localStorage.setItem(CHAVE_MODELOS, JSON.stringify(m)); }
+    catch (e) {}
+  }
+
+  function atualizarListaModelos(selNome){
+    const sel = $('modeloSel');
+    const atual = selNome != null ? selNome : sel.value;
+    const nomes = Object.keys(modelos()).sort(function(a, b){ return a.localeCompare(b, 'pt-BR'); });
+    sel.innerHTML = '<option value="">escolher…</option>' + nomes.map(function(n){
+      return '<option value="' + escAttr(n) + '">' + escAttr(n) + '</option>';
+    }).join('');
+    if (atual && modelos()[atual]) sel.value = atual;
+  }
+
+  function msgModelo(texto, tipo){
+    const el = $('modeloMsg');
+    if (!texto){ el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="aviso ' + (tipo || 'ok') + '">' + texto + '</div>';
+  }
+
+  function estadoParaModelo(s){
+    const c = Object.assign({}, s);
+    delete c.dark;
+    delete c.pastaAoVivo;
+    return c;
+  }
+
+  // ── Envio por webhook e conexão Meta ─────────────────────────────────────
+  const CHAVE_ENVIO = 'briefing_envio';
+  const CHAVE_TOKENS = 'briefing_catalogo_tokens';
+  const GQL = 'https://graph.facebook.com/v21.0';
+  const SO_ATIVAS = JSON.stringify([{ field: 'account_status', operator: 'EQUAL', value: 1 }]);
+
+  const metaMem = {
+    connected: false,
+    conectando: false,
+    tokens: [],
+    contas: [],
+    biz: [],
+    catalogos: [],
+    pixels: [],
+    pages: [],
+    instagrams: [],
+    receitas: [],
+    tokenDoId: {},
+    msg: '',
+    msgTipo: ''
+  };
+
+  function origemLocal(){
+    return location.protocol === 'file:' || location.origin === 'null' || location.origin === 'file://';
+  }
+
+  function origemHint(){
+    const el = $('metaOrigemHint');
+    if (!el) return;
+    if (origemLocal()){
+      el.innerHTML = 'Este painel está aberto como <b>arquivo local</b>. Os tokens das outras ferramentas (catálogos, campanhas, monitor) só entram sozinhos quando o painel é aberto no <b>mesmo endereço</b> do GitHub Pages. Por enquanto, cole o token abaixo — ele fica só neste navegador, nunca no briefing nem no envio.';
+    } else {
+      el.innerHTML = 'Tokens já salvos nas ferramentas desta mesma origem (catálogos, campanhas, monitor, otimização) entram sozinhos. Você também pode colar um token, que fica só neste navegador.';
+    }
+  }
+
+  function lerTokensColados(){
+    try {
+      const a = JSON.parse(localStorage.getItem(CHAVE_TOKENS) || '[]');
+      return Array.isArray(a) ? a.filter(function(t){ return t && t.token; }) : [];
+    } catch (e) { return []; }
+  }
+
+  function salvarTokensColados(lista){
+    try { localStorage.setItem(CHAVE_TOKENS, JSON.stringify(lista || [])); }
+    catch (e) {}
+  }
+
+  function importarTokens(){
+    const achados = [];
+    const vistos = {};
+    function add(t, origem){
+      const val = t && (t.token || t.value);
+      if (!val || vistos[val]) return;
+      vistos[val] = true;
+      achados.push({
+        id: String(t.id || (origem + '-' + achados.length)),
+        nome: t.nome || t.label || ('token ' + (achados.length + 1)),
+        token: val,
+        origem: origem
+      });
+    }
+    ['mac_state', 'maa_state', 'mam_state', 'mao_state'].forEach(function(k){
+      let src;
+      try { src = JSON.parse(localStorage.getItem(k)); } catch (e) { return; }
+      if (!src) return;
+      (src.tokens || []).forEach(function(t){ add(t, k); });
+    });
+    lerTokensColados().forEach(function(t){ add(t, 'colado'); });
+    return achados;
+  }
+
+  function renderTokens(){
+    metaMem.tokens = importarTokens();
+    const el = $('metaTokens');
+    if (!el) return;
+    if (!metaMem.tokens.length){
+      el.innerHTML = '<div class="mini">Nenhum token encontrado nesta origem.</div>';
+      return;
+    }
+    el.innerHTML = '<div class="mini" style="margin-bottom:6px"><b>' + metaMem.tokens.length + '</b> token(s) pronto(s):</div>' + metaMem.tokens.map(function(t){
+      const origem = t.origem === 'colado' ? 'colado neste painel' : 'importado';
+      const btn = t.origem === 'colado'
+        ? ' <button type="button" class="btn btn-cinza btn-sm btnRemToken" data-id="' + escAttr(t.id) + '">Remover</button>'
+        : '';
+      return '<div class="token-linha"><span>' + escHtml(t.nome) + ' · ' + origem + '</span>' + btn + '</div>';
+    }).join('');
+  }
+
+  function adicionarTokenColado(){
+    const inp = $('tokenColar');
+    const v = String((inp && inp.value) || '').trim();
+    if (!v){ metaAviso('Cole um token antes de adicionar.', 'alerta'); return; }
+    const lista = lerTokensColados();
+    if (lista.some(function(t){ return t.token === v; }) || importarTokens().some(function(t){ return t.token === v; })){
+      if (inp) inp.value = '';
+      metaAviso('Esse token já está na lista.', 'alerta');
+      return;
+    }
+    lista.push({ id: 'm' + Date.now(), nome: 'colado à mão', token: v });
+    salvarTokensColados(lista);
+    if (inp) inp.value = '';
+    renderTokens();
+    metaAviso('Token adicionado neste navegador.', 'ok');
+  }
+
+  function removerTokenColado(id){
+    salvarTokensColados(lerTokensColados().filter(function(t){ return t.id !== id; }));
+    renderTokens();
+    metaAviso('Token colado removido deste navegador.', 'ok');
+  }
+
+  function metaAviso(texto, tipo){
+    metaMem.msg = texto || '';
+    metaMem.msgTipo = tipo || 'ok';
+    const el = $('metaMsg');
+    if (!el) return;
+    if (!texto){ el.innerHTML = ''; return; }
+    el.innerHTML = '<div class="aviso ' + (tipo || 'ok') + '">' + texto + '</div>';
+  }
+
+  function erroDe(j){
+    const e = (j && j.error) || {};
+    const msg = e.error_user_msg || e.message || 'Erro na API do Meta';
+    const code = e.code != null ? ' (' + e.code + ')' : '';
+    return new Error(msg + code);
+  }
+
+  async function gGet(path, params, tok){
+    if (!tok) throw new Error('Sem token.');
+    const qs = Object.entries(params || {}).map(function(kv){ return kv[0] + '=' + encodeURIComponent(kv[1]); }).join('&');
+    const url = GQL + path + '?' + (qs ? qs + '&' : '') + 'access_token=' + encodeURIComponent(tok);
+    let j;
+    try { j = await (await fetch(url)).json(); }
+    catch (e) {
+      throw new Error('Não consegui falar com o Meta a partir desta origem. Se o painel estiver aberto como arquivo local, publique-o no GitHub Pages (mesma origem das outras ferramentas) e tente de novo.');
+    }
+    if (j.error) throw erroDe(j);
+    return j;
+  }
+
+  async function gTudo(path, params, tok, limite){
+    const qs0 = Object.entries(params || {}).map(function(kv){ return kv[0] + '=' + encodeURIComponent(kv[1]); }).join('&');
+    let url = GQL + path + '?' + (qs0 ? qs0 + '&' : '') + 'access_token=' + encodeURIComponent(tok);
+    const out = [];
+    let pg = 0;
+    while (url && pg < 40 && (!limite || out.length < limite)){
+      pg++;
+      let j;
+      try { j = await (await fetch(url)).json(); }
+      catch (e) { throw new Error('Não consegui falar com o Meta a partir desta origem. Se o painel estiver aberto como arquivo local, publique-o no GitHub Pages e tente de novo.'); }
+      if (j.error) throw erroDe(j);
+      out.push.apply(out, j.data || []);
+      url = (j.paging && j.paging.next) ? j.paging.next : null;
+    }
+    return out;
+  }
+
+  async function conectarMeta(){
+    metaMem.tokens = importarTokens();
+    if (!metaMem.tokens.length){
+      metaAviso('Cole ou importe um token primeiro.', 'alerta');
+      return;
+    }
+    metaMem.conectando = true;
+    if ($('btnConectar')){ $('btnConectar').disabled = true; $('btnConectar').textContent = 'Conectando…'; }
+    metaAviso('Lendo contas e negócios…', 'ok');
+    metaMem.tokenDoId = {};
+    const contas = [];
+    const mapa = {};
+    const pages = [];
+    const avisos = [];
+    for (let i = 0; i < metaMem.tokens.length; i++){
+      const t = metaMem.tokens[i];
+      if (!t.token) continue;
+      try {
+        const r = await gTudo('/me/adaccounts', { fields: 'id,name,currency,business{id,name}', limit: 50, filtering: SO_ATIVAS }, t.token);
+        r.forEach(function(c){
+          if (!contas.some(function(x){ return x.id === c.id; })){
+            contas.push({ id: c.id, name: c.name, currency: c.currency, business: c.business, _tkNome: t.nome });
+          }
+          const bz = c.business;
+          if (bz && bz.id){
+            mapa[bz.id] = bz.name;
+            if (!metaMem.tokenDoId[bz.id]) metaMem.tokenDoId[bz.id] = t.token;
+          }
+          if (!metaMem.tokenDoId[c.id]) metaMem.tokenDoId[c.id] = t.token;
+        });
+      } catch (e) {
+        avisos.push('Token "' + t.nome + '": ' + e.message);
+      }
+      try {
+        const pgs = await gTudo('/me/accounts', { fields: 'id,name', limit: 500 }, t.token);
+        pgs.forEach(function(p){
+          if (!pages.some(function(x){ return x.id === p.id; })) pages.push({ id: p.id, name: p.name, _tkNome: t.nome });
+        });
+      } catch (e) { /* sem páginas, segue */ }
+    }
+    metaMem.contas = contas.sort(function(a, b){ return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'); });
+    metaMem.biz = Object.keys(mapa).map(function(id){ return { id: id, name: mapa[id] }; }).sort(function(a, b){ return a.name.localeCompare(b.name, 'pt-BR'); });
+    metaMem.pages = pages.sort(function(a, b){ return String(a.name || '').localeCompare(String(b.name || ''), 'pt-BR'); });
+    metaMem.receitas = lerReceitasSeguras();
+    metaMem.connected = metaMem.contas.length > 0 || metaMem.biz.length > 0;
+    if (!metaMem.connected){
+      metaAviso((avisos.length ? avisos.join(' ') : 'Nenhuma conta ou negócio encontrado.') + (origemLocal() ? ' Aberto como arquivo local, a API do Meta pode ser bloqueada pelo navegador.' : ''), 'erro');
+    } else {
+      const extra = avisos.length ? ' Avisos: ' + avisos.join(' ') : '';
+      metaAviso(metaMem.contas.length + ' conta(s), ' + metaMem.biz.length + ' negócio(s), ' + metaMem.pages.length + ' página(s).' + extra, avisos.length ? 'alerta' : 'ok');
+      await listarCatalogosMeta();
+      const s = ler();
+      await listarPixelsMeta(s.negocioDonoId || (metaMem.biz[0] && metaMem.biz[0].id) || '');
+      if (s.contaAnuncioId) await mesclarPixelsDaConta(s.contaAnuncioId);
+    }
+    metaMem.conectando = false;
+    if ($('btnConectar')){ $('btnConectar').disabled = false; $('btnConectar').textContent = 'Conectar'; }
+    atualizarUI();
+  }
+
+  async function listarCatalogosMeta(){
+    const juntos = [];
+    for (let i = 0; i < metaMem.biz.length; i++){
+      const b = metaMem.biz[i];
+      const tok = tokenQueVe(b.id) || (metaMem.tokens[0] && metaMem.tokens[0].token);
+      if (!tok) continue;
+      try {
+        const r = await gTudo('/' + b.id + '/owned_product_catalogs', { fields: 'id,name,vertical,product_count', limit: 100 }, tok);
+        r.forEach(function(c){
+          if (!juntos.some(function(x){ return x.id === c.id; })){
+            juntos.push({ id: c.id, name: c.name, vertical: c.vertical, product_count: c.product_count || 0, _bm: b.name, _bmId: b.id });
+          }
+        });
+      } catch (e) { /* BM sem catálogo ou sem permissão */ }
+    }
+    juntos.sort(function(x, y){
+      return String(x._bm || '').localeCompare(String(y._bm || ''), 'pt-BR') || String(x.name || '').localeCompare(String(y.name || ''), 'pt-BR');
+    });
+    metaMem.catalogos = juntos;
+  }
+
+  function tokenQueVe(bizOrAccountId){
+    const id = String(bizOrAccountId || '');
+    if (id && metaMem.tokenDoId[id]) return metaMem.tokenDoId[id];
+    const conta = metaMem.contas.find(function(c){ return c.id === id || (c.business && c.business.id === id); });
+    if (conta && metaMem.tokenDoId[conta.id]) return metaMem.tokenDoId[conta.id];
+    return metaMem.tokens[0] && metaMem.tokens[0].token;
+  }
+
+  async function listarPixelsMeta(bizId){
+    metaMem.pixels = [];
+    if (!bizId) return;
+    const tok = tokenQueVe(bizId) || (metaMem.tokens[0] && metaMem.tokens[0].token);
+    if (!tok) return;
+    try {
+      metaMem.pixels = await gTudo('/' + bizId + '/adspixels', { fields: 'id,name,last_fired_time', limit: 50 }, tok);
+    } catch (e) { metaMem.pixels = []; }
+  }
+
+  async function mesclarPixelsDaConta(accountId){
+    if (!accountId) return;
+    const tok = tokenQueVe(accountId) || (metaMem.tokens[0] && metaMem.tokens[0].token);
+    if (!tok) return;
+    try {
+      const r = await gTudo('/' + accountId + '/adspixels', { fields: 'id,name', limit: 200 }, tok);
+      (r || []).forEach(function(p){
+        if (!metaMem.pixels.some(function(x){ return x.id === p.id; })) metaMem.pixels.push(p);
+      });
+    } catch (e) {}
+  }
+
+  async function listarInstagram(pageId){
+    metaMem.instagrams = [];
+    if (!pageId) return;
+    const tok = (metaMem.tokens[0] && metaMem.tokens[0].token);
+    if (!tok) return;
+    try {
+      const r = await gGet('/' + pageId, { fields: 'instagram_business_account{id,username,name}' }, tok);
+      const ig = r && r.instagram_business_account;
+      if (ig && ig.id){
+        metaMem.instagrams.push({ id: ig.id, name: ig.username || ig.name || ig.id });
+      }
+    } catch (e) {}
+    try {
+      const r2 = await gGet('/' + pageId + '/page_backed_instagram_accounts', { fields: 'id,username' }, tok);
+      (r2.data || []).forEach(function(ig){
+        if (ig && ig.id && !metaMem.instagrams.some(function(x){ return x.id === ig.id; })){
+          metaMem.instagrams.push({ id: ig.id, name: ig.username || ig.id });
+        }
+      });
+    } catch (e) {}
+  }
+
+  function lerReceitasSeguras(){
+    try {
+      const lista = JSON.parse(localStorage.getItem('maa_receitas') || '[]');
+      if (!Array.isArray(lista)) return [];
+      return lista.map(function(r){
+        return { id: r.id || '', nome: r.nome || '', conta: r.conta || '' };
+      }).filter(function(r){ return r.id || r.nome; });
+    } catch (e) { return []; }
+  }
+
+  function nomeEId(nome, id){
+    const n = String(nome || '').trim();
+    const i = String(id || '').trim();
+    if (n && i) return n + ' (' + i + ')';
+    if (n) return n;
+    if (i) return i;
+    return '';
+  }
+
+  function preencherSelect(sel, itens, valor, labelFn, vazio){
+    if (!sel) return;
+    const lab = labelFn || function(it){ return it.name || it.nome || it.id; };
+    const opts = ['<option value="">' + escHtml(vazio || 'Selecionar…') + '</option>'];
+    (itens || []).forEach(function(it){
+      const id = String(it.id || '');
+      opts.push('<option value="' + escAttr(id) + '">' + escHtml(lab(it)) + '</option>');
+    });
+    if (valor && !(itens || []).some(function(it){ return String(it.id) === String(valor); })){
+      opts.push('<option value="' + escAttr(valor) + '">' + escHtml(valor) + ' (selecionado)</option>');
+    }
+    sel.innerHTML = opts.join('');
+    sel.value = valor || '';
+  }
+
+  function mostrarSeletor(idWrap, ligado){
+    const el = $(idWrap);
+    if (el) el.classList.toggle('hidden', !ligado);
+  }
+
+  function renderMetaSelects(s){
+    const ok = !!metaMem.connected;
+    mostrarSeletor('wrapNegocioSel', ok && metaMem.biz.length);
+    mostrarSeletor('wrapContaSel', ok && metaMem.contas.length);
+    mostrarSeletor('wrapCatSel', ok && metaMem.catalogos.length);
+    mostrarSeletor('wrapPixelSel', ok && metaMem.pixels.length);
+    mostrarSeletor('wrapPaginaSel', ok && metaMem.pages.length);
+    mostrarSeletor('wrapIgSel', ok && metaMem.instagrams.length);
+    mostrarSeletor('wrapReceitaSel', ok && metaMem.receitas.length);
+    preencherSelect($('negocioDonoSel'), metaMem.biz, s.negocioDonoId, function(b){ return b.name + ' (' + b.id + ')'; }, 'Selecionar negócio…');
+    preencherSelect($('contaAnuncioSel'), metaMem.contas, s.contaAnuncioId, function(c){ return (c.name || '') + ' (' + c.id + ')'; }, 'Selecionar conta…');
+    const cats = (s.negocioDonoId
+      ? metaMem.catalogos.filter(function(c){ return c._bmId === s.negocioDonoId; }).concat(metaMem.catalogos.filter(function(c){ return c._bmId !== s.negocioDonoId; }))
+      : metaMem.catalogos);
+    preencherSelect($('catExistenteSel'), cats, s.catExistenteId, function(c){
+      return (c.name || '') + ' · ' + (c.product_count || 0) + ' itens' + (c._bm ? ' · ' + c._bm : '') + ' (' + c.id + ')';
+    }, 'Selecionar catálogo…');
+    preencherSelect($('pixelSel'), metaMem.pixels, s.pixelId, function(p){ return (p.name || p.id) + ' (' + p.id + ')'; }, 'Selecionar conjunto de dados…');
+    preencherSelect($('paginaSel'), metaMem.pages, s.paginaId, function(p){ return (p.name || '') + ' (' + p.id + ')'; }, 'Selecionar página…');
+    preencherSelect($('instagramSel'), metaMem.instagrams, s.instagramId, function(p){ return (p.name || p.id) + ' (' + p.id + ')'; }, 'Selecionar Instagram…');
+    const recs = s.contaAnuncioId
+      ? metaMem.receitas.filter(function(r){ return !r.conta || r.conta === s.contaAnuncioId; }).concat(metaMem.receitas.filter(function(r){ return r.conta && r.conta !== s.contaAnuncioId; }))
+      : metaMem.receitas;
+    preencherSelect($('receitaSel'), recs, s.receitaId, function(r){ return (r.nome || r.id) + (r.conta ? ' · conta ' + r.conta : '') + ' (' + r.id + ')'; }, 'Selecionar receita…');
+    const st = $('metaStatus');
+    if (st){
+      st.textContent = metaMem.conectando ? 'conectando…' : (ok ? 'conectado' : '');
+    }
+    function ajustarFallback(detId, wrapId){
+      const det = $(detId);
+      const wrap = $(wrapId);
+      if (!det) return;
+      const temSel = wrap && !wrap.classList.contains('hidden');
+      const sum = det.querySelector('summary');
+      if (sum) sum.classList.toggle('hidden', !temSel);
+      if (!temSel) det.open = true;
+    }
+    ajustarFallback('detNegocio', 'wrapNegocioSel');
+    ajustarFallback('detConta', 'wrapContaSel');
+    ajustarFallback('detCat', 'wrapCatSel');
+    ajustarFallback('detPixel', 'wrapPixelSel');
+    ajustarFallback('detPagina', 'wrapPaginaSel');
+    ajustarFallback('detIg', 'wrapIgSel');
+    ajustarFallback('detReceita', 'wrapReceitaSel');
+  }
+
+  function aplicarEscolha(selId, idCampo, nomeCampo, lista, nomeFn, extraFn){
+    const sel = $(selId);
+    if (!sel) return;
+    const id = sel.value;
+    if ($(idCampo)) $(idCampo).value = id;
+    const item = (lista || []).find(function(x){ return String(x.id) === String(id); });
+    if ($(nomeCampo)) $(nomeCampo).value = item ? (nomeFn ? nomeFn(item) : (item.name || item.nome || '')) : ($(nomeCampo).value || '');
+    if (extraFn) extraFn(item, id);
+  }
+
+  // ── Configurar envio ─────────────────────────────────────────────────────
+  function envioPadrao(){
+    return { url: '', chave: '', headerName: 'Authorization', bearer: true, extraHeaders: [], curl: '' };
+  }
+
+  function lerEnvio(){
+    let c = envioPadrao();
+    try {
+      const raw = localStorage.getItem(CHAVE_ENVIO);
+      if (raw) c = Object.assign(envioPadrao(), JSON.parse(raw) || {});
+    } catch (e) {}
+    return c;
+  }
+
+  function salvarEnvio(c){
+    try { localStorage.setItem(CHAVE_ENVIO, JSON.stringify(c || lerEnvioDoForm())); }
+    catch (e) {}
+  }
+
+  function lerEnvioDoForm(){
+    const atual = lerEnvio();
+    return {
+      url: String(($('envioUrl') && $('envioUrl').value) || '').trim(),
+      chave: String(($('envioChave') && $('envioChave').value) || ''),
+      headerName: String(($('envioHeader') && $('envioHeader').value) || 'Authorization').trim() || 'Authorization',
+      bearer: !!( $('envioBearer') && $('envioBearer').checked ),
+      extraHeaders: atual.extraHeaders || [],
+      curl: String(($('envioCurl') && $('envioCurl').value) || '')
+    };
+  }
+
+  function aplicarEnvio(c){
+    if ($('envioUrl')) $('envioUrl').value = c.url || '';
+    if ($('envioChave')) $('envioChave').value = c.chave || '';
+    if ($('envioHeader')) $('envioHeader').value = c.headerName || 'Authorization';
+    if ($('envioBearer')) $('envioBearer').checked = c.bearer !== false;
+    if ($('envioCurl')) $('envioCurl').value = c.curl || '';
+    atualizarBotaoEnviar();
+  }
+
+  function atualizarBotaoEnviar(){
+    const c = {
+      url: String(($('envioUrl') && $('envioUrl').value) || '').trim(),
+      chave: String(($('envioChave') && $('envioChave').value) || '').trim()
+    };
+    const btn = $('btnEnviar');
+    if (btn && !btn.dataset.enviando) btn.disabled = !(c.url && c.chave);
+  }
+
+  function tokenizeCurl(s){
+    const out = [];
+    let i = 0;
+    const n = s.length;
+    while (i < n){
+      while (i < n && /\s/.test(s.charAt(i))) i++;
+      if (i >= n) break;
+      const ch = s.charAt(i);
+      if (ch === "'" || ch === '"'){
+        const q = ch; i++;
+        let tok = '';
+        while (i < n && s.charAt(i) !== q){
+          if (s.charAt(i) === '\\' && q === '"' && i + 1 < n){ tok += s.charAt(i + 1); i += 2; continue; }
+          tok += s.charAt(i); i++;
+        }
+        if (i < n && s.charAt(i) === q) i++;
+        out.push(tok);
+      } else {
+        let tok = '';
+        while (i < n && !/\s/.test(s.charAt(i))){
+          if (s.charAt(i) === '\\' && i + 1 < n){ tok += s.charAt(i + 1); i += 2; continue; }
+          tok += s.charAt(i); i++;
+        }
+        out.push(tok);
+      }
+    }
+    return out;
+  }
+
+  function parseCurl(raw){
+    const s = String(raw || '').trim();
+    if (!s) return null;
+    const tokens = tokenizeCurl(s.replace(/\\\n/g, ' '));
+    const headers = {};
+    let url = '';
+    let data = null;
+    for (let i = 0; i < tokens.length; i++){
+      const t = tokens[i];
+      const next = function(){ i++; return tokens[i]; };
+      if (t === '-H' || t === '--header' || t === '--headers'){
+        const h = next() || '';
+        const m = h.match(/^([^:]+):\s*(.*)$/);
+        if (m) headers[m[1].trim()] = m[2];
+      } else if (t === '-d' || t === '--data' || t === '--data-raw' || t === '--data-binary' || t === '--data-ascii'){
+        data = next() || '';
+      } else if (t === '--url' || t === '--url-query'){
+        if (t === '--url') url = next() || url;
+      } else if (/^https?:\/\//i.test(t) && !url){
+        url = t;
+      }
+    }
+    return { url: url, headers: headers, data: data };
+  }
+
+  function aplicarCurl(raw){
+    const parsed = parseCurl(raw);
+    const msg = $('envioCurlMsg');
+    if (!parsed || !parsed.url){
+      if (msg && String(raw || '').trim()) msg.innerHTML = '<div class="aviso alerta">Não entendi o curl. Confira se ele tem a URL e os cabeçalhos <code>-H</code>.</div>';
+      return;
+    }
+    const cfg = lerEnvioDoForm();
+    cfg.url = parsed.url;
+    cfg.curl = String(raw || '');
+    const extra = [];
+    Object.keys(parsed.headers).forEach(function(nome){
+      const val = parsed.headers[nome];
+      if (/^content-type$/i.test(nome)) return;
+      if (/^(authorization|x-api-key|x-webhook-key|x-sender-key|x-hook-secret)$/i.test(nome) || /key|token|secret|auth/i.test(nome)){
+        cfg.headerName = nome;
+        const m = String(val || '').match(/^Bearer\s+(.+)$/i);
+        if (m){ cfg.bearer = true; cfg.chave = m[1]; }
+        else { cfg.bearer = false; cfg.chave = val; }
+      } else {
+        extra.push({ name: nome, value: val });
+      }
+    });
+    cfg.extraHeaders = extra;
+    salvarEnvio(cfg);
+    aplicarEnvio(cfg);
+    if (msg) msg.innerHTML = '<div class="aviso ok">Curl lido: URL e cabeçalhos preenchidos. A chave ficou só neste navegador.</div>';
+  }
+
+  function cabecalhosDeEnvio(cfg){
+    const h = { 'Content-Type': 'application/json' };
+    (cfg.extraHeaders || []).forEach(function(x){
+      if (x && x.name && !/^content-type$/i.test(x.name)) h[x.name] = x.value;
+    });
+    const nome = cfg.headerName || 'Authorization';
+    const chave = String(cfg.chave || '');
+    h[nome] = (cfg.bearer !== false && !/^Bearer\s+/i.test(chave)) ? ('Bearer ' + chave) : chave;
+    return h;
+  }
+
+  function pareceToken(v){
+    const s = String(v == null ? '' : v);
+    return s.length > 40 && /^(EAA|EAAB|Bearer\s)/i.test(s);
+  }
+
+  function dadosSeguros(s){
+    const out = {};
+    const skip = /^(token|chave|secret|authorization|access_token|webhook|envio)/i;
+    Object.keys(s || {}).forEach(function(k){
+      if (skip.test(k) || /token$/i.test(k) && k !== 'bmToken') return;
+      const v = s[k];
+      if (typeof v === 'string' && pareceToken(v)) return;
+      out[k] = v;
+    });
+    if (s.bmToken && !pareceToken(s.bmToken)) out.bmTokenNome = s.bmToken;
+    delete out.bmToken;
+    return out;
+  }
+
+  function statusEnvio(html){
+    const el = $('envioStatus');
+    if (el) el.innerHTML = html || '';
+  }
+
+  function horaLocal(d){
+    try { return d.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); }
+    catch (e) { return d.toISOString(); }
+  }
+
+  async function enviarBriefing(){
+    const cfg = lerEnvioDoForm();
+    salvarEnvio(cfg);
+    if (!cfg.url || !String(cfg.chave || '').trim()){
+      statusEnvio('<div class="aviso alerta">Preencha a URL do webhook e a chave de envio em Configurar envio.</div>');
+      return;
+    }
+    const s = ler();
+    const n = (s.grupos || []).length;
+    const lote = s.pastaNome || s.pastaCaminho || '(não informado)';
+    const op = String(s.operacao || '').trim() || '(não informado)';
+    if (!confirm('Enviar este briefing para o ARTHUR ARANTES bot?\n\nOperação: ' + op + '\nLote: ' + lote + '\nProdutos: ' + n)) return;
+    const btn = $('btnEnviar');
+    if (btn){ btn.disabled = true; btn.dataset.enviando = '1'; btn.textContent = 'Enviando…'; }
+    statusEnvio('<div class="aviso ok">Enviando…</div>');
+    const corpo = {
+      origem: 'briefing-catalogo',
+      enviadoEm: new Date().toISOString(),
+      briefing: $('briefing').textContent,
+      dados: dadosSeguros(s)
+    };
+    try {
+      const resp = await fetch(cfg.url, {
+        method: 'POST',
+        headers: cabecalhosDeEnvio(cfg),
+        body: JSON.stringify(corpo)
+      });
+      const txt = await resp.text().catch(function(){ return ''; });
+      let detalhe = '';
+      try {
+        const j = JSON.parse(txt);
+        detalhe = j.message || j.error || j.msg || '';
+      } catch (e) { detalhe = String(txt || '').slice(0, 200); }
+      if (!resp.ok){
+        statusEnvio('<div class="aviso erro">Erro ' + resp.status + (detalhe ? ': ' + escHtml(detalhe) : '') + '</div>');
+      } else {
+        statusEnvio('<div class="aviso ok">Enviado ✓ ' + horaLocal(new Date()) + '</div>');
+      }
+    } catch (e) {
+      if (origemLocal() || (e && e.name === 'TypeError')){
+        statusEnvio('<div class="aviso erro">O navegador bloqueou o envio direto deste arquivo local. Use Copiar briefing por enquanto, ou abra o painel pela versão publicada.</div>');
+      } else {
+        statusEnvio('<div class="aviso erro">Não deu para enviar: ' + escHtml((e && e.message) || e) + '</div>');
+      }
+    }
+    if (btn){
+      delete btn.dataset.enviando;
+      btn.textContent = 'Enviar para o ARTHUR ARANTES bot';
+      atualizarBotaoEnviar();
+    }
+  }
+
+  function campoDeEnvio(id){
+    return id === 'envioUrl' || id === 'envioChave' || id === 'envioHeader' || id === 'envioBearer' || id === 'envioCurl' || id === 'tokenColar';
+  }
+
+    $('btnTema').addEventListener('click', function(){
+    $('dark').checked = !document.body.classList.contains('dark');
+    atualizarUI();
+  });
+
+  const darkHold = document.createElement('input');
+  darkHold.type = 'checkbox';
+  darkHold.id = 'dark';
+  darkHold.className = 'hidden';
+  document.body.appendChild(darkHold);
+
+  document.addEventListener('input', function(ev){
+    const id = ev.target && ev.target.id;
+    if (id === 'pastaInput' || id === 'whiteInput') return;
+    if (campoDeEnvio(id)){
+      if (id === 'envioCurl') aplicarCurl(ev.target.value);
+      else salvarEnvio(lerEnvioDoForm());
+      atualizarBotaoEnviar();
+      return;
+    }
+    const pares = {negocioDono:'negocioDonoId', contaAnuncio:'contaAnuncioId', catExistente:'catExistenteId', pixel:'pixelId', pagina:'paginaId', instagram:'instagramId', receita:'receitaId'};
+    if (pares[id] && $(pares[id])) $(pares[id]).value = '';
+    if (id === 'catExistente' && $('catExistenteCount')) $('catExistenteCount').value = '';
+    if (ev.target.closest && (ev.target.closest('.wrap') || id === 'dark')) atualizarUI();
+  });
+  document.addEventListener('change', function(ev){
+    const id = ev.target && ev.target.id;
+    if (id === 'pastaInput' || id === 'whiteInput') return;
+    if (campoDeEnvio(id)){
+      if (id === 'envioCurl') aplicarCurl(ev.target.value);
+      else salvarEnvio(lerEnvioDoForm());
+      atualizarBotaoEnviar();
+      return;
+    }
+    if (id === 'negocioDonoSel'){
+      aplicarEscolha('negocioDonoSel', 'negocioDonoId', 'negocioDono', metaMem.biz, function(b){ return b.name; });
+      listarPixelsMeta(($('negocioDonoId') && $('negocioDonoId').value) || '').then(function(){ atualizarUI(); });
+      atualizarUI();
+      return;
+    }
+    if (id === 'contaAnuncioSel'){
+      aplicarEscolha('contaAnuncioSel', 'contaAnuncioId', 'contaAnuncio', metaMem.contas, function(c){ return c.name; });
+      mesclarPixelsDaConta(($('contaAnuncioId') && $('contaAnuncioId').value) || '').then(function(){ atualizarUI(); });
+      atualizarUI();
+      return;
+    }
+    if (id === 'catExistenteSel'){
+      aplicarEscolha('catExistenteSel', 'catExistenteId', 'catExistente', metaMem.catalogos, function(c){ return c.name; }, function(item){
+        if ($('catExistenteCount')) $('catExistenteCount').value = item ? String(item.product_count || 0) : '';
+      });
+      atualizarUI();
+      return;
+    }
+    if (id === 'pixelSel'){
+      aplicarEscolha('pixelSel', 'pixelId', 'pixel', metaMem.pixels, function(p){ return p.name || p.id; });
+      atualizarUI();
+      return;
+    }
+    if (id === 'paginaSel'){
+      aplicarEscolha('paginaSel', 'paginaId', 'pagina', metaMem.pages, function(p){ return p.name; });
+      const pid = ($('paginaId') && $('paginaId').value) || '';
+      if ($('instagramId')) $('instagramId').value = '';
+      if ($('instagram')) $('instagram').value = '';
+      listarInstagram(pid).then(function(){ atualizarUI(); });
+      atualizarUI();
+      return;
+    }
+    if (id === 'instagramSel'){
+      aplicarEscolha('instagramSel', 'instagramId', 'instagram', metaMem.instagrams, function(p){ return p.name || p.id; });
+      atualizarUI();
+      return;
+    }
+    if (id === 'receitaSel'){
+      aplicarEscolha('receitaSel', 'receitaId', 'receita', metaMem.receitas, function(r){ return r.nome || r.id; });
+      atualizarUI();
+      return;
+    }
+    if (ev.target.closest && ev.target.closest('.wrap')) atualizarUI();
+  });
+
+  $('btnEscolherPasta').addEventListener('click', function(){
+    $('pastaInput').click();
+  });
+  $('pastaInput').addEventListener('change', function(){
+    processarPasta(this.files);
+  });
+  $('btnWhite').addEventListener('click', function(){ $('whiteInput').click(); });
+  $('whiteInput').addEventListener('change', function(){
+    const f = this.files && this.files[0];
+    whiteState = { nome: f ? f.name : '', aoVivo: !!f };
+    atualizarUI();
+  });
+
+  $('btnCopiar').addEventListener('click', function(){
+    const texto = $('briefing').textContent;
+    const ok = function(){
+      $('copiaMsg').classList.remove('hidden');
+      setTimeout(function(){ $('copiaMsg').classList.add('hidden'); }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(texto).then(ok).catch(function(){ fallbackCopia(texto, ok); });
+    } else {
+      fallbackCopia(texto, ok);
+    }
+  });
+
+  function fallbackCopia(texto, ok){
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  $('btnLimpar').addEventListener('click', function(){
+    if (!confirm('Limpar todos os campos deste briefing? Os modelos salvos permanecem.')) return;
+    const dark = $('dark').checked;
+    $('pastaInput').value = '';
+    if ($('whiteInput')) $('whiteInput').value = '';
+    pastaState = pastaVazia();
+    whiteState = { nome: '', aoVivo: false };
+    const s = defaults();
+    s.dark = dark;
+    aplicar(s);
+    msgModelo('Formulário limpo.', 'ok');
+  });
+
+  $('btnSalvarModelo').addEventListener('click', function(){
+    const nome = String($('modeloNome').value || $('modeloSel').value || '').trim();
+    if (!nome){ msgModelo('Dê um nome ao modelo antes de salvar.', 'alerta'); return; }
+    const m = modelos();
+    if (m[nome] && !confirm('Já existe um modelo chamado "' + nome + '". Quero sobrescrever?')) return;
+    m[nome] = estadoParaModelo(ler());
+    salvarModelos(m);
+    atualizarListaModelos(nome);
+    $('modeloNome').value = nome;
+    msgModelo('Modelo “' + nome + '” salvo neste navegador.', 'ok');
+  });
+
+  $('btnCarregarModelo').addEventListener('click', function(){
+    const nome = $('modeloSel').value;
+    if (!nome){ msgModelo('Escolha um modelo para carregar.', 'alerta'); return; }
+    const m = modelos();
+    if (!m[nome]){ msgModelo('Esse modelo não foi encontrado.', 'erro'); return; }
+    const dark = $('dark').checked;
+    $('pastaInput').value = '';
+    const s = Object.assign(defaults(), m[nome], { dark: dark, pastaAoVivo: false });
+    aplicar(s);
+    $('modeloNome').value = nome;
+    msgModelo('Modelo “' + nome + '” carregado.', 'ok');
+  });
+
+  $('btnExcluirModelo').addEventListener('click', function(){
+    const nome = $('modeloSel').value;
+    if (!nome){ msgModelo('Escolha um modelo para excluir.', 'alerta'); return; }
+    if (!confirm('Excluir o modelo "' + nome + '"?')) return;
+    const m = modelos();
+    delete m[nome];
+    salvarModelos(m);
+    atualizarListaModelos('');
+    if ($('modeloNome').value === nome) $('modeloNome').value = '';
+    msgModelo('Modelo “' + nome + '” excluído.', 'ok');
+  });
+
+  if ($('btnEnviar')) $('btnEnviar').addEventListener('click', function(){ enviarBriefing(); });
+  if ($('btnVerChave')) $('btnVerChave').addEventListener('click', function(){
+    const inp = $('envioChave');
+    if (!inp) return;
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    this.textContent = show ? 'Ocultar' : 'Mostrar';
+  });
+  if ($('btnAddToken')) $('btnAddToken').addEventListener('click', adicionarTokenColado);
+  if ($('tokenColar')) $('tokenColar').addEventListener('keydown', function(ev){
+    if (ev.key === 'Enter'){ ev.preventDefault(); adicionarTokenColado(); }
+  });
+  if ($('btnConectar')) $('btnConectar').addEventListener('click', function(){ conectarMeta(); });
+  document.addEventListener('click', function(ev){
+    const btn = ev.target && ev.target.closest && ev.target.closest('.btnRemToken');
+    if (!btn) return;
+    removerTokenColado(btn.getAttribute('data-id'));
+  });
+
+  origemHint();
+  renderTokens();
+  aplicarEnvio(lerEnvio());
+  if ($('detEnvio') && !((lerEnvio().url || '').trim())) $('detEnvio').open = true;
+  metaMem.receitas = lerReceitasSeguras();
+
+  aplicar(carregarEstado());
+  atualizarListaModelos();
+})();
+</script>
+</body>
+</html>
