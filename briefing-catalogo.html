@@ -1684,6 +1684,10 @@ details.ou-digite{margin-top:8px}
       atualizarBotaoEnviar();
       return;
     }
+    // Os seletores do Meta são tratados só no 'change'. Se o 'input' (que dispara
+    // antes) redesenhasse a tela, o seletor voltava para vazio e a escolha se perdia.
+    const SELS_META = ['negocioDonoSel','contaAnuncioSel','catExistenteSel','pixelSel','paginaSel','instagramSel','receitaSel'];
+    if (SELS_META.indexOf(id) !== -1) return;
     const pares = {negocioDono:'negocioDonoId', contaAnuncio:'contaAnuncioId', catExistente:'catExistenteId', pixel:'pixelId', pagina:'paginaId', instagram:'instagramId', receita:'receitaId'};
     if (pares[id] && $(pares[id])) $(pares[id]).value = '';
     if (id === 'catExistente' && $('catExistenteCount')) $('catExistenteCount').value = '';
